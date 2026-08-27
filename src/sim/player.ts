@@ -10,6 +10,7 @@ import { emptyEquipment } from './equipment';
 import { baseStats, recalcStats, startWeapon, maxStamina } from './stats';
 import { resolveObstacles, trapDangerous } from './arena';
 import { attack } from './combat';
+import { castSpecial } from './special';
 import type { ClassKey, InputState, Player, World } from './types';
 
 export function createPlayer(world: World, id: string, cls: ClassKey, name: string): Player {
@@ -112,6 +113,7 @@ export function updatePlayer(world: World, p: Player, input: InputState): void {
   p.facing = input.aim;
 
   if (input.attack) attack(world, p);
+  if (input.special) castSpecial(world, p);
 }
 
 export function damagePlayer(world: World, p: Player, raw: number): void {
