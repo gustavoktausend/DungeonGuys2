@@ -163,7 +163,11 @@ describe('run completa', () => {
         for (let t = 0; t < WAVE_TICK_BUDGET && w.phase === 'playing' && w.waveActive; t++) {
           runTicks(w, 1, scripted);
         }
-        if (w.phase === 'playing') startNextWave(w);
+        // Advance only on an actual clear (!waveActive), never on a
+        // budget timeout with waveActive still true — otherwise a combat
+        // freeze regression would force-advance anyway and this test
+        // would stop being able to catch it.
+        if (!w.waveActive && w.phase === 'playing') startNextWave(w);
       }
       return w;
     };
