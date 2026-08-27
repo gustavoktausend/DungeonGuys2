@@ -35,6 +35,40 @@ describe('moedas', () => {
     updateCoins(w);
     expect(Math.abs(coin.x - x0)).toBeLessThan(1);
   });
+
+  it('o perk golden pode dobrar uma moeda, e o sorteio é incondicional', () => {
+    // Reachability: at golden's max level (30% chance), collecting enough
+    // coins across seeds eventually doubles one.
+    let sawDouble = false;
+    for (let seed = 0; seed < 60 && !sawDouble; seed++) {
+      const w = makeTestWorld({ seed });
+      w.config.forge.golden = 3;
+      const p = createPlayer(w, 'p1', 'mage', 'T');
+      const gold0 = p.gold;
+      w.coins.push({ x: p.x, y: p.y, vx: 0, vy: 0, bob: 0, dead: false });
+      updateCoins(w);
+      if (p.gold - gold0 === 2) sawDouble = true;
+    }
+    expect(sawDouble).toBe(true);
+
+    // Unconditional draw (ORIG/entities.js:494): a coin pickup always spends
+    // exactly one rng draw, whether golden is 0 or maxed. `world.rng.next()`
+    // advances the generator's state the same way no matter what threshold
+    // it's compared against, so two worlds seeded identically and differing
+    // only in `golden` must land on the exact same rng cursor afterwards.
+    // `rng.chance(golden * 0.1)` would fail this: at golden 0 it skips the
+    // draw entirely (`chance()` short-circuits for p <= 0), leaving that
+    // world's cursor behind the other's.
+    const pickOneCoin = (golden: number) => {
+      const w = makeTestWorld({ seed: 777 });
+      w.config.forge.golden = golden;
+      const p = createPlayer(w, 'p1', 'mage', 'T');
+      w.coins.push({ x: p.x, y: p.y, vx: 0, vy: 0, bob: 0, dead: false });
+      updateCoins(w);
+      return w.rng.save();
+    };
+    expect(pickOneCoin(0)).toBe(pickOneCoin(3));
+  });
 });
 
 describe('poções', () => {
@@ -91,7 +125,10 @@ describe('baús', () => {
     expect(run()).toEqual(run());
   });
 
-  it('a sorte do jogador influencia o loot', () => {
+  it('o conteúdo do baú não depende da sorte', () => {
+    // luck affects the chance a chest SPAWNS (startNextWave) and the potion
+    // drop in killEnemy — never what a chest contains. ORIG/items.js:247-280
+    // reads no stat at all.
     const withLuck = (luck: number) => {
       let total = 0;
       for (let seed = 0; seed < 40; seed++) {
@@ -103,6 +140,6 @@ describe('baús', () => {
       }
       return total;
     };
-    expect(withLuck(200)).toBeGreaterThanOrEqual(withLuck(0));
+    expect(withLuck(200)).toBe(withLuck(0));
   });
 });
