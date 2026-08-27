@@ -9,6 +9,7 @@ import { CLASS_DEFS } from './defs/classes';
 import { emptyEquipment } from './equipment';
 import { baseStats, recalcStats, startWeapon, maxStamina } from './stats';
 import { resolveObstacles, trapDangerous } from './arena';
+import { attack } from './combat';
 import type { ClassKey, InputState, Player, World } from './types';
 
 export function createPlayer(world: World, id: string, cls: ClassKey, name: string): Player {
@@ -109,6 +110,8 @@ export function updatePlayer(world: World, p: Player, input: InputState): void {
 
   // aim is decided by app/input (mouse, or nearest enemy under auto-aim)
   p.facing = input.aim;
+
+  if (input.attack) attack(world, p);
 }
 
 export function damagePlayer(world: World, p: Player, raw: number): void {

@@ -1,6 +1,7 @@
 // step.ts — one simulation tick. Everything the world does happens here,
 // in this order. Later tasks add stages; the order is the contract.
 import { updatePlayer } from './player';
+import { updateBullets } from './bullets';
 import { updateEnemies, updateEnemyBullets } from './enemies';
 import type { InputState, SimEvent, World } from './types';
 
@@ -11,6 +12,7 @@ export function step(world: World, inputs: Record<string, InputState>): void {
     const input = inputs[id];
     if (input) updatePlayer(world, world.players[id], input);
   }
+  updateBullets(world);
   updateEnemyBullets(world);
   updateEnemies(world);
 }
