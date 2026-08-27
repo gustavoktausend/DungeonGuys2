@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
 import { createPlayer } from '../src/sim/player';
-import { makeEnemy, makeElite, spawnEnemy, updateEnemies, killEnemy, nearestPlayer } from '../src/sim/enemies';
+import {
+  makeEnemy, makeElite, spawnEnemy, updateEnemies, updateEnemyBullets, killEnemy, nearestPlayer,
+} from '../src/sim/enemies';
 
 describe('makeEnemy', () => {
   it('escala hp e velocidade com a wave', () => {
@@ -159,6 +161,53 @@ describe('killEnemy', () => {
     const score = w.score;
     killEnemy(w, e, p);
     expect(w.score).toBe(score);
+  });
+});
+
+describe('updateEnemyBullets', () => {
+  it('expira depois de percorrer mais de 600px', () => {
+    const w = makeTestWorld();
+    const cx = (w.play.left + w.play.right) / 2;
+    const cy = (w.play.top + w.play.bottom) / 2;
+    const b = { x: cx, y: cy, vx: 5, vy: 0, dmg: 10, dist: 0, dead: false };
+    w.enemyBullets.push(b);
+    for (let i = 0; i < 130; i++) updateEnemyBullets(w);
+    expect(b.dist).toBeGreaterThan(600);
+    expect(b.dead).toBe(true);
+    expect(w.enemyBullets).not.toContain(b);
+  });
+
+  it('atinge o jogador vivo mais próximo, causa dano e morre', () => {
+    const w = makeTestWorld();
+    const p = createPlayer(w, 'p1', 'mage', 'T');
+    const b = { x: p.x, y: p.y, vx: 0, vy: 0, dmg: 15, dist: 0, dead: false };
+    w.enemyBullets.push(b);
+    const hp0 = p.hp;
+    updateEnemyBullets(w);
+    expect(p.hp).toBeLessThan(hp0);
+    expect(b.dead).toBe(true);
+  });
+
+  it('morre ao sair de world.play', () => {
+    const w = makeTestWorld();
+    const b = { x: w.play.left + 2, y: (w.play.top + w.play.bottom) / 2, vx: -50, vy: 0, dmg: 5, dist: 0, dead: false };
+    w.enemyBullets.push(b);
+    updateEnemyBullets(w);
+    expect(b.dead).toBe(true);
+  });
+
+  it('morre ao tocar um obstáculo vivo, mas não um obstáculo morto', () => {
+    const w = makeTestWorld();
+    w.obstacles.push(
+      { kind: 'column', x: 500, y: 500, r: 16, hp: Infinity, dead: false },
+      { kind: 'column', x: 700, y: 500, r: 16, hp: Infinity, dead: true },
+    );
+    const hit = { x: 500, y: 500, vx: 0, vy: 0, dmg: 5, dist: 0, dead: false };
+    const pass = { x: 700, y: 500, vx: 0, vy: 0, dmg: 5, dist: 0, dead: false };
+    w.enemyBullets.push(hit, pass);
+    updateEnemyBullets(w);
+    expect(hit.dead).toBe(true);
+    expect(pass.dead).toBe(false);
   });
 });
 

@@ -285,9 +285,8 @@ export function updateEnemies(world: World): void {
             vx: Math.cos(a) * e.shooter.bulletSpeed,
             vy: Math.sin(a) * e.shooter.bulletSpeed,
             dmg: e.shooter.dmg,
-            life: 0,
+            dist: 0,
             dead: false,
-            kind: 'bolt',
           });
           emit(world, { t: 'sfx', name: 'eshoot' });
           emit(world, { t: 'particles', x: e.x, y: e.y, color: '#9b59b6', count: 4 });
@@ -388,9 +387,9 @@ export function updateEnemyBullets(world: World): void {
     if (b.dead) continue;
     b.x += b.vx * factor;
     b.y += b.vy * factor;
-    b.life += Math.sqrt(b.vx * b.vx + b.vy * b.vy) * factor;
+    b.dist += Math.sqrt(b.vx * b.vx + b.vy * b.vy) * factor;
 
-    if (b.life > 600 ||
+    if (b.dist > 600 ||
         b.x < world.play.left || b.x > world.play.right ||
         b.y < world.play.top || b.y > world.play.bottom) {
       b.dead = true;

@@ -6,6 +6,7 @@ import type { InputState, SimEvent, World } from './types';
 
 export function step(world: World, inputs: Record<string, InputState>): void {
   world.tick++;
+  if (world.phase !== 'playing') return;
   for (const id of Object.keys(world.players)) {
     const input = inputs[id];
     if (input) updatePlayer(world, world.players[id], input);

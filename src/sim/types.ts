@@ -165,7 +165,7 @@ export type Bullet = {
 
 export type EnemyBullet = {
   x: number; y: number; vx: number; vy: number;
-  dmg: number; life: number; dead: boolean; kind: string;
+  dmg: number; dist: number; dead: boolean;
 };
 
 export type ShooterDef  = { range: number; interval: number; bulletSpeed: number; dmg: number };
