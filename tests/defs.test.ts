@@ -4,22 +4,9 @@ import { ENEMY_DEFS, ELITE_TYPES, MINIBOSS_WAVES } from '../src/sim/defs/enemies
 import { ITEM_POOL } from '../src/sim/defs/items';
 import { LEVELUP_POOL } from '../src/sim/defs/blessings';
 import { MUTATORS } from '../src/sim/defs/mutators';
+import { baseStats } from '../src/sim/stats';
 
-// Task 7 introduces `src/sim/stats.ts` with a `baseStats()` factory; this test
-// was written before that file exists, so STAT_KEYS is spelled out literally
-// here from the 17 field names of the `Stats` type in src/sim/types.ts, plus
-// `maxHp` (which `Mods` allows but `Stats` itself does not have). Task 7
-// should replace this literal with:
-//   import { baseStats } from '../src/sim/stats';
-//   const STAT_KEYS = new Set([...Object.keys(baseStats()), 'maxHp']);
-const STAT_KEYS = new Set([
-  'hpRegen', 'lifeSteal', 'dmgPct',
-  'meleeDmg', 'rangedDmg', 'elementalDmg',
-  'atkSpeedPct', 'crit', 'armor', 'dodge',
-  'range', 'speedPct', 'luck', 'stamina',
-  'burn', 'chill', 'block',
-  'maxHp',
-]);
+const STAT_KEYS = new Set([...Object.keys(baseStats()), 'maxHp']);
 
 describe('defs de classes', () => {
   it('tem as 7 classes, cada uma com 3 tiers', () => {
