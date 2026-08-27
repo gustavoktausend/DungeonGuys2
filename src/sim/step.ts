@@ -6,6 +6,7 @@
 import { updatePlayer } from './player';
 import { updateBullets } from './bullets';
 import { updateEnemies, updateEnemyBullets } from './enemies';
+import { updatePotions, updateChests, updateCoins } from './loot';
 import { updateSpawnQueue, checkWaveComplete } from './run';
 import { DT_MS } from './constants';
 import type { InputState, SimEvent, World } from './types';
@@ -24,9 +25,9 @@ export function step(world: World, inputs: Record<string, InputState>): void {
   updateBullets(world);
   updateEnemyBullets(world);
   updateEnemies(world);
-  // updatePotions(world);   // Task 16
-  // updateChests(world);    // Task 16
-  // updateCoins(world);     // Task 16
+  updatePotions(world);
+  updateChests(world);
+  updateCoins(world);
   updateSpawnQueue(world);
   checkWaveComplete(world);
 }

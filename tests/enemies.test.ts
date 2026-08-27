@@ -140,7 +140,7 @@ describe('updateEnemies', () => {
 });
 
 describe('killEnemy', () => {
-  it('marca morto, dá score e ouro e conta o kill', () => {
+  it('marca morto, dá score, ouro e xp e conta o kill', () => {
     const w = makeTestWorld();
     const p = createPlayer(w, 'p1', 'mage', 'T');
     const e = makeEnemy(w, 'skeleton', 100, 100);
@@ -150,6 +150,7 @@ describe('killEnemy', () => {
     expect(w.score).toBeGreaterThan(0);
     expect(w.runKills).toBe(1);
     expect(w.coins.length).toBeGreaterThan(0);
+    expect(p.xp).toBeGreaterThan(0);
   });
 
   it('não credita duas vezes', () => {

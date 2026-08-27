@@ -201,7 +201,7 @@ export type EliteType = {
 
 export type Coin   = { x: number; y: number; vx: number; vy: number; bob: number; dead: boolean };
 export type Potion = { x: number; y: number; bob: number; dead: boolean };
-export type Chest  = { x: number; y: number; state: 'closed' | 'opening' | 'looted'; timer: number };
+export type Chest  = { x: number; y: number; state: 'closed' | 'opening' | 'looted'; timer: number; fade: number };
 export type Obstacle = { kind: 'column' | 'crate'; x: number; y: number; r: number; hp: number; dead: boolean };
 export type Trap   = { x: number; y: number; offset: number };
 export type SpawnEntry = { delay: number; type: string };
@@ -227,7 +227,7 @@ export type RunConfig = {
   /** Forge levels, read from Save by app/ — sim never touches localStorage. */
   forge: {
     vigor: number; honed: number; fleet: number;
-    startgold: number; merchant: number; wise: number;
+    startgold: number; merchant: number; wise: number; golden: number;
   };
 };
 

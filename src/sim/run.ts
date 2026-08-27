@@ -197,6 +197,7 @@ export function startNextWave(world: World): void {
       y: world.play.top + m + world.rng.next() * (world.play.bottom - world.play.top - m * 2),
       state: 'closed', // closed → opening → looted
       timer: 0,
+      fade: 0, // meaningful only once looted (Ruling B on task-16-report.md)
     });
   }
 }

@@ -7,7 +7,7 @@ export const BASE_CONFIG: RunConfig = {
   mode: 'campaign',
   classKey: 'mage',
   playerName: 'TEST',
-  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0 },
+  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
 };
 
 export function makeTestWorld(overrides: Partial<RunConfig> = {}): World {

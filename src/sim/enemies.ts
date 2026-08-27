@@ -12,9 +12,14 @@
 //  - Every AI decision that was `Math.random()` in the original now draws
 //    from `world.rng`, and every `player` reference is `nearestPlayer(...)`,
 //    so the file works whether the world holds one player or several.
-//  - `killEnemy` does not grant XP yet: the original's `gainXp(e.score)` call
-//    is left out on purpose — `gainXp` doesn't exist until a later task,
-//    which adds the `if (killer) gainXp(killer, e.score)` line here.
+//  - `killEnemy` grants XP through `./xp.ts`'s `gainXp` (Task 16):
+//    `if (killer) gainXp(world, killer, e.score);`. That makes
+//    enemies.ts -> xp.ts -> run.ts -> enemies.ts a module cycle (xp.ts's
+//    `closeLevelUp` calls run.ts's `victory`, and run.ts already imports
+//    `spawnEnemy`/`nearestPlayer` from here) — same shape as the
+//    enemies.ts <-> boss.ts cycle below, safe for the same reason: every
+//    cross-reference is used inside a function body, never at module-eval
+//    time.
 //  - Boss attack patterns (charge, ring, ...) live in `./boss.ts`'s
 //    `updateBossPattern`, wired in at the seam inside `updateEnemies` (Task
 //    14). That file also needs `makeEnemy`/`nearestPlayer`/`SPAWN_MIN`/
@@ -30,6 +35,7 @@ import { ENEMY_DEFS, ELITE_TYPES } from './defs/enemies';
 import { damagePlayer } from './player';
 import { resolveObstacles, trapDangerous, rectCircle } from './arena';
 import { updateBossPattern } from './boss';
+import { gainXp } from './xp';
 import type { Enemy, Player, World } from './types';
 
 // Also reused by boss.ts to keep a boss's spawn distance from the nearest
@@ -345,8 +351,7 @@ export function killEnemy(world: World, e: Enemy, killer?: Player): void {
   world.comboTimer = COMBO_WINDOW;
   world.score += Math.round(e.score * comboMult(world.combo));
   world.runKills++;
-  // XP intentionally not granted here — see file header. A later task adds:
-  //   if (killer) gainXp(killer, e.score);
+  if (killer) gainXp(world, killer, e.score); // xp mirrors base score value (ORIG/entities.js:434)
   emit(world, { t: 'sfx', name: e.boss ? 'explosion' : 'death' });
   if (e.boss) {
     emit(world, { t: 'shake', mag: 14, dur: 500 });

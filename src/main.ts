@@ -25,7 +25,7 @@ await loadSprites();
 
 const world = createWorld({
   seed: 20260827, mode: 'campaign', classKey: 'mage', playerName: 'DEV',
-  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0 },
+  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
 });
 buildTilemap();
 const player = createPlayer(world, 'p1', 'mage', 'DEV');
