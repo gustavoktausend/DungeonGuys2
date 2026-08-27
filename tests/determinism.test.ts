@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, runTicks, hashWorld, noInput } from './helpers';
+import { createPlayer } from '../src/sim/player';
 import type { InputState } from '../src/sim/types';
-
-// NOTE: 'seeds diferentes divergem' and 'inputs diferentes produzem mundos
-// diferentes' only have teeth once the player moves (Task 9). Keep them
-// skipped until then, and un-skip in Task 9.
 
 // A scripted input sequence: moves, attacks and specials at fixed ticks.
 function scripted(tick: number): Record<string, InputState> {
@@ -24,14 +21,18 @@ describe('determinismo da simulação', () => {
   it('duas instâncias com a mesma seed e os mesmos inputs convergem', () => {
     const a = makeTestWorld();
     const b = makeTestWorld();
+    createPlayer(a, 'p1', 'mage', 'T');
+    createPlayer(b, 'p1', 'mage', 'T');
     runTicks(a, 600, scripted);
     runTicks(b, 600, scripted);
     expect(hashWorld(a)).toBe(hashWorld(b));
   });
 
-  it.skip('seeds diferentes divergem', () => {
+  it('seeds diferentes divergem', () => {
     const a = makeTestWorld({ seed: 1 });
     const b = makeTestWorld({ seed: 2 });
+    createPlayer(a, 'p1', 'mage', 'T');
+    createPlayer(b, 'p1', 'mage', 'T');
     runTicks(a, 600, scripted);
     runTicks(b, 600, scripted);
     expect(hashWorld(a)).not.toBe(hashWorld(b));
@@ -39,13 +40,16 @@ describe('determinismo da simulação', () => {
 
   it('o tick avança exatamente uma vez por step', () => {
     const w = makeTestWorld();
+    createPlayer(w, 'p1', 'mage', 'T');
     runTicks(w, 120);
     expect(w.tick).toBe(120);
   });
 
-  it.skip('inputs diferentes produzem mundos diferentes', () => {
+  it('inputs diferentes produzem mundos diferentes', () => {
     const a = makeTestWorld();
     const b = makeTestWorld();
+    createPlayer(a, 'p1', 'mage', 'T');
+    createPlayer(b, 'p1', 'mage', 'T');
     runTicks(a, 300, scripted);
     runTicks(b, 300, t => ({ p1: noInput(t) }));
     expect(hashWorld(a)).not.toBe(hashWorld(b));
