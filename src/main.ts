@@ -2,7 +2,7 @@ import './style.css';
 import { createWorld } from './sim/world';
 import { drainEvents } from './sim/step';
 import { createPlayer } from './sim/player';
-import { generateArena } from './sim/arena';
+import { startRun } from './sim/run';
 import { startLoop } from './app/loop';
 import { createInput } from './app/input';
 import { createCamera, updateCamera } from './render/camera';
@@ -27,9 +27,9 @@ const world = createWorld({
   seed: 20260827, mode: 'campaign', classKey: 'mage', playerName: 'DEV',
   forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0 },
 });
-generateArena(world);
 buildTilemap();
 const player = createPlayer(world, 'p1', 'mage', 'DEV');
+startRun(world);
 
 const cam = createCamera();
 const input = createInput(canvas, world, 'p1', cam);
