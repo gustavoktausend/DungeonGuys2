@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, runTicks, hashWorld, noInput } from './helpers';
 import { createPlayer } from '../src/sim/player';
+import { generateArena } from '../src/sim/arena';
 import type { InputState } from '../src/sim/types';
 
 // A scripted input sequence: moves, attacks and specials at fixed ticks.
@@ -21,6 +22,8 @@ describe('determinismo da simulação', () => {
   it('duas instâncias com a mesma seed e os mesmos inputs convergem', () => {
     const a = makeTestWorld();
     const b = makeTestWorld();
+    generateArena(a);
+    generateArena(b);
     createPlayer(a, 'p1', 'mage', 'T');
     createPlayer(b, 'p1', 'mage', 'T');
     runTicks(a, 600, scripted);
@@ -31,6 +34,8 @@ describe('determinismo da simulação', () => {
   it('seeds diferentes divergem', () => {
     const a = makeTestWorld({ seed: 1 });
     const b = makeTestWorld({ seed: 2 });
+    generateArena(a);
+    generateArena(b);
     createPlayer(a, 'p1', 'mage', 'T');
     createPlayer(b, 'p1', 'mage', 'T');
     runTicks(a, 600, scripted);

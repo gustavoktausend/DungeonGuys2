@@ -32,12 +32,16 @@ export function runTicks(
 
 /**
  * A stable fingerprint of everything the simulation owns. Excludes `events`
- * (drained every tick by app/) and includes the rng cursor, so a divergence in
- * random draws shows up even when no entity moved yet.
+ * (drained every tick by app/) and `config` (the run's constant input — seed,
+ * mode, class, name, forge levels — never changes across ticks, so including
+ * it can only mask or fake a divergence, never reveal one). Includes the rng
+ * cursor, so a divergence in random draws shows up even when no entity moved
+ * yet.
  */
 export function hashWorld(world: World): string {
   const snapshot = JSON.stringify(world, (key, value) => {
     if (key === 'events') return undefined;
+    if (key === 'config') return undefined;
     if (key === 'rng') return (value as { save(): number }).save();
     return value;
   });
