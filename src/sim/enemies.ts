@@ -15,9 +15,12 @@
 //  - `killEnemy` does not grant XP yet: the original's `gainXp(e.score)` call
 //    is left out on purpose — `gainXp` doesn't exist until a later task,
 //    which adds the `if (killer) gainXp(killer, e.score)` line here.
-//  - Boss attack patterns (charge, ring, ...) are a later task's
-//    `updateBossPattern`; see the seam marked inside `updateEnemies`. Bosses
-//    chase and hit like any other enemy for now.
+//  - Boss attack patterns (charge, ring, ...) live in `./boss.ts`'s
+//    `updateBossPattern`, wired in at the seam inside `updateEnemies` (Task
+//    14). That file also needs `makeEnemy`/`nearestPlayer`/`SPAWN_MIN`/
+//    `SPAWN_MAX` from here, so this module and boss.ts import from each
+//    other — flagged for the controller in task-14-report.md rather than
+//    restructured unilaterally.
 //  - `Save.data.progress.bossKills++` / `Save.persist()` are app-layer
 //    persistence and dropped, same as other Save-touching lines in earlier
 //    tasks — sim/ never touches localStorage.
@@ -26,10 +29,13 @@ import { DT_MS, TICK_FACTOR, WORLD, SPRITE_SCALE, COMBO_WINDOW } from './constan
 import { ENEMY_DEFS, ELITE_TYPES } from './defs/enemies';
 import { damagePlayer } from './player';
 import { resolveObstacles, trapDangerous, rectCircle } from './arena';
+import { updateBossPattern } from './boss';
 import type { Enemy, Player, World } from './types';
 
-const SPAWN_MIN = 420;
-const SPAWN_MAX = 620;
+// Also reused by boss.ts to keep a boss's spawn distance from the nearest
+// player on the same scale as an ordinary enemy's spawn ring.
+export const SPAWN_MIN = 420;
+export const SPAWN_MAX = 620;
 
 /**
  * Closest living player to (x, y), or null if none are alive. No ORIG source
@@ -293,12 +299,7 @@ export function updateEnemies(world: World): void {
         }
       }
 
-      // ─── Boss pattern seam ────────────────────────────────────────────
-      // A later task adds updateBossPattern(...) and this becomes:
-      //   const bossBusy = e.boss ? updateBossPattern(world, e, dx, dy, dist) : false;
-      // For now bosses (e.boss truthy) fall through to the same chase-and-
-      // contact behavior as regular enemies.
-      const bossBusy = false;
+      const bossBusy = e.boss ? updateBossPattern(world, e, dx, dy, dist) : false;
 
       if (!bossBusy && dist > 1 && move !== 0) {
         e.x += (dx / dist) * e.speed * slowMult * move * factor;

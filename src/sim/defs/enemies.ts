@@ -1,5 +1,6 @@
-// enemies.ts — ENEMY_DEFS, ELITE_TYPES, MINIBOSS_WAVES, WAVE_DURATION,
-// ported verbatim from ORIG/entities.js:3-30, :33-38, :60, :61.
+// enemies.ts — ENEMY_DEFS, ELITE_TYPES, BOSS_WAVES, MINIBOSS_WAVES,
+// WAVE_DURATION, ported verbatim from ORIG/entities.js:3-30, :33-38, :59,
+// :60, :61.
 
 import type { EnemyDef, EliteType } from '../types';
 
@@ -39,5 +40,7 @@ export const ELITE_TYPES: Record<string, EliteType> = {
   vampiric: { name: 'VAMPIRIC', tint: '#27ae60', hp: 1.6, regen: 7 }, // HP/s
 };
 
+/** ORIG/entities.js:59. Act bosses at waves 8 and 16. */
+export const BOSS_WAVES: Record<number, string> = { 8: 'zombie_king', 16: 'ogre_warlord' };
 export const MINIBOSS_WAVES: Record<number, string> = { 4: 'goblin_chief', 12: 'necro_lord' };
 export const WAVE_DURATION = 30000; // survive this long and the wave is cleared (boss waves excluded)
