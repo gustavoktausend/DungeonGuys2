@@ -1,8 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { makeTestWorld, runTicks } from './helpers';
+import { makeTestWorld, runTicks, hashWorld } from './helpers';
 import { createPlayer } from '../src/sim/player';
 import { startRun, startNextWave, pickEnemyType, checkWaveComplete } from '../src/sim/run';
 import { WAVES_TOTAL } from '../src/sim/constants';
+import type { InputState } from '../src/sim/types';
+
+// A scripted input sequence: moves, attacks and specials at fixed ticks.
+// Local to this file on purpose — tests/determinism.test.ts has its own
+// equivalent, and sharing one is scope this fix does not own.
+function scripted(tick: number): Record<string, InputState> {
+  return {
+    p1: {
+      tick,
+      move: { x: Math.sin(tick / 17), y: Math.cos(tick / 23) },
+      aim: (tick % 360) * (Math.PI / 180),
+      attack: tick % 7 === 0,
+      special: tick % 211 === 0,
+      sprint: tick % 90 < 30,
+    },
+  };
+}
 
 describe('startRun', () => {
   it('gera a arena, cria a wave 1 e deixa a fase em playing', () => {
@@ -115,17 +132,45 @@ describe('checkWaveComplete', () => {
 });
 
 describe('run completa', () => {
-  it('600 ticks de simulação com waves não quebram nem divergem', () => {
+  it('múltiplas waves em sequência não quebram nem divergem', () => {
+    // WAVE_DURATION is 30000ms and a tick is 1000/60ms (~1800 ticks), so
+    // each wave gets 2200 ticks of headroom to resolve — by clearing, by
+    // the survival timeout, or by the player dying.
+    //
+    // Advancing between waves needs an explicit startNextWave() call here:
+    // checkWaveComplete only ever sets waveActive = false on a cleared,
+    // non-final wave (the real trigger for the next wave — closeShop(),
+    // after the player shops — is Task 19's, and doesn't exist yet; see
+    // run.ts's file header). Calling startNextWave() directly is exactly
+    // what four of the other tests in this file already do to stand in for
+    // that missing shop step, and it's the only way for this test to reach
+    // more than one wave at all.
+    //
+    // Measured with the seed in makeTestWorld's default config: wave 1
+    // clears by tick 729 (hp 100->76), wave 2 by tick 1569 (hp ->24), and
+    // the player dies partway into wave 3 at tick 2127 (phase 'gameover').
+    // So this genuinely exercises several waves' worth of spawn queue,
+    // combat, kills and wave transitions, not just the fixed point wave 1
+    // settles into once cleared.
+    const WAVE_TICK_BUDGET = 2200;
+    const MAX_WAVES = 6;
+
     const build = () => {
       const w = makeTestWorld();
       createPlayer(w, 'p1', 'mage', 'T');
       startRun(w);
+      for (let wave = 0; wave < MAX_WAVES && w.phase === 'playing'; wave++) {
+        for (let t = 0; t < WAVE_TICK_BUDGET && w.phase === 'playing' && w.waveActive; t++) {
+          runTicks(w, 1, scripted);
+        }
+        if (w.phase === 'playing') startNextWave(w);
+      }
       return w;
     };
     const a = build(), b = build();
-    runTicks(a, 600);
-    runTicks(b, 600);
-    expect(a.enemies.length).toBe(b.enemies.length);
-    expect(a.wave).toBe(b.wave);
+
+    // the run must actually have progressed, or this test proves nothing
+    expect(a.wave > 1 || a.phase !== 'playing').toBe(true);
+    expect(hashWorld(a)).toBe(hashWorld(b));
   });
 });
