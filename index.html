@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>DungeonGuys2 — Pixel Shooter</title>
+  <meta name="theme-color" content="#150e08" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="ui-overlay">
+    <!-- START SCREEN -->
+    <div id="start-screen" class="screen active">
+      <div class="screen-inner">
+        <div class="title-block">
+          <div class="title-glow">DUNGEON</div>
+          <div class="title-main">GUYS</div>
+          <div class="title-sub">◆ PIXEL SHOOTER ◆</div>
+        </div>
+        <div class="class-select">
+          <div class="class-select-label">— CHOOSE YOUR CLASS —</div>
+          <div class="class-cards">
+            <button class="class-card selected" data-class="mage">
+              <span class="class-icon mage-icon">✦</span>
+              <span class="class-name">MAGE</span>
+              <span class="class-desc">MAGIC BOLT<br>BALANCED</span>
+            </button>
+            <button class="class-card" data-class="archer">
+              <span class="class-icon archer-icon">➶</span>
+              <span class="class-name">ARCHER</span>
+              <span class="class-desc">PIERCING ARROWS<br>LONG RANGE</span>
+            </button>
+            <button class="class-card" data-class="warrior">
+              <span class="class-icon warrior-icon">⚔</span>
+              <span class="class-name">WARRIOR</span>
+              <span class="class-desc">MELEE SWING<br>HIGH HP</span>
+            </button>
+            <button class="class-card" data-class="ninja">
+              <span class="class-icon ninja-icon">⚍</span>
+              <span class="class-name">NINJA</span>
+              <span class="class-desc">FAST BLADES<br>SHADOW DASH</span>
+            </button>
+            <button class="class-card" data-class="priestess">
+              <span class="class-icon priest-icon">✙</span>
+              <span class="class-name">PRIESTESS</span>
+              <span class="class-desc">HOLY MACE<br>HEALING NOVA</span>
+            </button>
+            <button class="class-card" data-class="witch">
+              <span class="class-icon witch-icon">🔮</span>
+              <span class="class-name">WITCH</span>
+              <span class="class-desc">POISON BOLTS<br>HEX CURSE</span>
+            </button>
+            <button class="class-card" data-class="coprobo">
+              <span class="class-icon robo-icon">🤖</span>
+              <span class="class-name">COPROBÔ</span>
+              <span class="class-desc">ENERGY GUNS<br>EMP BLAST</span>
+            </button>
+          </div>
+          <div id="class-record">NO RUNS YET</div>
+        </div>
+        <div class="mode-select">
+          <button class="mode-btn selected" data-mode="campaign">⚔ CAMPAIGN — 16 WAVES</button>
+          <button class="mode-btn" data-mode="endless">∞ ENDLESS</button>
+          <button id="btn-forge" class="mode-btn forge-btn">⚒ FORGE · <span id="forge-gold">0</span></button>
+          <button id="btn-stats" class="mode-btn forge-btn">📊 STATS</button>
+        </div>
+        <div class="name-picker">
+          <div class="color-label">— HERO NAME —</div>
+          <input type="text" id="hero-name" maxlength="12" placeholder="HERO" autocomplete="off" />
+        </div>
+        <div class="color-picker">
+          <div class="color-label">— ARMOR COLOR —</div>
+          <div class="color-row">
+            <canvas id="color-preview" width="48" height="56"></canvas>
+            <div class="color-sliders">
+              <label class="cslider"><span class="ch r">R</span>
+                <input type="range" id="slider-r" min="0" max="255" value="86">
+                <span class="cval" id="val-r">86</span></label>
+              <label class="cslider"><span class="ch g">G</span>
+                <input type="range" id="slider-g" min="0" max="255" value="152">
+                <span class="cval" id="val-g">152</span></label>
+              <label class="cslider"><span class="ch b">B</span>
+                <input type="range" id="slider-b" min="0" max="255" value="204">
+                <span class="cval" id="val-b">204</span></label>
+            </div>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <button id="auto-aim-toggle" class="aim-toggle">🎯 AUTO-AIM: OFF</button>
+          <button id="sound-toggle" class="aim-toggle on">🔊 SOUND: ON</button>
+          <button id="shake-toggle" class="aim-toggle on">📳 SHAKE: ON</button>
+        </div>
+        <div class="toggle-row volume-row">
+          <label class="cslider"><span class="ch">🔊</span>
+            <input type="range" id="slider-volume" min="0" max="100" value="50">
+            <span class="cval" id="val-volume">50</span></label>
+        </div>
+        <div class="instructions" id="inst-desktop">
+          <div class="inst-row"><span class="key">WASD</span><span>/ ARROWS — MOVE</span></div>
+          <div class="inst-row"><span class="key">MOUSE</span><span>— AIM / HOLD TO ATTACK</span></div>
+          <div class="inst-row"><span class="key">SHIFT</span><span>— SPRINT (USES STAMINA)</span></div>
+          <div class="inst-row"><span class="key">E / RMB</span><span>— SPECIAL ABILITY</span></div>
+          <div class="inst-row"><span class="key">ESC</span><span>— PAUSE</span></div>
+          <div class="inst-row"><span class="key">GOLD</span><span>— COLLECT COINS</span></div>
+        </div>
+        <div class="instructions hidden-inst" id="inst-touch">
+          <div class="inst-row"><span class="key">🕹</span><span>LEFT SIDE — DRAG TO MOVE</span></div>
+          <div class="inst-row"><span class="key">🎯</span><span>ATTACKS AIM THE NEAREST FOE</span></div>
+          <div class="inst-row"><span class="key">✦</span><span>SPECIAL ABILITY BUTTON</span></div>
+          <div class="inst-row"><span class="key">»</span><span>HOLD TO SPRINT</span></div>
+          <div class="inst-row"><span class="key">❚❚</span><span>PAUSE</span></div>
+        </div>
+        <button id="btn-start" class="btn-pixel">▶ START GAME</button>
+        <div class="footer-hint">Survive the waves. Collect gold. Die gloriously.</div>
+      </div>
+    </div>
+
+    <!-- PAUSE SCREEN -->
+    <div id="pause-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="pause-title">— PAUSED —</div>
+        <button id="btn-resume" class="btn-pixel">▶ RESUME</button>
+        <button id="btn-pause-restart" class="btn-pixel secondary">↺ RESTART</button>
+        <button id="btn-quit" class="btn-pixel secondary">✕ QUIT</button>
+      </div>
+    </div>
+
+    <!-- FORGE SCREEN (permanent upgrades) -->
+    <div id="forge-screen" class="screen">
+      <div class="screen-inner compact forge-inner">
+        <div class="shop-title">⚒ FORGE</div>
+        <div class="shop-gold">SOUL GOLD <span id="soul-gold">0</span></div>
+        <div class="levelup-sub forge-hint">25% OF EACH RUN'S GOLD IS FORGED FOREVER</div>
+        <div id="forge-list" class="forge-list"></div>
+        <button id="btn-forge-close" class="btn-pixel secondary">✕ CLOSE</button>
+      </div>
+    </div>
+
+    <!-- STATS SCREEN (lifetime totals + per-class bests) -->
+    <div id="stats-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="shop-title">📊 STATS</div>
+        <div id="stats-lifetime" class="stats-block"></div>
+        <div class="levelup-sub">— BEST PER CLASS —</div>
+        <div id="stats-classes" class="stats-block"></div>
+        <button id="btn-stats-close" class="btn-pixel secondary">✕ CLOSE</button>
+      </div>
+    </div>
+
+    <!-- LEVEL UP SCREEN -->
+    <div id="levelup-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="shop-title">✦ LEVEL UP ✦</div>
+        <div class="levelup-sub">CHOOSE A BLESSING</div>
+        <div id="levelup-choices" class="levelup-cards"></div>
+        <div class="footer-hint">press 1, 2 or 3</div>
+      </div>
+    </div>
+
+    <!-- SHOP SCREEN (between waves) -->
+    <div id="shop-screen" class="screen">
+      <div class="screen-inner compact shop-inner">
+        <div class="shop-title">◆ SHOP ◆</div>
+        <div class="shop-gold">GOLD <span id="shop-gold">0</span></div>
+        <div class="shop-main">
+          <div class="shop-left">
+            <div id="shop-slots" class="shop-slots"></div>
+            <div class="shop-section-label">— EQUIPMENT —</div>
+            <div id="shop-equip" class="shop-equip"></div>
+            <div class="shop-section-label">— CONSUMABLES —</div>
+            <div id="shop-items" class="shop-items"></div>
+          </div>
+          <div id="shop-stats" class="shop-stats"></div>
+        </div>
+        <div class="shop-bottom">
+          <button id="btn-shop-heal" class="shop-item small">✚ HEAL 30 — <span id="price-heal">10</span> G</button>
+          <button id="btn-shop-reroll" class="shop-item small">↺ REROLL — <span id="price-reroll">5</span> G</button>
+        </div>
+        <button id="btn-next-wave" class="btn-pixel">▶ NEXT WAVE</button>
+      </div>
+    </div>
+
+    <!-- VICTORY SCREEN -->
+    <div id="victory-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="victory-title">DUNGEON CLEARED!</div>
+        <div class="trophy">🏆</div>
+        <div id="new-record-victory" class="new-record hidden">★ NEW RECORD ★</div>
+        <div class="stats-block">
+          <div class="stat-row"><span>SCORE</span><span id="victory-score">0</span></div>
+          <div class="stat-row"><span>WAVES</span><span>16/16</span></div>
+          <div class="stat-row"><span>GOLD</span><span id="victory-gold">0</span></div>
+          <div class="stat-row"><span>FORGE</span><span id="victory-forge">+0 ⚒</span></div>
+        </div>
+        <button id="btn-victory-restart" class="btn-pixel">↺ PLAY AGAIN</button>
+        <div class="share-row">
+          <button id="btn-share-wa-victory" class="btn-pixel share">🟢 WHATSAPP</button>
+          <button id="btn-share-tg-victory" class="btn-pixel share telegram">✈ TELEGRAM</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="gameover-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="gameover-title">YOU DIED</div>
+        <div class="skull">☠</div>
+        <div id="new-record" class="new-record hidden">★ NEW RECORD ★</div>
+        <div class="stats-block">
+          <div class="stat-row"><span>SCORE</span><span id="final-score">0</span></div>
+          <div class="stat-row"><span>WAVE</span><span id="final-wave">0</span></div>
+          <div class="stat-row"><span>GOLD</span><span id="final-gold">0</span></div>
+          <div class="stat-row"><span>BEST</span><span id="final-best">0</span></div>
+          <div class="stat-row"><span>FORGE</span><span id="final-forge">+0 ⚒</span></div>
+        </div>
+        <button id="btn-restart" class="btn-pixel">↺ PLAY AGAIN</button>
+        <div class="share-row">
+          <button id="btn-share-wa" class="btn-pixel share">🟢 WHATSAPP</button>
+          <button id="btn-share-tg" class="btn-pixel share telegram">✈ TELEGRAM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD (visible during gameplay) -->
+  <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hud-name">HERO · LV 1</div>
+      <div class="hud-label">HP</div>
+      <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
+      <div class="hud-label xp-label">XP</div>
+      <div id="xp-bar-wrap"><div id="xp-bar"></div></div>
+      <div class="hud-label st-label">STAMINA</div>
+      <div id="st-bar-wrap"><div id="st-bar"></div></div>
+      <div class="hud-label sp-label">SPECIAL [E]</div>
+      <div id="sp-bar-wrap"><div id="sp-bar"></div></div>
+    </div>
+    <div id="hud-center">
+      <div class="hud-label">WAVE</div>
+      <div id="wave-display">1</div>
+      <div id="wave-timer">30</div>
+      <div id="combo-display" class="hidden"></div>
+    </div>
+    <div id="hud-right">
+      <div class="hud-label">SCORE</div>
+      <div id="score-display">0</div>
+      <div class="hud-label gold-label">GOLD</div>
+      <div id="gold-display">0</div>
+    </div>
+  </div>
+
+  <!-- red vignette flash when the player takes damage -->
+  <div id="hurt-flash"></div>
+
+  <!-- Touch controls (mobile) -->
+  <div id="touch-ui">
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
+    <button id="btn-touch-special">✦</button>
+    <button id="btn-touch-sprint">»</button>
+    <button id="btn-touch-pause">❚❚</button>
+  </div>
+
+  <!-- Wave announcement -->
+  <div id="wave-announce" class="hidden"></div>
+
+  <!-- Boss HP bar -->
+  <div id="boss-bar" class="hidden">
+    <div id="boss-name">BOSS</div>
+    <div id="boss-hp-wrap"><div id="boss-hp"></div></div>
+  </div>
+
+  <canvas id="game-canvas"></canvas>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
