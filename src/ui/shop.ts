@@ -12,6 +12,7 @@
 // original's buyOffer()/shopHeal()/shopReroll() each ending in a
 // `renderShop()` call, just split across the sim/ui boundary.
 import { dom } from './dom';
+import { mouseOnly } from './events';
 import { EQUIP_SLOTS, canEquip, targetSlot } from '../sim/equipment';
 import { STAT_LABELS, PCT_STATS } from '../sim/stats';
 import { itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, closeShop } from '../sim/shop';
@@ -162,6 +163,7 @@ function currentPlayer(): Player | null {
 
 // ORIG/items.js:129-143 (buyOffer), click-delegated over the consumables list.
 dom.shopItems.addEventListener('click', e => {
+  if (e.detail === 0) return; // keyboard-activated click, not a real click
   const btn = (e.target as HTMLElement).closest('.shop-item[data-i]') as HTMLElement | null;
   if (!btn || !boundWorld) return;
   const p = currentPlayer();
@@ -172,6 +174,7 @@ dom.shopItems.addEventListener('click', e => {
 
 // ORIG/items.js:170-183 (buyEquipOffer), click-delegated over the equipment list.
 dom.shopEquip.addEventListener('click', e => {
+  if (e.detail === 0) return; // keyboard-activated click, not a real click
   const btn = (e.target as HTMLElement).closest('.shop-item[data-i]') as HTMLElement | null;
   if (!btn || !boundWorld) return;
   const p = currentPlayer();
@@ -181,23 +184,23 @@ dom.shopEquip.addEventListener('click', e => {
 });
 
 // ORIG/items.js:184-190 (shopHeal).
-dom.btnShopHeal.addEventListener('click', () => {
+dom.btnShopHeal.addEventListener('click', mouseOnly(() => {
   const p = currentPlayer();
   if (!boundWorld || !p) return;
   shopHeal(boundWorld, p);
   redraw();
-});
+}));
 
 // ORIG/items.js:192-198 (shopReroll).
-dom.btnShopReroll.addEventListener('click', () => {
+dom.btnShopReroll.addEventListener('click', mouseOnly(() => {
   const p = currentPlayer();
   if (!boundWorld || !p) return;
   shopReroll(boundWorld, p);
   redraw();
-});
+}));
 
 // ORIG/items.js:12-18 (closeShop) — the "leave shop, start next wave" button.
-dom.btnNextWave.addEventListener('click', () => {
+dom.btnNextWave.addEventListener('click', mouseOnly(() => {
   if (!boundWorld) return;
   closeShop(boundWorld);
-});
+}));
