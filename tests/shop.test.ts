@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
 import { createPlayer } from '../src/sim/player';
 import { startRun, checkWaveComplete } from '../src/sim/run';
+import { maybeOpenLevelUp, pickBlessing } from '../src/sim/xp';
 import {
   rollOffers, itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, equipItem, closeShop,
 } from '../src/sim/shop';
@@ -189,5 +190,42 @@ describe('wave clear -> shop -> next wave (the stall fix)', () => {
     expect(w.phase).toBe('playing');
     expect(w.wave).toBe(2);
     expect(w.waveActive).toBe(true);
+  });
+});
+
+// A level-up that resolves exactly when a wave clears used to leave the
+// shop open with no offers rolled: closeLevelUp used to flip world.phase
+// to 'shop' directly instead of calling openShop, so the deferred-open
+// path (world.pendingAfterLevelUp) skipped rollOffers entirely. Fixed by
+// routing both the wave-clear and post-levelup paths through the same
+// openShop entry point (ORIG/entities.js:161-173).
+describe('a level-up that races a wave clear still gets a rolled shop', () => {
+  it('opens the shop with fresh offers once the pending blessing is picked', () => {
+    const w = makeTestWorld();
+    const p = createPlayer(w, 'p1', 'mage', 'T');
+    startRun(w);
+
+    // a level-up becomes pending mid-wave (as gainXp would leave it)
+    p.pendingLevelUps = 1;
+    maybeOpenLevelUp(w, p);
+    expect(w.phase).toBe('levelup');
+
+    // the wave clears while the level-up screen is still open
+    w.spawnQueue = [];
+    w.enemies = [];
+    checkWaveComplete(w);
+
+    // openShop saw phase !== 'playing' and only deferred — no offers yet
+    expect(w.phase).toBe('levelup');
+    expect(w.pendingAfterLevelUp).toBe('shop');
+    expect(w.shopOffers).toHaveLength(0);
+    expect(w.shopEquipOffers).toHaveLength(0);
+
+    // resolving the blessing must now open the shop for real
+    pickBlessing(w, p, 0);
+
+    expect(w.phase).toBe('shop');
+    expect(w.shopOffers).toHaveLength(4);
+    expect(w.shopEquipOffers).toHaveLength(4);
   });
 });

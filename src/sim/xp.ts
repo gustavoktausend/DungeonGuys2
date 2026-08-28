@@ -17,10 +17,14 @@
 //  - `forgeLevel('wise')` is `world.config.forge.wise`; `tryUnlock('witch')`
 //    at level 8 is `emit(world, { t: 'unlock', cls: 'witch' })`.
 //  - `closeLevelUp` drops `requestAnimationFrame`/`updateHUD` (app-layer,
-//    T5) and turns `pendingAfterLevelUp` into `setPhase(world, 'shop')` /
-//    `victory(world)`. It never took the player as a parameter in the
-//    original (it only touches `gameState`/`pendingAfterLevelUp`), so it
-//    doesn't take one here either.
+//    T5) and turns `pendingAfterLevelUp` into `openShop(world, p)` /
+//    `victory(world)` — matching `ORIG/entities.js:172`'s `openShop()` call
+//    for the `'shop'` case exactly (Task 19 correction: this used to be a
+//    bare `setPhase(world, 'shop')`, written before `openShop` existed;
+//    that skipped rolling offers, so a level-up racing a wave clear would
+//    land on a stale/empty shop — see task-19-report.md). Because `openShop`
+//    needs a player, `closeLevelUp` now takes one too — its only caller,
+//    `pickBlessing`, already has `p` in scope.
 //  - `pickBlessing` keeps the original's `gameState !== 'levelup'` guard,
 //    ported as `world.phase !== 'levelup'` (Ruling D on task-16-report.md
 //    confirmed this stays — it's a real safety property, not an artifact
@@ -31,11 +35,15 @@
 //    calls `enemies.ts`'s `spawnEnemy`/`nearestPlayer`). Same shape as the
 //    already-documented enemies.ts <-> boss.ts cycle: every cross-reference
 //    is used inside a function body, never at module-eval time, so it's
-//    safe under ESM live bindings.
+//    safe under ESM live bindings. Task 19 adds another edge to the same
+//    tangle: `closeLevelUp` also calls `shop.ts`'s `openShop`, and `shop.ts`
+//    already calls back into this file's `run.ts` (`closeShop` ->
+//    `startNextWave`) — still function-body-only, still safe.
 import { emit, setPhase } from './world';
 import { LEVELUP_POOL, XP_GROWTH, LEVEL_HP } from './defs/blessings';
 import { applyMods, recalcStats, playerDmgKind } from './stats';
 import { victory } from './run';
+import { openShop } from './shop';
 import type { Player, World } from './types';
 
 /** ORIG/entities.js:68-86. */
@@ -85,16 +93,22 @@ export function pickBlessing(world: World, p: Player, index: number): void {
   if (p.pendingLevelUps > 0) {
     rollLevelChoices(world, p); // queued level-ups: choose again
   } else {
-    closeLevelUp(world);
+    closeLevelUp(world, p);
   }
 }
 
-/** ORIG/entities.js:161-172, minus requestAnimationFrame/updateHUD (app-layer, T5). */
-export function closeLevelUp(world: World): void {
+/**
+ * ORIG/entities.js:161-172, minus requestAnimationFrame/updateHUD (app-layer,
+ * T5). Both `pendingAfterLevelUp` branches now go through the same entry
+ * points `checkWaveComplete`/`victory` themselves use (`openShop`/`victory`),
+ * so there is exactly one door into each screen (see file header — Task 19
+ * correction).
+ */
+export function closeLevelUp(world: World, p: Player): void {
   setPhase(world, 'playing');
   // wave-end events that fired while choosing resume now
   const after = world.pendingAfterLevelUp;
   world.pendingAfterLevelUp = null;
-  if (after === 'shop') setPhase(world, 'shop');
+  if (after === 'shop') openShop(world, p);
   if (after === 'victory') victory(world);
 }
