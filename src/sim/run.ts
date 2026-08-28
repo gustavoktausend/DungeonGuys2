@@ -49,9 +49,17 @@
 //    it simply skips the float text and treats luck as 0 — in practice
 //    unreachable, since a wave can only "complete" while `world.phase` is
 //    still 'playing', which requires somebody alive.
-//  - The chest roll is knowingly imperfect: `world.play` is a 2400x1600
-//    world, not a screen, so a chest dropped anywhere in it will often be
-//    far from the player. Ported faithfully (Task 21 moves it nearer).
+//  - The chest is placed inside a `CHEST_RADIUS`-px disc around the
+//    reference player instead of anywhere in `world.play` (Task 21). The
+//    original's rectangle WAS the screen, so any chest it rolled was on
+//    screen and reachable; in a 2400x1600 world the same formula puts the
+//    chest a measured 958px away on average (p95 = 1843px), almost always
+//    off camera and never found. The disc restores the original's actual
+//    distribution: measured over the original's own formula, an ORIG chest
+//    sits a mean 369px from the player (max 968px); the disc gives a mean
+//    399px (max 703px). Same two rng draws as the original (it drew x then
+//    y; this draws an angle then a radius), so the draw sequence keeps its
+//    length — only the resulting point moves.
 //  - Every `Math.random()` becomes `world.rng.next()`, not `world.rng.chance()`
 //    — `chance()` skips the draw entirely when `p <= 0` or `p >= 1`, and a
 //    draw that sometimes doesn't happen desyncs two machines running the
@@ -69,6 +77,13 @@ import { MUTATORS } from './defs/mutators';
 import { ENEMY_DEFS, WAVE_DURATION } from './defs/enemies';
 import { DT_MS, WAVES_TOTAL, WORLD } from './constants';
 import type { MutatorKey, World } from './types';
+
+/**
+ * How far from a player a wave chest may land (Task 21). The original's
+ * chest rectangle was the whole screen; this disc keeps the chest inside
+ * the same walking distance the original's ever was.
+ */
+const CHEST_RADIUS = 700;
 
 /**
  * The nearest living player to the world's centre, or null if nobody is
@@ -196,13 +211,19 @@ export function startNextWave(world: World): void {
     emit(world, { t: 'announce', text: `— WAVE ${world.wave} —` });
   }
 
-  // a chest may appear somewhere in the arena (might be a mimic...)
+  // a chest may appear near a player (might be a mimic...)
   const luck = ref?.stats.luck ?? 0;
   if (world.wave >= 2 && world.rng.next() < Math.min(0.95, 0.6 * (1 + luck / 100))) {
     const m = 90;
+    const ax = ref?.x ?? WORLD.w / 2;
+    const ay = ref?.y ?? WORLD.h / 2;
+    const angle = world.rng.next() * Math.PI * 2;
+    // sqrt() makes the draw uniform over the disc's area, not over its
+    // radius — without it the chest would crowd the player's feet.
+    const r = Math.sqrt(world.rng.next()) * CHEST_RADIUS;
     world.chests.push({
-      x: world.play.left + m + world.rng.next() * (world.play.right - world.play.left - m * 2),
-      y: world.play.top + m + world.rng.next() * (world.play.bottom - world.play.top - m * 2),
+      x: Math.max(world.play.left + m, Math.min(world.play.right - m, ax + Math.cos(angle) * r)),
+      y: Math.max(world.play.top + m, Math.min(world.play.bottom - m, ay + Math.sin(angle) * r)),
       state: 'closed', // closed → opening → looted
       timer: 0,
       fade: 0, // meaningful only once looted (Ruling B on task-16-report.md)
