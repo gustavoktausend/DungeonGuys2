@@ -70,6 +70,26 @@ Os dois grupos aparecem separados em tudo que depende disso.
 
 ---
 
+## Classes e itens são provisórios
+
+**Decidido em 2026-08-28.** O sistema de classes e o conceito de itens do
+DungeonGuys2 vão ser repensados por inteiro mais adiante, com calma. Até lá
+eles são *marcador de lugar*: a meta é ficar o mais parecido possível com o
+DungeonGuys original, e nada mais.
+
+Consequência prática para quem for mexer aqui:
+
+- As caixas de classe e item abaixo são conferência de **fidelidade** ("o
+  porte faz o mesmo que o original?"), não revisão de **design** ("essa classe
+  é divertida?"). Divergência do original é defeito; o original ser
+  desequilibrado não é problema deste marco.
+- Não ajuste balanceamento de classe nem de item, não acrescente classe, não
+  mude custo, raridade ou efeito. Qualquer melhoria seria trabalho jogado fora
+  quando o conceito novo entrar.
+- A trava do coprobo (mais abaixo) fica decidida por essa mesma razão.
+
+---
+
 ## Classes (jogar uma wave com cada)
 
 - [x] mage / archer / warrior / ninja / priestess / witch / coprobo —
@@ -456,7 +476,10 @@ original, e a decisão de mexer é humana.
 
 ### Coprobo deveria ficar travado até a wave 10?
 
-**Questão aberta, nada foi mudado.**
+**Decidido em 2026-08-28: não mexer, fica como no original.** Classes são
+provisórias neste porte (ver "Classes e itens são provisórios" acima), então
+não faz sentido decidir balanceamento de desbloqueio sobre um sistema que vai
+ser substituído. O texto abaixo fica como registro do que foi apurado.
 
 O original deixa o coprobo jogável desde um save novo: ele não tem entrada
 em `UNLOCKS`, e é `UNLOCKS` (não a lista `unlocked` do save) que decide se

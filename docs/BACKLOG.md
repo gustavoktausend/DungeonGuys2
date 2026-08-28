@@ -11,6 +11,28 @@ Ver também `docs/DECISOES-MARCO0.md` (por que cada decisão foi tomada) e
 
 ---
 
+## Redesenho de classes e itens (marcador, sem data)
+
+**Decidido em 2026-08-28.** As sete classes e o conceito de itens que vieram do
+DungeonGuys original são **provisórios** no DungeonGuys2. O conceito novo de classe será
+estudado depois, com calma, junto com o de itens.
+
+Até lá a regra é: **ficar o mais parecido possível com o original**. Não ajustar
+balanceamento de classe ou item, não acrescentar classe, não mudar custo, raridade ou
+efeito — qualquer melhoria vira trabalho jogado fora quando o conceito novo entrar.
+
+Isso fecha, por ora, a questão da trava do coprobo que o `docs/PARIDADE.md` deixara em
+aberto: não mexer, fica como no original.
+
+Vale saber, para quando o redesenho começar, o que hoje depende do formato atual:
+`src/sim/defs/classes.ts` (as 7 classes, 3 tiers cada), `src/sim/defs/items.ts` e
+`src/sim/equipment-catalog.ts`, os filtros de elegibilidade em `src/sim/equipment.ts`, o
+filtro de bênção por tipo de dano em `src/sim/xp.ts`, e os desbloqueios em
+`src/ui/settings.ts`. O `dmgKind` (`melee|arrow|elemental`) é o vocabulário que amarra
+classe, bênção e equipamento — provavelmente o primeiro conceito a revisitar.
+
+---
+
 ## Bloqueia o Marco 2
 
 ### `Math.sin`, `Math.cos` e `Math.atan2` são implementation-defined

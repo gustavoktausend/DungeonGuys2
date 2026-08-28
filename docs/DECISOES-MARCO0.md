@@ -6,8 +6,9 @@ estava escrito. Cada um foi decidido na hora, com o motivo e o custo caso a deci
 esteja errada — para que dê para desfazer o que ficou ruim sem reconstituir o
 raciocínio meses depois.
 
-São 37 decisões, em ordem de execução. As das tasks 1–19 foram tomadas em 2026-08-27;
-as das tasks 20–21 e da revisão final do branch, em 2026-08-27/28.
+São 39 decisões, em ordem de execução — que não é a ordem numérica: as tasks 11 e 12
+foram trocadas durante a execução. As das tasks 1–19 foram tomadas em 2026-08-27; as
+das tasks 20–21 e da revisão final do branch, em 2026-08-27/28.
 
 Três merecem leitura mesmo de quem não vai mexer no código, porque são casos em que o
 **plano estava errado e o processo pegou**:
@@ -26,6 +27,14 @@ Ver também `docs/PARIDADE.md` (o que está e o que não está verificado contra
 e `docs/BACKLOG.md` (o que ficou aberto de propósito).
 
 ---
+
+## Setup
+
+usar branch de feature em vez de worktree. — O repositório é novo, não contém código
+algum e não há trabalho concorrente do qual isolar; o risco que o worktree mitiga não
+existe aqui. — Custo se errado: baixo; se surgir trabalho paralelo, criar o worktree
+depois é trivial.
+
 
 ## Task 1
 
@@ -97,24 +106,24 @@ o caminho "wave limpa, mas não é a última" não tem para onde ir — ele deve
 o teste "600 ticks não divergem" que escrevi não exercita progressão de wave alguma. O revisor instrumentou o cenário: em 600 ticks a wave fica em 1 e o waveTimer chega a ~10s dos 30s necessários, então nem a conclusão de wave, nem uma segunda startNextWave, nem vitória/derrota são alcançadas. E as asserções (contagem de inimigos, número da wave) são mais rasas que o hashWorld que o resto da suíte já usa. — O spec chama o teste de determinismo de guardião da arquitetura; um teste que anuncia cobrir uma run com waves e nunca avança uma wave engana quem lê. Consertar: mais ticks, input roteirizado e comparação por hashWorld, mais uma asserção de que a run de fato saiu do lugar (senão o teste volta a ser vacuoso em silêncio). — Custo se errado: baixo e imediato; se o conserto estiver errado o próprio teste falha.
 
 
-## Task 16
+## Task 16 A — a sétima perk do forge
 
-Task 16: Ruling A: `RunConfig.forge` que escrevi tem 6 perks; o jogo tem 7. Falta `golden` (GOLDEN TOUCH, ui.js:468, max 3, 10% de chance de moeda dobrada por nível), usado em ORIG/entities.js:494 dentro do updateCoins — justamente a função desta task. Conferi os 7 usos de forgeLevel no original: vigor/honed/fleet/startgold já estão no createPlayer, wise e golden são desta task, merchant é da Task 19. Nenhuma outra lacuna. — Acrescentar `golden` ao tipo, ao BASE_CONFIG dos testes e ao literal do main.ts. — Custo se errado: baixo; sem ele o perk simplesmente não existiria no jogo novo.
-
-
-## Task 16
-
-Task 16: Ruling B: o tipo `Chest` que escrevi não tem `fade`. No original (ORIG/items.js: 223-231) o baú saqueado desvanece em 1500ms e só então sai do array. Sem o campo, ou o baú vazio fica para sempre na tela ou some na hora. — Acrescentar `fade: number`.
+`RunConfig.forge` que escrevi tem 6 perks; o jogo tem 7. Falta `golden` (GOLDEN TOUCH, ui.js:468, max 3, 10% de chance de moeda dobrada por nível), usado em ORIG/entities.js:494 dentro do updateCoins — justamente a função desta task. Conferi os 7 usos de forgeLevel no original: vigor/honed/fleet/startgold já estão no createPlayer, wise e golden são desta task, merchant é da Task 19. Nenhuma outra lacuna. — Acrescentar `golden` ao tipo, ao BASE_CONFIG dos testes e ao literal do main.ts. — Custo se errado: baixo; sem ele o perk simplesmente não existiria no jogo novo.
 
 
-## Task 16
+## Task 16 B — o baú precisa desvanecer
 
-Task 16: Ruling C: meu teste "o perk wise aumenta o xp ganho" é aritmeticamente impossível. Ele espera p.xp === 150 depois de gainXp(100) com wise=5, mas XP_BASE é 100 — ganhar 150 de xp cruza o limiar, sobe de nível e deixa 50. O port fiel dá 50. Além disso wise=5 excede o teto de 3 do próprio jogo. — Reescrever com valores legais e abaixo do limiar, isolando o multiplicador: wise=3, gainXp 50, esperar 65 e nível 1.
+o tipo `Chest` que escrevi não tem `fade`. No original (ORIG/items.js: 223-231) o baú saqueado desvanece em 1500ms e só então sai do array. Sem o campo, ou o baú vazio fica para sempre na tela ou some na hora. — Acrescentar `fade: number`.
 
 
-## Task 16
+## Task 16 C — teste do perk wise, aritmeticamente impossível
 
-Task 16: Ruling D: manter o guard de fase do pickBlessing e consertar os TESTES. O original tem `if (!b || gameState !== 'levelup') return;` — é proteção real contra escolher bênção fora da tela. Meus três testes não põem o mundo em 'levelup' antes de chamar, então o guard os derrubava. Largar um guard para satisfazer um teste mal escrito é inverter a autoridade. — Custo se errado: nenhum; o conserto é uma linha por teste.
+meu teste "o perk wise aumenta o xp ganho" é aritmeticamente impossível. Ele espera p.xp === 150 depois de gainXp(100) com wise=5, mas XP_BASE é 100 — ganhar 150 de xp cruza o limiar, sobe de nível e deixa 50. O port fiel dá 50. Além disso wise=5 excede o teto de 3 do próprio jogo. — Reescrever com valores legais e abaixo do limiar, isolando o multiplicador: wise=3, gainXp 50, esperar 65 e nível 1.
+
+
+## Task 16 D — guard de fase do pickBlessing
+
+manter o guard de fase do pickBlessing e consertar os TESTES. O original tem `if (!b || gameState !== 'levelup') return;` — é proteção real contra escolher bênção fora da tela. Meus três testes não põem o mundo em 'levelup' antes de chamar, então o guard os derrubava. Largar um guard para satisfazer um teste mal escrito é inverter a autoridade. — Custo se errado: nenhum; o conserto é uma linha por teste.
 
 
 ## Task 16 — Importante 1
@@ -210,5 +219,21 @@ NAO mexer. AREA_SCALE = (2400*1600)/(1280*720) = 4,1667 preserva exatamente a de
 ## Task 21 — escopo do fix
 
 dobrar os minors 3, 4, 5, 6 e 7 para dentro desta rodada, contra o protocolo que manda minors nunca entrarem no laco. Razao: 3, 4 e 5 sao exatamente a mesma classe de defeito dos dois Importantes (caixa marcada ou citacao afirmando mais do que o teste citado contem) no mesmo arquivo que o fix ja vai abrir, e o valor inteiro de um documento de paridade e a citacao ser conferivel — deixar quatro citacoes sabidamente erradas num arquivo que o implementador esta editando e desperdicio garantido, porque a revisao final so vai reapontar. 6 e 7 sao um comentario de uma linha cada, nos dois arquivos que a task ja tocou. — Custo se errado: o diff do fix fica maior e a re-revisao escopada tem mais o que ler; nenhum risco de comportamento, porque nada disso e codigo executavel exceto o comentario.
+
+
+## Revisão final do branch — escopo da onda única de correção
+
+O protocolo dá UMA onda de correção e UMA re-revisão escopada, sem segunda onda — então
+o que ficar de fora fica de fora. O revisor triou vários itens como "abrir issue", mas
+este repositório não tem remote nem rastreador de issues, então "abrir issue" não é uma
+opção real: ou entra agora, ou some. Por isso puxei para dentro tudo que era barato e
+claramente certo (o bug de tempo dos efeitos, o teste de pureza que o plano prometera, o
+`hashWorld` distinguindo não-finitos, as guardas de teclado da loja, os 14 `Math.hypot`,
+cobertura real de poison, e cinco one-liners), e deixei de fora só o que era grande ou
+arriscado o bastante para merecer trabalho próprio (quebrar o SCC de 8 módulos, a bateria
+de testes do chefe, um `sim/math.ts` com `sin`/`cos`/`atan2` próprios, mover a tela do
+forge, e o major do Vite). — Custo se errado: a onda é grande para uma re-revisão só,
+então um defeito introduzido nela tem menos rede que os anteriores; mitigado mandando que
+qualquer teste que se mexesse fosse RELATADO e não ajustado.
 
 
