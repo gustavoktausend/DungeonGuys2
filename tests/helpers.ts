@@ -43,6 +43,13 @@ export function hashWorld(world: World): string {
     if (key === 'events') return undefined;
     if (key === 'config') return undefined;
     if (key === 'rng') return (value as { save(): number }).save();
+    // JSON.stringify collapses NaN, Infinity and -Infinity all to `null`, so
+    // an unfiltered replacer gives the same fingerprint to a healthy world
+    // and to one that has diverged into NaN — the exact opposite of what a
+    // determinism guard is for. Tag them apart instead.
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return Number.isNaN(value) ? 'NaN' : value > 0 ? 'Inf' : '-Inf';
+    }
     return value;
   });
   // FNV-1a, 32-bit

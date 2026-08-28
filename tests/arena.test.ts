@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { generateArena, resolveObstacles, trapDangerous, trapFrameAt, damageCrate, rectCircle } from '../src/sim/arena';
+import {
+  generateArena, resolveObstacles, trapDangerous, trapFrameAt, damageCrate, rectCircle,
+  INDESTRUCTIBLE_HP,
+} from '../src/sim/arena';
 import { WORLD } from '../src/sim/constants';
 
 describe('generateArena', () => {
@@ -40,6 +43,15 @@ describe('generateArena', () => {
     expect(w.traps.length).toBeGreaterThanOrEqual(8);
   });
 
+  it('sobrevive a um round-trip JSON (colunas sem Infinity)', () => {
+    const w = makeTestWorld();
+    generateArena(w);
+    expect(w.obstacles.some(o => o.kind === 'column')).toBe(true);
+    for (const o of w.obstacles) expect(Number.isFinite(o.hp)).toBe(true);
+    const back = JSON.parse(JSON.stringify(w.obstacles)) as typeof w.obstacles;
+    expect(back).toEqual(w.obstacles);
+  });
+
   it('regenerar zera o que havia antes', () => {
     const w = makeTestWorld();
     generateArena(w);
@@ -52,7 +64,7 @@ describe('generateArena', () => {
 describe('resolveObstacles', () => {
   it('empurra a entidade para fora de um obstáculo sólido', () => {
     const w = makeTestWorld();
-    w.obstacles = [{ kind: 'column', x: 100, y: 100, r: 16, hp: Infinity, dead: false }];
+    w.obstacles = [{ kind: 'column', x: 100, y: 100, r: 16, hp: INDESTRUCTIBLE_HP, dead: false }];
     const ent = { x: 105, y: 100 };
     resolveObstacles(ent, 10, w);
     expect(Math.hypot(ent.x - 100, ent.y - 100)).toBeCloseTo(26, 5);
@@ -68,7 +80,7 @@ describe('resolveObstacles', () => {
 
   it('não mexe em quem já está fora', () => {
     const w = makeTestWorld();
-    w.obstacles = [{ kind: 'column', x: 100, y: 100, r: 16, hp: Infinity, dead: false }];
+    w.obstacles = [{ kind: 'column', x: 100, y: 100, r: 16, hp: INDESTRUCTIBLE_HP, dead: false }];
     const ent = { x: 200, y: 200 };
     resolveObstacles(ent, 10, w);
     expect(ent).toEqual({ x: 200, y: 200 });
@@ -98,6 +110,17 @@ describe('damageCrate', () => {
     expect(w.coins.length).toBeGreaterThanOrEqual(1);
     expect(w.coins.length).toBeLessThanOrEqual(2);
     expect(w.events.some(e => e.t === 'sfx' && e.name === 'chest')).toBe(true);
+  });
+
+  it('uma coluna continua indestrutível mesmo depois de um round-trip JSON', () => {
+    const w = makeTestWorld();
+    const col = { kind: 'column' as const, x: 50, y: 50, r: 16, hp: INDESTRUCTIBLE_HP, dead: false };
+    const back = JSON.parse(JSON.stringify(col)) as typeof col;
+    w.obstacles = [back];
+    damageCrate(w, back, 99999);
+    expect(back.dead).toBe(false);
+    expect(Number.isFinite(back.hp)).toBe(true);
+    expect(back.hp).toBeGreaterThan(0);
   });
 
   it('dano insuficiente não quebra', () => {

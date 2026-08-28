@@ -6,6 +6,18 @@ import type { Obstacle, Trap, World } from './types';
 /** The original tuned its counts for a ~1280x720 arena; keep that density. */
 const AREA_SCALE = (WORLD.w * WORLD.h) / (1280 * 720);
 
+/**
+ * Sentinel hp for indestructible obstacles (columns). NOT `Infinity`:
+ * `World` has to survive `JSON.parse(JSON.stringify(world))` (see the
+ * `hitIds` note in types.ts — serializability is a stated property of the
+ * type, and Marco 1's snapshots are built on it), and JSON turns `Infinity`
+ * into `null`, after which `o.hp -= dmg` is `NaN`. MAX_SAFE_INTEGER survives
+ * the round trip AND keeps `damageCrate`'s `o.hp <= 0` false for any damage
+ * this game can deal, so a column stays indestructible even if a caller ever
+ * drops the `kind === 'crate'` guard.
+ */
+export const INDESTRUCTIBLE_HP = Number.MAX_SAFE_INTEGER;
+
 /** A fresh random layout each run: solid columns, breakable crates, spike traps. */
 export function generateArena(world: World): void {
   world.obstacles = [];
@@ -28,7 +40,7 @@ export function generateArena(world: World): void {
 
   spots.forEach((s, i) => {
     if (i < 2 || rng.chance(0.5)) {
-      world.obstacles.push({ kind: 'column', x: s.x, y: s.y, r: 16, hp: Infinity, dead: false });
+      world.obstacles.push({ kind: 'column', x: s.x, y: s.y, r: 16, hp: INDESTRUCTIBLE_HP, dead: false });
     } else {
       world.obstacles.push({ kind: 'crate', x: s.x, y: s.y, r: 14, hp: 40, dead: false });
     }

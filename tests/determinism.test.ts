@@ -50,6 +50,21 @@ describe('determinismo da simulação', () => {
     expect(w.tick).toBe(120);
   });
 
+  // JSON.stringify colapsa NaN, Infinity e -Infinity todos em `null`. Sem o
+  // replacer de não-finitos, um mundo que divergiu para NaN teria a mesma
+  // impressão digital de um mundo saudável — o guarda de determinismo
+  // esconderia justamente a divergência que existe para pegar.
+  it('hashWorld distingue NaN, Infinity e -Infinity entre si e de um número', () => {
+    const mk = (hp: number) => {
+      const w = makeTestWorld();
+      createPlayer(w, 'p1', 'mage', 'T');
+      w.players.p1.hp = hp;
+      return hashWorld(w);
+    };
+    const hashes = [mk(NaN), mk(Infinity), mk(-Infinity), mk(0)];
+    expect(new Set(hashes).size).toBe(4);
+  });
+
   it('inputs diferentes produzem mundos diferentes', () => {
     const a = makeTestWorld();
     const b = makeTestWorld();
