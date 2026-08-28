@@ -15,6 +15,7 @@ import { STAT_LABELS, PCT_STATS } from '../sim/stats';
 import { WAVES_TOTAL } from '../sim/constants';
 import { dom } from './dom';
 import { renderShop } from './shop';
+import { mouseOnly, isTextInput } from './events';
 import type { Blessing, Phase, Player, World } from '../sim/types';
 
 const SCREEN_FOR_PHASE: Record<Phase, string | null> = {
@@ -126,10 +127,6 @@ export function syncScreens(world: World, localId: string): void {
   }
 }
 
-function isTextInput(target: EventTarget | null): boolean {
-  return (target as HTMLElement | null)?.tagName === 'INPUT';
-}
-
 // ORIG/ui.js:179-183 — click delegation on the level-up choices container.
 // Bound once at module load, same as the original's top-level listener.
 dom.levelupChoices.addEventListener('click', e => {
@@ -175,12 +172,6 @@ export function hurtFlash(): void {
   dom.hurtFlash.classList.remove('show');
   void dom.hurtFlash.offsetWidth; // restart the CSS animation
   dom.hurtFlash.classList.add('show');
-}
-
-/** ORIG/ui.js:169-171. Local copy — see the identical one in
- * app/forge.ts / ui/settings.ts, each file is self-contained on purpose. */
-function mouseOnly(fn: () => void): (e: MouseEvent) => void {
-  return e => { if (e.detail !== 0) fn(); };
 }
 
 // ─── Social share (ORIG/ui.js:189-224) ───────────────────────────────────────

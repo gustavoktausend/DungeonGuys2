@@ -7,6 +7,7 @@ import { Save } from './save';
 import { Sfx } from './audio';
 import { dom } from '../ui/dom';
 import { showScreen } from '../ui/screens';
+import { mouseOnly } from '../ui/events';
 import { FORGE_RATE } from '../sim/constants';
 import type { ClassKey, GameMode, RunConfig, World } from '../sim/types';
 
@@ -95,13 +96,6 @@ function buyForge(key: string): void {
   Sfx.play('buy');
   renderForge();
   refreshForgeButton();
-}
-
-/** ORIG/ui.js:169-171 — keyboard-activated clicks (Space/Enter on a focused
- * button) carry `detail === 0`; game-flow buttons only respond to real
- * mouse clicks, since Space also doubles as the attack key. */
-function mouseOnly(fn: () => void): (e: MouseEvent) => void {
-  return e => { if (e.detail !== 0) fn(); };
 }
 
 dom.btnForge.addEventListener('click', mouseOnly(() => {

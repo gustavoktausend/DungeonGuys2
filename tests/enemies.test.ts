@@ -4,6 +4,7 @@ import { createPlayer } from '../src/sim/player';
 import {
   makeEnemy, makeElite, spawnEnemy, updateEnemies, updateEnemyBullets, killEnemy, nearestPlayer,
 } from '../src/sim/enemies';
+import { spawnBoss } from '../src/sim/boss';
 
 describe('makeEnemy', () => {
   it('escala hp e velocidade com a wave', () => {
@@ -162,6 +163,24 @@ describe('killEnemy', () => {
     const score = w.score;
     killEnemy(w, e, p);
     expect(w.score).toBe(score);
+  });
+
+  it('emite bossKill ao matar um chefe, e só um chefe', () => {
+    const w = makeTestWorld();
+    const p = createPlayer(w, 'p1', 'mage', 'T');
+    spawnBoss(w, 'zombie_king', 0, 1);
+    const boss = w.enemies[0];
+    killEnemy(w, boss, p);
+    expect(w.events.filter(e => e.t === 'bossKill')).toHaveLength(1);
+  });
+
+  it('não emite bossKill ao matar um inimigo comum', () => {
+    const w = makeTestWorld();
+    const p = createPlayer(w, 'p1', 'mage', 'T');
+    const e = makeEnemy(w, 'skeleton', 100, 100);
+    w.enemies.push(e);
+    killEnemy(w, e, p);
+    expect(w.events.some(ev => ev.t === 'bossKill')).toBe(false);
   });
 });
 

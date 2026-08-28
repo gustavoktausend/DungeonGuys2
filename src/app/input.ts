@@ -10,6 +10,7 @@
 // (ORIG/ui.js:385-403) landed in Task 12/16 since they need the enemy list.
 import { worldToScreen, type Camera } from '../render/camera';
 import { Save } from './save';
+import { isTextInput } from '../ui/events';
 import type { TouchState } from '../ui/touch';
 import type { Enemy, InputState, World } from '../sim/types';
 
@@ -33,7 +34,7 @@ export function createInput(
   let specialQueued = false;
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+    if (isTextInput(e.target)) return; // ORIG/engine.js:36 — typing the hero name
     keys[e.code] = true;
     if (e.code === 'KeyE') specialQueued = true;
     if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();

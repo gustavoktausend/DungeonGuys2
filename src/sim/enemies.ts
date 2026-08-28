@@ -26,9 +26,10 @@
 //    `SPAWN_MAX` from here, so this module and boss.ts import from each
 //    other — flagged for the controller in task-14-report.md rather than
 //    restructured unilaterally.
-//  - `Save.data.progress.bossKills++` / `Save.persist()` are app-layer
-//    persistence and dropped, same as other Save-touching lines in earlier
-//    tasks — sim/ never touches localStorage.
+//  - `Save.data.progress.bossKills++` / `Save.persist()` (ORIG/entities.js:
+//    437-438) are app-layer persistence — sim/ never touches localStorage.
+//    killEnemy emits `{ t: 'bossKill' }` instead so app/events.ts can do the
+//    persisting (Task 20 fix round 1, see task-20-report.md).
 import { emit } from './world';
 import { DT_MS, TICK_FACTOR, WORLD, SPRITE_SCALE, COMBO_WINDOW } from './constants';
 import { ENEMY_DEFS, ELITE_TYPES } from './defs/enemies';
@@ -359,7 +360,7 @@ export function killEnemy(world: World, e: Enemy, killer?: Player): void {
   emit(world, { t: 'sfx', name: e.boss ? 'explosion' : 'death' });
   if (e.boss) {
     emit(world, { t: 'shake', mag: 14, dur: 500 });
-    // Save.data.progress.bossKills++ / Save.persist() — app-layer, dropped (see file header)
+    emit(world, { t: 'bossKill' }); // ORIG/entities.js:437-438 — app/ increments Save.data.progress.bossKills
     // last boss down? ease the music back to its normal theme
     if (!world.enemies.some(x => x.boss && !x.dead)) emit(world, { t: 'bossMusic', on: false });
     if (e.type === 'zombie_king') emit(world, { t: 'unlock', cls: 'priestess' });

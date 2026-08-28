@@ -20,6 +20,7 @@ import { syncScreens, announce, hurtFlash, showScreen, createPauseControl } from
 import { dom } from './ui/dom';
 import { setupTouch } from './ui/touch';
 import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
+import { mouseOnly } from './ui/events';
 import type { ClassKey, GameMode, Player, World } from './sim/types';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -93,12 +94,6 @@ function startSimLoop(): void {
   });
 }
 
-/** ORIG/ui.js:169-171 — see the identical, deliberately-duplicated copy in
- * app/forge.ts / ui/screens.ts / ui/settings.ts. */
-function mouseOnly(fn: () => void): (e: MouseEvent) => void {
-  return e => { if (e.detail !== 0) fn(); };
-}
-
 /**
  * ORIG/engine.js:146-224 (`startGame`), run-state + lifecycle part — the
  * player object itself is sim/player.ts's `createPlayer` (Task 9), the wave
@@ -130,6 +125,10 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
     hurtFlash,
     unlock: tryUnlock,
     bossMusic: Sfx.setBossMode,
+    // ORIG/entities.js:437-438 — the boss branch of killEnemy persisted this
+    // right there; the sim only emits `{ t: 'bossKill' }` (sim/enemies.ts),
+    // app/ does the actual Save write.
+    bossKill: () => { Save.data.progress.bossKills++; Save.persist(); },
     // The sim only ever does `setPhase(world, 'gameover' | 'victory')`
     // (sim/player.ts, sim/run.ts) — it never touches Save. This is the one
     // place app/ notices and settles the run (Step 4, ORIG/engine.js:

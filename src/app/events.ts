@@ -12,6 +12,7 @@ export function createEventSink(deps: {
   hurtFlash(): void;
   unlock(cls: string): void;
   bossMusic(on: boolean): void;
+  bossKill(): void;
   onPhase(from: string, to: string): void;
 }) {
   return (events: SimEvent[]) => {
@@ -23,6 +24,7 @@ export function createEventSink(deps: {
         case 'hurtFlash': deps.hurtFlash(); break;
         case 'unlock': deps.unlock(ev.cls); break;
         case 'bossMusic': deps.bossMusic(ev.on); break;
+        case 'bossKill': deps.bossKill(); break;
         case 'phase': deps.onPhase(ev.from, ev.to); break;
         default: break;
       }

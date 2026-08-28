@@ -23,18 +23,8 @@ import { Save } from '../app/save';
 import { Sfx } from '../app/audio';
 import { ANIMS, OUTFIT_COLORS, recolorPlayerSheet, playerSheet } from '../render/sprites';
 import { CLASS_DEFS } from '../sim/defs/classes';
+import { mouseOnly, isTextInput } from './events';
 import type { ClassKey, GameMode } from '../sim/types';
-
-/** ORIG/ui.js:169-171 — keyboard-activated clicks (Space/Enter on a focused
- * button) carry `detail === 0`; game-flow buttons only respond to real
- * mouse clicks, since Space also doubles as the attack key. */
-function mouseOnly(fn: () => void): (e: MouseEvent) => void {
-  return e => { if (e.detail !== 0) fn(); };
-}
-
-function isTextInput(target: EventTarget | null): boolean {
-  return (target as HTMLElement | null)?.tagName === 'INPUT';
-}
 
 // ORIG/ui.js:162-165 — buttons drop focus after click so Space (the attack
 // key) never re-activates them, and every click gets a tiny confirmation blip.
@@ -44,18 +34,21 @@ document.addEventListener('click', e => {
 });
 
 // ─── Class unlocks & records (ORIG/ui.js:225-261) ────────────────────────────
-// `coprobo: 'REACH WAVE 10'` is a deliberate deviation from ORIG, which left
-// coprobo out of this map entirely ("unlocked by default for now" — but its
-// own save.js defaults() never actually included coprobo in `unlocked`,
-// so the comment was already stale there). This port's sim (sim/run.ts:166)
-// emits `{ t: 'unlock', cls: 'coprobo' }` at wave 10, so the class-card lock
-// must reflect that or a player could pick coprobo from a fresh save without
-// ever earning it.
+// coprobo is unlocked by default for now
+// (Fix round 1, task-20-report.md: a prior pass added a `coprobo` entry here
+// arguing ORIG's `unlocked` default array — which really does omit coprobo —
+// made this comment stale. That reasoning misses that `UNLOCKS` itself, not
+// `Save.data.progress.unlocked`, is what `refreshClassCards`/`renderStats`
+// gate on below: with no entry, `locked` is false and coprobo is playable
+// from a fresh save, matching ORIG exactly. sim/run.ts:166 still emits
+// `{ t: 'unlock', cls: 'coprobo' }` at wave 10 — redundant with no UNLOCKS
+// entry, same as ORIG/engine.js:287, and kept for the same reason: fidelity,
+// not effect. Whether coprobo *should* require wave 10 is a balance
+// question for Task 21, not this port.)
 const UNLOCKS: Partial<Record<ClassKey, string>> = {
   ninja: 'REACH WAVE 6',
   priestess: 'SLAY THE ZOMBIE KING',
   witch: 'REACH LEVEL 8',
-  coprobo: 'REACH WAVE 10',
 };
 
 function classCards(): HTMLElement[] {
@@ -299,6 +292,7 @@ function renderStats(): void {
   const p = Save.data.progress;
   const total = Object.keys(CLASS_DEFS).length;
   // a class is playable unless it has an unmet unlock requirement
+  // (CopRobô has no UNLOCKS entry, so it counts even though it isn't in `unlocked`)
   const playable = Object.keys(CLASS_DEFS).filter(c => !UNLOCKS[c as ClassKey] || Save.isUnlocked(c)).length;
   const lifetime: [string, string | number][] = [
     ['TOTAL RUNS', p.runs || 0],

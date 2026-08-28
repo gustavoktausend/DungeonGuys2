@@ -216,7 +216,8 @@ export type SimEvent =
   | { t: 'announce'; text: string }
   | { t: 'unlock'; cls: ClassKey }
   | { t: 'phase'; from: Phase; to: Phase }
-  | { t: 'bossMusic'; on: boolean };
+  | { t: 'bossMusic'; on: boolean }
+  | { t: 'bossKill' };
 
 /** Everything the sim needs from the outside, decided once per run. */
 export type RunConfig = {
