@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
 import { createPlayer } from '../src/sim/player';
-import { attack, dealDamage, fireProjectile, meleeAttack } from '../src/sim/combat';
+import { applyPoison, attack, dealDamage, fireProjectile, meleeAttack } from '../src/sim/combat';
 import { updateBullets } from '../src/sim/bullets';
 import { makeEnemy } from '../src/sim/enemies';
 import type { Enemy, Player, World } from '../src/sim/types';
@@ -222,5 +222,55 @@ describe('updateBullets', () => {
     fireProjectile(w, p, 0, 'bolt', p.weapon);
     for (let i = 0; i < 30; i++) updateBullets(w);
     expect(w.bullets).toHaveLength(0);
+  });
+});
+
+// combat.ts:183 — `Math.max` nos dois campos: refresca para o mais forte /
+// mais longo, nunca soma. Cada campo tira o seu próprio máximo, de forma
+// independente.
+describe('applyPoison', () => {
+  it('refresca para o mais forte em vez de empilhar', () => {
+    const { w } = setup();
+    const e = enemyAt(w, 0, 0);
+    applyPoison(e, 10, 1000);
+    expect(e.poisonDps).toBe(10);
+    expect(e.poisonT).toBe(1000);
+
+    applyPoison(e, 4, 500); // mais fraco e mais curto: não mexe em nada
+    expect(e.poisonDps).toBe(10);
+    expect(e.poisonT).toBe(1000);
+
+    applyPoison(e, 18, 4000); // mais forte e mais longo: sobe, não soma
+    expect(e.poisonDps).toBe(18);
+    expect(e.poisonT).toBe(4000);
+
+    applyPoison(e, 25, 100); // dps sobe, duração fica na maior
+    expect(e.poisonDps).toBe(25);
+    expect(e.poisonT).toBe(4000);
+  });
+});
+
+// Caller 1 de applyPoison: bullets.ts:86, o bolt da bruxa.
+describe('poison via projétil (bullets.ts)', () => {
+  it('o bolt da bruxa envenena o alvo que acerta', () => {
+    const { w, p } = setup('witch');
+    const po = p.weapon.poison;
+    expect(po).toBeTruthy();
+    const e = enemyAt(w, p.x + 20, p.y);
+    expect(e.poisonT).toBe(0);
+    fireProjectile(w, p, 0, 'bolt', p.weapon);
+    for (let i = 0; i < 10; i++) updateBullets(w);
+    expect(e.poisonDps).toBe(po?.dps);
+    expect(e.poisonT).toBe(po?.dur);
+  });
+
+  it('uma arma sem poison não envenena', () => {
+    const { w, p } = setup('mage');
+    expect(p.weapon.poison ?? null).toBe(null);
+    const e = enemyAt(w, p.x + 20, p.y);
+    fireProjectile(w, p, 0, 'bolt', p.weapon);
+    for (let i = 0; i < 10; i++) updateBullets(w);
+    expect(e.hp).toBeLessThan(e.maxHp); // acertou...
+    expect(e.poisonT).toBe(0);          // ...mas sem veneno
   });
 });

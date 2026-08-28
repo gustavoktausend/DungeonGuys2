@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
 import { createPlayer } from '../src/sim/player';
 import { castSpecial } from '../src/sim/special';
-import { makeEnemy } from '../src/sim/enemies';
+import { makeEnemy, updateEnemies } from '../src/sim/enemies';
+import { DT_MS } from '../src/sim/constants';
 import { CLASS_DEFS } from '../src/sim/defs/classes';
 import type { ClassKey } from '../src/sim/types';
 
@@ -79,5 +80,29 @@ describe('castSpecial', () => {
       return w.bullets.map(b => Math.round(b.angle * 1e6));
     };
     expect(run()).toEqual(run());
+  });
+});
+
+// Caller 2 de applyPoison: special.ts:131. O hex atinge TODO inimigo vivo —
+// uma superfície maior do que a que docs/PARIDADE.md descrevia.
+describe('hex da bruxa (special.ts)', () => {
+  it('envenena e lentifica todo inimigo vivo, e o dano corre no updateEnemies', () => {
+    const w = makeTestWorld();
+    const p = createPlayer(w, 'p1', 'witch', 'T');
+    const alive = makeEnemy(w, 'skeleton', 5000, 5000);
+    const corpse = makeEnemy(w, 'skeleton', 5100, 5100);
+    corpse.dead = true;
+    w.enemies.push(alive, corpse);
+
+    castSpecial(w, p);
+    expect(alive.poisonDps).toBe(15);
+    expect(alive.poisonT).toBe(4000);
+    expect(alive.slowT).toBe(4000);
+    expect(corpse.poisonT).toBe(0); // mortos são ignorados
+
+    const hp0 = alive.hp;
+    for (let i = 0; i < 6; i++) updateEnemies(w);
+    expect(hp0 - alive.hp).toBeCloseTo(15 * 6 * DT_MS / 1000, 6);
+    expect(alive.poisonT).toBeCloseTo(4000 - 6 * DT_MS, 6);
   });
 });

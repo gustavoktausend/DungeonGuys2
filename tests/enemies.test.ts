@@ -5,6 +5,7 @@ import {
   makeEnemy, makeElite, spawnEnemy, updateEnemies, updateEnemyBullets, killEnemy, nearestPlayer,
 } from '../src/sim/enemies';
 import { spawnBoss } from '../src/sim/boss';
+import { DT_MS } from '../src/sim/constants';
 
 describe('makeEnemy', () => {
   it('escala hp e velocidade com a wave', () => {
@@ -119,7 +120,11 @@ describe('updateEnemies', () => {
     expect(ds).toBeLessThan(df);
   });
 
-  it('burn e poison drenam hp e expiram', () => {
+  // Antes chamava-se "burn e poison drenam hp e expiram" mas só escrevia e
+  // assertava `burnT`/`burnDps` — o nome prometia uma cobertura de poison que
+  // não existia, e foi por isso que ninguém notou a lacuna. O poison tem
+  // agora o seu próprio teste, logo abaixo.
+  it('burn drena hp e expira', () => {
     const w = makeTestWorld();
     createPlayer(w, 'p1', 'mage', 'T');
     const e = makeEnemy(w, 'skeleton', 5000, 5000);
@@ -129,6 +134,43 @@ describe('updateEnemies', () => {
     for (let i = 0; i < 60; i++) updateEnemies(w);
     expect(e.hp).toBeLessThan(hp0);
     expect(e.burnT).toBeLessThanOrEqual(0);
+  });
+
+  // enemies.ts:245-249 — `e.poisonT -= dt; e.hp -= e.poisonDps * dt / 1000`.
+  // 200ms a DT_MS (1000/60) = exatamente 12 ticks de dano => 100 dps * 0.2s.
+  it('poison drena hp por segundo e expira', () => {
+    const w = makeTestWorld();
+    createPlayer(w, 'p1', 'mage', 'T');
+    const e = makeEnemy(w, 'skeleton', 5000, 5000);
+    e.poisonT = 200; e.poisonDps = 100;
+    w.enemies.push(e);
+    const hp0 = e.hp;
+    for (let i = 0; i < 6; i++) updateEnemies(w);
+    expect(hp0 - e.hp).toBeCloseTo(100 * 6 * DT_MS / 1000, 6); // meio caminho
+    expect(e.poisonT).toBeCloseTo(200 - 6 * DT_MS, 6);
+    for (let i = 0; i < 54; i++) updateEnemies(w);
+    expect(e.poisonT).toBeLessThanOrEqual(0);
+    // A guarda é `if (e.poisonT > 0)` ANTES do decremento, então o último
+    // tick parcial ainda aplica um dt inteiro: o total fica entre a dose
+    // nominal (100 dps * 0.2 s = 20) e ela mais um tick.
+    const nominal = 100 * 200 / 1000;
+    const drained = hp0 - e.hp;
+    expect(drained).toBeGreaterThanOrEqual(nominal);
+    expect(drained).toBeLessThanOrEqual(nominal + 100 * DT_MS / 1000);
+    // e depois de expirar não drena mais nada
+    for (let i = 0; i < 30; i++) updateEnemies(w);
+    expect(hp0 - e.hp).toBe(drained);
+  });
+
+  it('poison mata e credita o kill quando o hp chega a zero', () => {
+    const w = makeTestWorld();
+    createPlayer(w, 'p1', 'mage', 'T');
+    const e = makeEnemy(w, 'skeleton', 5000, 5000);
+    e.poisonT = 5000; e.poisonDps = 400;
+    w.enemies.push(e);
+    for (let i = 0; i < 60; i++) updateEnemies(w);
+    expect(e.dead).toBe(true);
+    expect(w.runKills).toBe(1);
   });
 
   it('encosta no jogador e causa dano', () => {

@@ -117,15 +117,20 @@ Os dois grupos aparecem separados em tudo que depende disso.
       ferido", "burn e chill aplicam seus efeitos quando procam"); esquiva
       e bloqueio em `tests/player.test.ts` ("dodge a 100% anula o golpe e
       emite DODGE", "block é limitado a 75%"); o burn drenando hp e
-      expirando em `tests/enemies.test.ts:122`.
-- [ ] **Poison** — **sem cobertura, nem a aplicação nem o dano ao longo do
-      tempo.** `applyPoison` (`src/sim/combat.ts:183`) só é chamado de
-      `src/sim/bullets.ts:86`
-      (`if (b.poison && !e.dead) applyPoison(e, b.poison.dps, b.poison.dur)`)
-      e nenhum teste passa por ali. Cuidado com o nome do teste
-      `tests/enemies.test.ts:122`, "burn e poison drenam hp e expiram": ele
-      só escreve `e.burnT`/`e.burnDps` e só asserta `e.burnT`. `poisonT` não
-      é escrito nem assertado em nenhum lugar da suíte.
+      expirando em `tests/enemies.test.ts` ("burn drena hp e expira").
+- [x] **Poison** — coberto na aplicação, no dano ao longo do tempo e na
+      expiração. `applyPoison` (`src/sim/combat.ts`) tem **dois** chamadores,
+      não um: `src/sim/bullets.ts` (o projétil com `b.poison`, ou seja o bolt
+      da bruxa) e `src/sim/special.ts` (o hex, que envenena *todo* inimigo
+      vivo). Os dois têm teste: `tests/combat.test.ts` ("refresca para o mais
+      forte em vez de empilhar", "o bolt da bruxa envenena o alvo que
+      acerta", "uma arma sem poison não envenena") e `tests/special.test.ts`
+      ("envenena e lentifica todo inimigo vivo, e o dano corre no
+      updateEnemies"); o tick de dano, a expiração e o kill por veneno em
+      `tests/enemies.test.ts` ("poison drena hp por segundo e expira",
+      "poison mata e credita o kill quando o hp chega a zero"). O teste
+      vizinho chamava-se "burn e poison drenam hp e expiram" mas só cobria
+      burn — foi renomeado para "burn drena hp e expira".
 - [x] Pierce atravessa; fireball explode em área
       — `tests/combat.test.ts` ("pierce atravessa e não rebate no mesmo
       alvo"), `tests/special.test.ts` ("fireball do mago cria um projétil
