@@ -24,8 +24,17 @@ export const STAMINA_REGEN = 18;   // per second while recovering
 /** ms before a kill streak lapses (ORIG/ui.js:110). */
 export const COMBO_WINDOW = 3000;
 
-/** px radius auto-collect (ORIG/config.js:4). */
-export const COIN_MAGNET = 80;
+/**
+ * px radius auto-collect. The original's value is 80 (ORIG/config.js:4);
+ * this is the one number Task 21 raised. Measured with the same scripted
+ * bot on both games, "coins still on the floor when the wave ends" over
+ * waves 1-5: the original loses 23.98% +/- 1.52 (22 runs read out of the
+ * running original), this port at 80 loses 28.51% +/- 0.27 (800 seeds,
+ * headless). At 100 the port loses 24.66% — back on the original's number.
+ * See docs/PARIDADE.md for the full response curve and the caveat about
+ * the original's frame-rate dependence.
+ */
+export const COIN_MAGNET = 100;
 
 /** ORIG/config.js:5. */
 export const SPRITE_SCALE = 2;
