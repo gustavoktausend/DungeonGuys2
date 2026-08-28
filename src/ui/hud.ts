@@ -12,18 +12,9 @@ import { dom } from './dom';
 import { CLASS_DEFS } from '../sim/defs/classes';
 import { maxStamina } from '../sim/stats';
 import { WAVE_DURATION } from '../sim/defs/enemies';
+import { comboMult } from '../sim/enemies';
 import { WAVES_TOTAL } from '../sim/constants';
 import type { World } from '../sim/types';
-
-/**
- * ORIG/ui.js:111 (`comboMult`). The sim keeps its own copy private
- * (src/sim/enemies.ts, used to actually multiply the score) — this is the
- * same pure formula, duplicated rather than imported so ui/ never reaches
- * into a non-exported sim symbol. Keep the two in sync if this ever changes.
- */
-function comboMult(combo: number): number {
-  return Math.min(3, 1 + Math.floor(combo / 5) * 0.25);
-}
 
 export function updateHud(world: World, localId: string): void {
   const p = world.players[localId];

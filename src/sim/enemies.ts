@@ -200,8 +200,12 @@ export function selfDetonate(world: World, e: Enemy): void {
   }
 }
 
-/** ORIG/ui.js:111 — kill-streak multiplier rewards aggressive play. */
-function comboMult(combo: number): number {
+/**
+ * ORIG/ui.js:111 — kill-streak multiplier rewards aggressive play. Exported
+ * so ui/hud.ts can render the same number it's scoring with (task-18 fix
+ * round 1) instead of keeping its own duplicate copy of this formula.
+ */
+export function comboMult(combo: number): number {
   return Math.min(3, 1 + Math.floor(combo / 5) * 0.25);
 }
 
