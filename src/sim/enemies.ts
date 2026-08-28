@@ -157,7 +157,11 @@ function spawnPoint(world: World): { x: number; y: number } {
     const y = anchor.y + Math.sin(a) * r;
     if (x < world.play.left + 20 || x > world.play.right - 20) continue;
     if (y < world.play.top + 20 || y > world.play.bottom - 20) continue;
-    if (world.obstacles.some(o => !o.dead && Math.hypot(x - o.x, y - o.y) < o.r + 24)) continue;
+    if (world.obstacles.some(o => {
+      if (o.dead) return false;
+      const dx = x - o.x, dy = y - o.y;
+      return Math.sqrt(dx * dx + dy * dy) < o.r + 24;
+    })) continue;
     return { x, y };
   }
   // fallback: clamp a point on the ring into bounds rather than give up
@@ -321,13 +325,15 @@ export function updateEnemies(world: World): void {
 
     if (!e.boss) resolveObstacles(e, Math.max(e.w, e.h) * 0.35, world);
     // did it actually move? drives the idle/run animation
-    e.moving = Math.hypot(e.x - startX, e.y - startY) > 0.06;
+    const mdx = e.x - startX, mdy = e.y - startY;
+    e.moving = Math.sqrt(mdx * mdx + mdy * mdy) > 0.06;
 
     // spike traps hurt monsters too — lure them in
     if (e.trapT > 0) e.trapT -= dt;
     for (const tr of world.traps) {
+      const tdx = e.x - tr.x, tdy = e.y - tr.y;
       if (e.trapT <= 0 && trapDangerous(world, tr) &&
-          Math.hypot(e.x - tr.x, e.y - tr.y) < 18 + Math.max(e.w, e.h) / 4) {
+          Math.sqrt(tdx * tdx + tdy * tdy) < 18 + Math.max(e.w, e.h) / 4) {
         e.trapT = 500;
         e.hp -= 15;
         e.hitFlash = 150;
@@ -407,7 +413,11 @@ export function updateEnemyBullets(world: World): void {
       b.dead = true;
       continue;
     }
-    if (world.obstacles.some(o => !o.dead && Math.hypot(b.x - o.x, b.y - o.y) < o.r + 4)) {
+    if (world.obstacles.some(o => {
+      if (o.dead) return false;
+      const dx = b.x - o.x, dy = b.y - o.y;
+      return Math.sqrt(dx * dx + dy * dy) < o.r + 4;
+    })) {
       b.dead = true;
       emit(world, { t: 'particles', x: b.x, y: b.y, color: '#9b59b6', count: 4 });
       continue;

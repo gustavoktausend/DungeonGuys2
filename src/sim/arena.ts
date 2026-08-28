@@ -33,8 +33,12 @@ export function generateArena(world: World): void {
   while (spots.length < want && attempts++ < want * 60) {
     const x = play.left + margin + rng.next() * (play.right - play.left - margin * 2);
     const y = play.top + margin + rng.next() * (play.bottom - play.top - margin * 2);
-    if (Math.hypot(x - cx, y - cy) < 150) continue;           // keep the spawn clear
-    if (spots.some(s => Math.hypot(x - s.x, y - s.y) < 110)) continue;
+    const dcx = x - cx, dcy = y - cy;
+    if (Math.sqrt(dcx * dcx + dcy * dcy) < 150) continue;    // keep the spawn clear
+    if (spots.some(s => {
+      const dx = x - s.x, dy = y - s.y;
+      return Math.sqrt(dx * dx + dy * dy) < 110;
+    })) continue;
     spots.push({ x, y });
   }
 
@@ -51,9 +55,16 @@ export function generateArena(world: World): void {
   while (world.traps.length < trapCount && attempts++ < trapCount * 60) {
     const x = play.left + margin + rng.next() * (play.right - play.left - margin * 2);
     const y = play.top + margin + rng.next() * (play.bottom - play.top - margin * 2);
-    if (Math.hypot(x - cx, y - cy) < 140) continue;
-    if (world.obstacles.some(o => Math.hypot(x - o.x, y - o.y) < 90)) continue;
-    if (world.traps.some(t => Math.hypot(x - t.x, y - t.y) < 130)) continue;
+    const dcx = x - cx, dcy = y - cy;
+    if (Math.sqrt(dcx * dcx + dcy * dcy) < 140) continue;
+    if (world.obstacles.some(o => {
+      const dx = x - o.x, dy = y - o.y;
+      return Math.sqrt(dx * dx + dy * dy) < 90;
+    })) continue;
+    if (world.traps.some(t => {
+      const dx = x - t.x, dy = y - t.y;
+      return Math.sqrt(dx * dx + dy * dy) < 130;
+    })) continue;
     world.traps.push({ x, y, offset: rng.next() * 4 });
   }
 }
@@ -63,7 +74,7 @@ export function resolveObstacles(ent: { x: number; y: number }, radius: number, 
   for (const o of world.obstacles) {
     if (o.dead) continue;
     const dx = ent.x - o.x, dy = ent.y - o.y;
-    const d = Math.hypot(dx, dy), min = o.r + radius;
+    const d = Math.sqrt(dx * dx + dy * dy), min = o.r + radius;
     if (d < min && d > 0.001) {
       ent.x = o.x + (dx / d) * min;
       ent.y = o.y + (dy / d) * min;

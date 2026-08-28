@@ -1,4 +1,23 @@
 // constants.ts — fixed timestep and world geometry.
+//
+// ─── Floating-point doctrine for sim/ ─────────────────────────────────────────
+// ECMAScript leaves `Math.hypot`, `Math.sin`, `Math.cos` and `Math.atan2`
+// IMPLEMENTATION-DEFINED: the spec only asks for an implementation-approximated
+// result, so two engines (a Chrome host, a Firefox client) may legitimately
+// return different bits for the same inputs. `Math.sqrt` is the exception —
+// the spec pins it to IEEE-754, so it is bit-exact everywhere.
+//
+// So sim/ uses `Math.sqrt(dx * dx + dy * dy)` and never `Math.hypot`. (Yes,
+// `hypot` guards against intermediate overflow and `sqrt` of squares does not;
+// at this game's magnitudes — a 2400x1600 world — that cannot arise.)
+//
+// This does NOT close the property: `sin`, `cos` and `atan2` are still all over
+// sim/ (aim, spread, spawn rings, boss patterns) and are just as
+// implementation-defined. Replacing them means a `sim/math.ts` with our own
+// implementations, which is a Marco 2 architecture decision, deliberately out
+// of scope here. OPEN ITEM for Marco 2. Note that no test in this suite can
+// catch this class of divergence: both determinism tests compare two worlds in
+// the SAME process, on the same engine.
 
 /** One simulation tick, in milliseconds. The sim never sees any other delta. */
 export const DT_MS = 1000 / 60;

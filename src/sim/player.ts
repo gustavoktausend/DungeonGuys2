@@ -106,7 +106,8 @@ export function updatePlayer(world: World, p: Player, input: InputState): void {
   resolveObstacles(p, 10, world);
 
   for (const tr of world.traps) {
-    if (trapDangerous(world, tr) && Math.hypot(p.x - tr.x, p.y - tr.y) < 18) damagePlayer(world, p, 10);
+    const dx = p.x - tr.x, dy = p.y - tr.y;
+    if (trapDangerous(world, tr) && Math.sqrt(dx * dx + dy * dy) < 18) damagePlayer(world, p, 10);
   }
 
   // aim is decided by app/input (mouse, or nearest enemy under auto-aim)

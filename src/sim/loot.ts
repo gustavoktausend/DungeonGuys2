@@ -110,7 +110,11 @@ export function updateChests(world: World): void {
 
     // closed: any player standing close enough starts the open animation
     const near = Object.values(world.players).some(
-      p => p.hp > 0 && Math.hypot(p.x - ch.x, p.y - ch.y) < 26,
+      p => {
+        if (p.hp <= 0) return false;
+        const dx = p.x - ch.x, dy = p.y - ch.y;
+        return Math.sqrt(dx * dx + dy * dy) < 26;
+      },
     );
     if (near) {
       ch.state = 'opening';

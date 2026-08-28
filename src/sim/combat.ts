@@ -90,7 +90,8 @@ export function meleeAttack(world: World, p: Player, angle: number, w: Weapon): 
 
   for (const o of world.obstacles) {
     if (o.dead || o.kind !== 'crate') continue;
-    const od = Math.hypot(o.x - p.x, o.y - p.y);
+    const odx = o.x - p.x, ody = o.y - p.y;
+    const od = Math.sqrt(odx * odx + ody * ody);
     if (od <= range + o.r) {
       let diff = Math.atan2(o.y - p.y, o.x - p.x) - angle;
       while (diff > Math.PI) diff -= Math.PI * 2;

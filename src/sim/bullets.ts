@@ -62,7 +62,8 @@ export function updateBullets(world: World): void {
     let blocked = false;
     for (const o of world.obstacles) {
       if (o.dead) continue;
-      if (Math.hypot(b.x - o.x, b.y - o.y) < o.r + 4) {
+      const dx = b.x - o.x, dy = b.y - o.y;
+      if (Math.sqrt(dx * dx + dy * dy) < o.r + 4) {
         if (o.kind === 'crate') damageCrate(world, o, (b.damage[0] + b.damage[1]) / 2);
         b.dead = true;
         if (b.type === 'fireball') explode(world, b);
