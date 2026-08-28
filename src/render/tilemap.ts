@@ -14,11 +14,33 @@ import type { Camera } from './camera';
 let floorCanvas: HTMLCanvasElement | null = null;
 
 /**
+ * Torch glow spots along the room's walls. ORIG/render.js:55-67 recomputed
+ * these from `canvas.width/height` on every resize (a viewport-sized arena);
+ * this world is fixed-size and decoupled from the window, so they are laid
+ * out once, here, in world space.
+ */
+export const torchPositions: { x: number; y: number }[] = [];
+
+function buildTorchPositions(): void {
+  torchPositions.length = 0;
+  const spacing = 160;
+  for (let x = TILE * 2.5; x < WORLD.w - TILE * 2; x += spacing) {
+    torchPositions.push({ x, y: TILE * 1.4 });
+    torchPositions.push({ x, y: WORLD.h - TILE * 1.5 });
+  }
+  for (let y = TILE * 3.5; y < WORLD.h - TILE * 3; y += spacing) {
+    torchPositions.push({ x: TILE * 0.5, y });
+    torchPositions.push({ x: WORLD.w - TILE * 0.5, y });
+  }
+}
+
+/**
  * Builds the whole world's tiles into an offscreen canvas. Call once per run,
  * after loadSprites() has resolved. ~2400x1600x4 bytes ≈ 15 MB — expected and
  * acceptable for a fixed-size world.
  */
 export function buildTilemap(): void {
+  buildTorchPositions();
   if (!SHEET.complete || SHEET.naturalWidth === 0) { floorCanvas = null; return; }
 
   const W = WORLD.w, H = WORLD.h;
