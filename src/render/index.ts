@@ -1,23 +1,23 @@
 // index.ts — top-level render compositor. Ported from ORIG/render.js:3-27
 // (render()).
 //
-// Draw order matches the original exactly, line for line: tiles, torches,
-// traps, chests, coins, potions, player bullets, enemy bullets, boss
-// telegraphs, obstacles, enemies, player(s), fog, then Fx (swings, particles,
-// float texts). The whole body — including fog — sits inside the same
-// ctx.translate(shakeOffset) the original wrapped its entire render() body
-// in (ORIG/render.js:6-27); only the leading clearRect sits outside it,
-// exactly as in the original.
+// Draw order matches the original exactly, line for line:
+//   tiles -> torches -> traps -> chests -> coins -> potions -> player
+//   bullets -> enemy bullets -> swings -> boss telegraphs -> obstacles ->
+//   enemies -> player(s) -> particles -> fog -> float texts
+// (confirmed against ORIG/render.js:11-26 in fix round 1 — an earlier
+// version of this file grouped the three Fx-owned layers together at the
+// end, which is wrong: the original interleaves swings/particles/float
+// texts with drawBossTelegraphs/drawObstacles/drawEnemies/drawPlayer/drawFog
+// at three separate points, so Fx exposes three draw methods —
+// drawSwings/drawParticles/drawFloatTexts — called at their exact positions
+// instead of one combined call).
 //
-// One necessary deviation: Fx.draw paints swings, particles and float texts
-// together in a single call (that's the interface T17 specifies — Fx has no
-// per-effect draw methods), whereas the original interleaves those three
-// with drawBossTelegraphs/drawObstacles/drawEnemies/drawPlayer/drawFog at
-// three separate points (render.js:19, :24, :26). Fx.draw is placed last, so
-// float texts (the most important to keep legible) land above every entity
-// and above fog exactly as before; the trade-off is that particles now also
-// sit above fog (originally below it) and swings above obstacles/enemies/
-// player (originally below them). Flagged in task-17-report.md.
+// The whole body — including fog and the float texts — sits inside the same
+// ctx.translate(shakeOffset) the original wrapped its entire render() body
+// in: ORIG/render.js:6 (ctx.save(), before drawTiles) through :27
+// (ctx.restore(), after drawFloatTexts). Only the leading clearRect sits
+// outside it, exactly as in the original.
 import { drawTiles } from './tilemap';
 import {
   drawPlayer, drawFog, drawTorches, drawBullets, drawObstacles,
@@ -42,14 +42,16 @@ export function render(world: World, cam: Camera, alpha: number, ctx: CanvasRend
   drawChests(ctx, cam, world);
   drawCoins(ctx, cam, world);
   drawPotions(ctx, cam, world);
-  drawBullets(ctx, cam, world);
+  drawBullets(ctx, cam, world, fx);
   drawEnemyBullets(ctx, cam, world);
+  fx.drawSwings(ctx, cam);
   drawBossTelegraphs(ctx, cam, world);
   drawObstacles(ctx, cam, world);
   drawEnemies(ctx, cam, world);
   for (const id of Object.keys(world.players)) drawPlayer(ctx, cam, world.players[id]);
+  fx.drawParticles(ctx, cam);
   drawFog(ctx, cam, world);
-  fx.draw(ctx, cam);
+  fx.drawFloatTexts(ctx, cam);
 
   ctx.restore(); // shake transform
 

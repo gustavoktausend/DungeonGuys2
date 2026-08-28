@@ -1,9 +1,11 @@
 // fx.ts — presentation-only state fed by sim events. Everything the original
 // kept in global arrays (particles, floatTexts, meleeSwings) and a pair of
 // screen-shake globals (shakeT/shakeMag) now lives here instead, aged by
-// `update()` and painted by `draw()`. Nothing here is simulation state: it is
-// fed exclusively through `handle(event)` and may freely use Math.random()
-// and performance.now() (T3/T17).
+// `update()` and painted by `drawSwings`/`drawParticles`/`drawFloatTexts`
+// (three separate methods, not one `draw()` — see the comment above them).
+// Nothing here is simulation state: it is fed exclusively through
+// `handle(event)` and may freely use Math.random() and performance.now()
+// (T3/T17).
 //
 // Ported from:
 //  - particle/float-text physics: ORIG/entities.js:505-531 (spawnParticles,
@@ -85,10 +87,11 @@ export function createFx() {
         f.y -= dtMs * 0.035;
         f.life -= dtMs / 1100;
       }
-      // ORIG/combat.js:299 — swings aren't cited by the brief's decay footnote
-      // (only entities.js/items.js are), but this is the real original source
-      // for their life decay; using it instead of an invented flat constant
-      // keeps the ~180ms swing sweep duration faithful. Flagged in the report.
+      // ORIG/combat.js:299 (`s.life -= dt / 180`) — confirmed with the
+      // controller (task-17-report.md, fix round 1) as the real source for
+      // swing decay, in place of an invented flat constant; keeps the
+      // ~180ms swing sweep duration faithful. `dtMs` is always DT_MS here
+      // (fx.update(DT_MS) in main.ts), so this is exactly DT_MS / 180.
       for (const s of swings) s.life -= dtMs / 180;
 
       prune(particles); prune(floatTexts); prune(swings);
@@ -96,14 +99,29 @@ export function createFx() {
 
     shakeOffset() {
       if (shakeMag <= 0) return { x: 0, y: 0 };
-      // ORIG/render.js:8 — fades out over the shake's remaining life; 220 is
-      // addShake's default duration (ORIG/ui.js:125), reused verbatim here.
+      // ORIG/render.js:8 — fades out over the shake's remaining life. The
+      // divisor is a LITERAL 220, not the active shake's own `dur` — that's
+      // how the original reads too (addShake's default dur happens to also
+      // be 220, ORIG/ui.js:125, but render.js:8 never looks at the actual
+      // dur that was passed to addShake). A shake cast with a longer dur
+      // (e.g. mag:14/dur:500, ORIG-equivalent in enemies.ts:357) legitimately
+      // overshoots `f > 1` for its first ~280ms. Preserve this exactly —
+      // do NOT "fix" it into `shakeT / dur`, that would change the feel of
+      // every shake in the game.
       const f = shakeT / 220;
       return { x: (Math.random() - 0.5) * shakeMag * f, y: (Math.random() - 0.5) * shakeMag * f };
     },
 
-    draw(ctx: CanvasRenderingContext2D, cam: Camera) {
-      // Swings — ORIG/render.js:192-215
+    // Three separate draw methods, not one: the original interleaves swings,
+    // particles and float texts with other entities at three different
+    // points in the draw order (render.js:19, :24, :26) — drawBossTelegraphs/
+    // drawObstacles/drawEnemies sit between swings and particles, drawPlayer
+    // and drawFog sit between particles and float texts. render/index.ts
+    // calls these three at those exact positions instead of one combined
+    // `draw()` call, so the z-order matches the original exactly.
+
+    /** Swings — ORIG/render.js:192-215. */
+    drawSwings(ctx: CanvasRenderingContext2D, cam: Camera) {
       for (const s of swings) {
         if (!isVisible(cam, s.x, s.y, 96)) continue;
         const p = worldToScreen(cam, s.x, s.y);
@@ -127,8 +145,10 @@ export function createFx() {
         ctx.stroke();
         ctx.restore();
       }
+    },
 
-      // Particles — ORIG/render.js:372-379
+    /** Particles — ORIG/render.js:372-379. */
+    drawParticles(ctx: CanvasRenderingContext2D, cam: Camera) {
       for (const q of particles) {
         if (!isVisible(cam, q.x, q.y, 32)) continue;
         const p = worldToScreen(cam, q.x, q.y);
@@ -137,8 +157,10 @@ export function createFx() {
         ctx.fillRect(p.x - q.size / 2, p.y - q.size / 2, q.size, q.size);
       }
       ctx.globalAlpha = 1;
+    },
 
-      // Float texts — ORIG/render.js:357-369
+    /** Float texts — ORIG/render.js:357-369. */
+    drawFloatTexts(ctx: CanvasRenderingContext2D, cam: Camera) {
       ctx.font = 'bold 15px "MedievalSharp", serif';
       ctx.textAlign = 'center';
       for (const f of floatTexts) {

@@ -28,6 +28,7 @@ import {
   OBSTACLE_SPRITES, SPIKE_FRAMES, type Frame,
 } from './sprites';
 import { torchPositions } from './tilemap';
+import type { Fx } from './fx';
 
 /** Draws a frame centered on (x, y) in SCREEN space, optionally mirrored horizontally. */
 function drawSprite(
@@ -137,12 +138,12 @@ export function drawTorches(ctx: CanvasRenderingContext2D, cam: Camera, world: W
 }
 
 // Bullets. ORIG/render.js:88-140. The fireball's per-frame trail particle
-// (ORIG/render.js:126, `spawnParticles(...)` called straight from the draw
-// loop) is NOT ported: it needs a live Fx handle to push a particle from
-// inside a draw call, and this function's signature is (ctx, cam, world) per
-// the task interface, with no Fx access. Flagged in task-17-report.md rather
-// than widening the signature unilaterally.
-export function drawBullets(ctx: CanvasRenderingContext2D, cam: Camera, world: World): void {
+// (ORIG/render.js:126: `spawnParticles(b.x, b.y, orange-or-red, 1)`, called
+// straight from the draw loop every frame a fireball is on screen) needs a
+// live Fx handle to push a particle from inside a draw call — per fix round
+// 1, drawBullets takes `fx` for exactly this, reusing Fx.handle rather than
+// duplicating its particle-creation logic in a second method.
+export function drawBullets(ctx: CanvasRenderingContext2D, cam: Camera, world: World, fx: Fx): void {
   for (const b of world.bullets) {
     if (!isVisible(cam, b.x, b.y, 96)) continue;
     const p = worldToScreen(cam, b.x, b.y);
@@ -182,6 +183,14 @@ export function drawBullets(ctx: CanvasRenderingContext2D, cam: Camera, world: W
       ctx.arc(p.x, p.y, 5 * pulse, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+      // fire trail — ORIG/render.js:126. World-space coordinates (b.x, b.y),
+      // not the screen-space p.x/p.y above: Fx stores particles in world
+      // space and converts at draw time, same as every other particle.
+      fx.handle({
+        t: 'particles', x: b.x, y: b.y,
+        color: Math.random() < 0.5 ? '#ff8c00' : '#ff4500',
+        count: 1,
+      });
     } else {
       // magic bolt
       ctx.shadowColor = '#ff8c00';
