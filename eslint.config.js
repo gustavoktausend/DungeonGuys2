@@ -21,8 +21,15 @@ export default tseslint.config(
         { object: 'Math', property: 'random', message: 'use world.rng (T3)' },
         { object: 'Date', property: 'now',    message: 'use world.tick (T4)' },
       ],
+      // The patterns are gitignore-style: '**/render/**' requires a segment
+      // AFTER 'render/', so a bare-directory import (`from '../render'`)
+      // slips past it. The '**/render' forms close that hole.
+      // tests/purity.test.ts asserts the same rule independently.
       'no-restricted-imports': ['error', {
-        patterns: ['**/render/**', '**/ui/**', '**/app/**'],
+        patterns: [
+          '**/render/**', '**/ui/**', '**/app/**',
+          '**/render', '**/ui', '**/app',
+        ],
       }],
     },
   },
