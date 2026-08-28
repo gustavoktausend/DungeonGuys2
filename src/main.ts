@@ -47,7 +47,9 @@ const touch = setupTouch(canvas);
 
 await loadSprites();
 initStartScreen(); // paints the class-select color preview now that SHEET/COP_SHEET are decoded
-buildTilemap();
+// No buildTilemap() here: nothing renders until beginRun(), which builds a
+// fresh tilemap itself (line ~112). Painting a 2400x1600 offscreen canvas at
+// module load only to discard it on the first run was pure waste.
 
 // ─── Game lifecycle ───────────────────────────────────────────────────────
 // Nothing below creates a World until "START GAME" (or a restart button) is
@@ -174,6 +176,9 @@ function quitGame(): void {
   stopSimLoop?.();
   stopSimLoop = null;
   cancelAnimationFrame(pauseRaf); // Quit is only reachable from the pause screen — that RAF loop must not outlive it
+  // The dead run's keydown listener would otherwise keep preventDefault()ing
+  // Space and the arrow keys over the start screen (app/input.ts).
+  input?.destroy();
   gameStarted = false; // Escape must be a no-op again until the next run starts
   dom.hud.classList.add('hidden');
   showScreen('start');

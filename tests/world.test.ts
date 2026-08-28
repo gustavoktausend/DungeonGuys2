@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createWorld, emit } from '../src/sim/world';
+import { drainEvents } from '../src/sim/step';
 import { WORLD, TILE } from '../src/sim/constants';
 import type { RunConfig } from '../src/sim/types';
 
@@ -56,5 +57,33 @@ describe('createWorld', () => {
     const a = w.nextId++;
     const b = w.nextId++;
     expect(b).toBe(a + 1);
+  });
+});
+
+// drainEvents é chamado só de src/main.ts (o sink do app/), e os testes o
+// contornam com `world.events.length = 0` em helpers.ts — ou seja, o contrato
+// sim -> app inteiro, que o Marco 1 estende, não tinha teste nenhum.
+describe('drainEvents', () => {
+  it('devolve os eventos na ordem e deixa a fila vazia (novo array, não o mesmo)', () => {
+    const w = createWorld(config);
+    emit(w, { t: 'sfx', name: 'hit' });
+    emit(w, { t: 'shake', mag: 6, dur: 220 });
+    const queue = w.events;
+
+    const out = drainEvents(w);
+    expect(out).toEqual([
+      { t: 'sfx', name: 'hit' },
+      { t: 'shake', mag: 6, dur: 220 },
+    ]);
+    expect(out).toBe(queue);      // entrega a fila em si...
+    expect(w.events).toEqual([]); // ...e o mundo recomeça com outra, vazia
+    expect(w.events).not.toBe(out);
+
+    // o que sai do dreno não pode ser corrompido por emits posteriores
+    emit(w, { t: 'sfx', name: 'shoot' });
+    expect(out).toHaveLength(2);
+    expect(w.events).toHaveLength(1);
+    expect(drainEvents(w)).toEqual([{ t: 'sfx', name: 'shoot' }]);
+    expect(drainEvents(w)).toEqual([]);
   });
 });

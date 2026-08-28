@@ -37,7 +37,7 @@ import { damagePlayer } from './player';
 import { resolveObstacles, trapDangerous, rectCircle } from './arena';
 import { updateBossPattern } from './boss';
 import { gainXp } from './xp';
-import type { Enemy, Player, World } from './types';
+import type { EliteType, Enemy, Player, World } from './types';
 
 // Also reused by boss.ts to keep a boss's spawn distance from the nearest
 // player on the same scale as an ordinary enemy's spawn ring.
@@ -90,6 +90,7 @@ export function makeEnemy(world: World, type: string, x: number, y: number): Ene
     dead: false,
     moving: false,
     elite: null,
+    eliteName: null,
     eliteTint: null,
     regen: 0,
     hitFlash: 0,
@@ -113,8 +114,9 @@ export function makeEnemy(world: World, type: string, x: number, y: number): Ene
   };
 }
 
-/** ORIG/entities.js:39-58. */
-export function makeElite(world: World, e: Enemy): void {
+/** ORIG/entities.js:39-58. Returns the elite type it applied, so callers get
+ *  its name/tint without re-narrowing the (nullable) fields on the enemy. */
+export function makeElite(world: World, e: Enemy): EliteType {
   const keys = Object.keys(ELITE_TYPES);
   const key = world.rng.pick(keys);
   const t = ELITE_TYPES[key];
@@ -130,6 +132,7 @@ export function makeElite(world: World, e: Enemy): void {
   e.score = Math.round(e.score * 2.5);
   e.goldDrop = Math.round(e.goldDrop * 2.5);
   e.potionChance = Math.min(1, e.potionChance + 0.2);
+  return t;
 }
 
 /** A living player, or the world centre if none are alive — the spawn ring's anchor. */
@@ -176,11 +179,9 @@ export function spawnEnemy(world: World, type: string): void {
     ? Math.min(0.65, 0.12 * world.wave)
     : Math.min(0.28, 0.05 * world.wave);
   if (world.wave >= 3 && type !== 'mimic' && world.rng.chance(eliteChance)) {
-    makeElite(world, e);
-    if (e.eliteName && e.eliteTint) {
-      emit(world, { t: 'float', x: e.x, y: e.y - e.h / 2 - 14, text: e.eliteName, color: e.eliteTint });
-      emit(world, { t: 'particles', x: e.x, y: e.y, color: e.eliteTint, count: 12 });
-    }
+    const elite = makeElite(world, e);
+    emit(world, { t: 'float', x: e.x, y: e.y - e.h / 2 - 14, text: elite.name, color: elite.tint });
+    emit(world, { t: 'particles', x: e.x, y: e.y, color: elite.tint, count: 12 });
   }
   world.enemies.push(e);
 }

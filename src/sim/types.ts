@@ -127,7 +127,9 @@ export type Enemy = {
   dead: boolean;
   moving: boolean;
   elite: string | null;
-  eliteName?: string;
+  /** Both are always present (null until makeElite runs) so every Enemy has
+   *  the same shape — an optional key would come and go across snapshots. */
+  eliteName: string | null;
   eliteTint: string | null;
   regen: number;
   hitFlash: number;

@@ -87,10 +87,16 @@ export function setupTouch(canvas: HTMLCanvasElement): TouchState {
   // `dom.touchSpecial` is the same #btn-touch-special ui/hud.ts already
   // resolved (task-18) for the radial-cooldown CSS var; reused here for the
   // tap listener rather than re-resolving it under a second name.
+  // The special button must pair down/up exactly like the sprint button
+  // below: app/input.ts keeps a `keys` map, so a lone `keydown` would latch
+  // `keys['KeyE']` true forever with no keyboard event to ever clear it.
   dom.touchSpecial.addEventListener('touchstart', e => {
     e.preventDefault();
     fireKey('keydown', 'KeyE');
   }, { passive: false });
+  const specialEnd = () => fireKey('keyup', 'KeyE');
+  dom.touchSpecial.addEventListener('touchend', specialEnd);
+  dom.touchSpecial.addEventListener('touchcancel', specialEnd);
 
   dom.btnTouchSprint.addEventListener('touchstart', e => {
     e.preventDefault();
