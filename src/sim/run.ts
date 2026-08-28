@@ -18,14 +18,21 @@
 //    `victory()` mirrors that — it sets the phase and emits, and never
 //    touches a save file, forges soul gold or writes DOM text.
 //  - The original's `checkWaveComplete` reaches a cleared, non-final wave by
-//    calling `setTimeout(openShop, 1500)`. `openShop` doesn't exist until
-//    Task 19 (`src/sim/shop.ts`), and a bare setTimeout has no place in a
-//    pure sim tick regardless. This port emits the same 'waveclear' sfx and
-//    announce events and leaves it there: `world.waveActive` goes false and
-//    the phase stays 'playing'. Wiring the actual shop transition in is
-//    Task 19's job — flagged for the controller rather than guessed at here,
-//    the same way Task 12/14 flagged their own cross-file seams instead of
-//    restructuring unilaterally.
+//    calling `setTimeout(openShop, 1500)`. That 1500ms only lets the
+//    "WAVE X CLEAR!" banner sit alone on screen for a beat before the shop
+//    covers it — the same category of cosmetic delay as this very
+//    function's adjacent `setTimeout(victory, 1200)`, which this port
+//    already collapsed to a direct, synchronous `victory(world)` call (see
+//    below). `openShop` is called synchronously here too, for the same
+//    reason: it changes no gameplay outcome, only when the shop's DOM would
+//    have appeared, and `ui/screens.ts`'s `announce()` already runs its own
+//    independent 2600ms display timer for the banner regardless of what the
+//    phase underneath does. (Task 19.)
+//  - `checkWaveComplete` -> shop.ts's `openShop` -> (eventually) `closeShop`
+//    -> this file's `startNextWave` is a two-file import cycle. Same shape,
+//    and same safety argument, as the already-documented enemies.ts<->boss.ts
+//    and enemies.ts->xp.ts->run.ts->enemies.ts cycles: every cross-reference
+//    is used inside a function body, never at module-eval time.
 //  - `SpawnEntry` (Task 1) is `{ delay, type }` — no `spawned` flag. Where
 //    the original mutates `s.spawned = true` in place and rescans the whole
 //    array every tick, `updateSpawnQueue` here partitions `world.spawnQueue`
@@ -57,6 +64,7 @@ import { emit, setPhase } from './world';
 import { generateArena } from './arena';
 import { spawnEnemy, nearestPlayer } from './enemies';
 import { spawnBoss, bossPlanForWave } from './boss';
+import { openShop } from './shop';
 import { MUTATORS } from './defs/mutators';
 import { ENEMY_DEFS, WAVE_DURATION } from './defs/enemies';
 import { DT_MS, WAVES_TOTAL, WORLD } from './constants';
@@ -216,7 +224,7 @@ export function updateSpawnQueue(world: World): void {
   for (const type of due) spawnEnemy(world, type);
 }
 
-/** ORIG/entities.js:545-569 (see file header for the dropped `openShop` call). */
+/** ORIG/entities.js:545-569 (see file header for the `setTimeout` deviation). */
 export function checkWaveComplete(world: World): void {
   if (!world.waveActive) return;
 
@@ -237,8 +245,12 @@ export function checkWaveComplete(world: World): void {
     }
     emit(world, { t: 'sfx', name: 'waveclear' });
     emit(world, { t: 'announce', text: `WAVE ${world.wave} CLEAR!` });
-    // Task 19's openShop(world, p) picks up from here once src/sim/shop.ts
-    // exists (see file header) — not wired in yet.
+    // ORIG/entities.js:568's setTimeout(openShop, 1500) — called directly,
+    // see file header. `ref` is the same "nearest player, or none" resolved
+    // for the mutator/chest flavor above; in practice always non-null here
+    // (a wave only completes while someone is alive to have kept it going).
+    const ref = refPlayer(world);
+    if (ref) openShop(world, ref);
   }
 }
 

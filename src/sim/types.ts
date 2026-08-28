@@ -71,7 +71,7 @@ export type ShopItem = {
   icon: string;
   price: number;
   mods: Mods;
-  dmgKind?: Archetype | 'arrow' | 'melee' | 'elemental';
+  dmgKind?: 'melee' | 'arrow' | 'elemental';
 };
 
 export type Blessing = {

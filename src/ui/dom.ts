@@ -57,4 +57,17 @@ export const dom = {
   // (ORIG/entities.js:570-588, ORIG/engine.js:230-248 — world-backed part only).
   victoryScore: document.getElementById('victory-score')!,
   victoryGold: document.getElementById('victory-gold')!,
+
+  // Shop screen (Task 19, ORIG/items.js:65-128) — same "resolve once" rule
+  // as everything else in this object.
+  shopGold: document.getElementById('shop-gold')!,
+  shopSlots: document.getElementById('shop-slots')!,
+  shopEquip: document.getElementById('shop-equip')!,
+  shopItems: document.getElementById('shop-items')!,
+  shopStats: document.getElementById('shop-stats')!,
+  priceHeal: document.getElementById('price-heal')!,
+  priceReroll: document.getElementById('price-reroll')!,
+  btnShopHeal: document.getElementById('btn-shop-heal')! as HTMLButtonElement,
+  btnShopReroll: document.getElementById('btn-shop-reroll')! as HTMLButtonElement,
+  btnNextWave: document.getElementById('btn-next-wave')!,
 };

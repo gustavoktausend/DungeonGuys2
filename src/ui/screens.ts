@@ -13,6 +13,7 @@
 import { pickBlessing } from '../sim/xp';
 import { STAT_LABELS, PCT_STATS } from '../sim/stats';
 import { dom } from './dom';
+import { renderShop } from './shop';
 import type { Blessing, Phase, Player, World } from '../sim/types';
 
 const SCREEN_FOR_PHASE: Record<Phase, string | null> = {
@@ -111,6 +112,11 @@ export function syncScreens(world: World, localId: string): void {
     dom.hud.classList.toggle('hidden', world.phase === 'gameover' || world.phase === 'victory');
     if (p && world.phase === 'gameover') paintGameOver(world, p);
     if (p && world.phase === 'victory') paintVictory(world, p);
+    // ORIG/items.js:8-9 — openShop() painted the shop screen itself the
+    // instant it opened; here that's this file's job (T1), the same way
+    // paintGameOver/paintVictory are. Buy/heal/reroll clicks redraw
+    // themselves after that (ui/shop.ts).
+    if (p && world.phase === 'shop') renderShop(world, localId);
   }
 
   if (p && world.phase === 'levelup' && p.levelChoices !== paintedChoices) {
