@@ -10,9 +10,11 @@
 // here too, for the same reason as everything else in this object — once,
 // not every frame.
 //
-// Elements this task never writes to (final-best, final-forge, new-record,
-// victory-forge, new-record-victory — all Save-backed, see task-18-report.md)
-// are intentionally NOT resolved here: nothing in ui/ owns them yet.
+// Task 20 adds the Save-backed fields task-18 deliberately left unresolved
+// (final-best, final-forge, new-record, victory-forge, new-record-victory)
+// plus everything the start/forge/stats screens need — those screens have no
+// `Phase` of their own (task-18-report.md), so app/forge.ts and ui/settings.ts
+// drive them directly instead of through `syncScreens`.
 //
 // Every id is resolved with `document.getElementById(id)!` — if an id is
 // missing from index.html, that surfaces immediately as a runtime error the
@@ -70,4 +72,69 @@ export const dom = {
   btnShopHeal: document.getElementById('btn-shop-heal')! as HTMLButtonElement,
   btnShopReroll: document.getElementById('btn-shop-reroll')! as HTMLButtonElement,
   btnNextWave: document.getElementById('btn-next-wave')!,
+
+  // Game-over / victory Save-backed fields (Task 20 — see task-18-report.md).
+  finalBest: document.getElementById('final-best')!,
+  finalForge: document.getElementById('final-forge')!,
+  newRecord: document.getElementById('new-record')!,
+  victoryForge: document.getElementById('victory-forge')!,
+  newRecordVictory: document.getElementById('new-record-victory')!,
+
+  // Pause screen buttons (ORIG/ui.js:173-176) — Escape-only under task-18;
+  // Task 20 wires the clicks too.
+  btnResume: document.getElementById('btn-resume')!,
+  btnPauseRestart: document.getElementById('btn-pause-restart')!,
+  btnQuit: document.getElementById('btn-quit')!,
+  btnStart: document.getElementById('btn-start')!,
+  btnRestart: document.getElementById('btn-restart')!,
+  btnVictoryRestart: document.getElementById('btn-victory-restart')!,
+
+  // Share (ORIG/ui.js:184-187, :189-224).
+  btnShareWa: document.getElementById('btn-share-wa')!,
+  btnShareTg: document.getElementById('btn-share-tg')!,
+  btnShareWaVictory: document.getElementById('btn-share-wa-victory')!,
+  btnShareTgVictory: document.getElementById('btn-share-tg-victory')!,
+
+  // Forge screen (ORIG/ui.js:463-528) — app/forge.ts owns this screen's DOM.
+  forgeGold: document.getElementById('forge-gold')!,
+  soulGold: document.getElementById('soul-gold')!,
+  forgeList: document.getElementById('forge-list')!,
+  btnForge: document.getElementById('btn-forge')!,
+  btnForgeClose: document.getElementById('btn-forge-close')!,
+
+  // Stats screen (ORIG/ui.js:530-563).
+  statsLifetime: document.getElementById('stats-lifetime')!,
+  statsClasses: document.getElementById('stats-classes')!,
+  btnStats: document.getElementById('btn-stats')!,
+  btnStatsClose: document.getElementById('btn-stats-close')!,
+
+  // Start screen: class select / mode / name / color (ORIG/ui.js:225-280,
+  // :565-579, :598-660).
+  classRecord: document.getElementById('class-record')!,
+  heroNameInput: document.getElementById('hero-name')! as HTMLInputElement,
+  colorPreview: document.getElementById('color-preview')! as HTMLCanvasElement,
+  sliderR: document.getElementById('slider-r')! as HTMLInputElement,
+  sliderG: document.getElementById('slider-g')! as HTMLInputElement,
+  sliderB: document.getElementById('slider-b')! as HTMLInputElement,
+  valR: document.getElementById('val-r')!,
+  valG: document.getElementById('val-g')!,
+  valB: document.getElementById('val-b')!,
+
+  // Sound / auto-aim / shake / volume (ORIG/ui.js:369-450).
+  autoAimToggle: document.getElementById('auto-aim-toggle')!,
+  soundToggle: document.getElementById('sound-toggle')!,
+  shakeToggle: document.getElementById('shake-toggle')!,
+  sliderVolume: document.getElementById('slider-volume')! as HTMLInputElement,
+  valVolume: document.getElementById('val-volume')!,
+
+  // Touch (ORIG/ui.js:281-368).
+  instDesktop: document.getElementById('inst-desktop')!,
+  instTouch: document.getElementById('inst-touch')!,
+  touchUi: document.getElementById('touch-ui')!,
+  joyBase: document.getElementById('joystick-base')!,
+  joyKnob: document.getElementById('joystick-knob')!,
+  // `touchSpecial` (above, task-18) is the same #btn-touch-special element —
+  // reused here rather than re-resolved under a second name.
+  btnTouchSprint: document.getElementById('btn-touch-sprint')!,
+  btnTouchPause: document.getElementById('btn-touch-pause')!,
 };

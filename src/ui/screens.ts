@@ -12,6 +12,7 @@
 // file's screen-switching; it only ever reads `world`.
 import { pickBlessing } from '../sim/xp';
 import { STAT_LABELS, PCT_STATS } from '../sim/stats';
+import { WAVES_TOTAL } from '../sim/constants';
 import { dom } from './dom';
 import { renderShop } from './shop';
 import type { Blessing, Phase, Player, World } from '../sim/types';
@@ -176,6 +177,48 @@ export function hurtFlash(): void {
   dom.hurtFlash.classList.add('show');
 }
 
+/** ORIG/ui.js:169-171. Local copy — see the identical one in
+ * app/forge.ts / ui/settings.ts, each file is self-contained on purpose. */
+function mouseOnly(fn: () => void): (e: MouseEvent) => void {
+  return e => { if (e.detail !== 0) fn(); };
+}
+
+// ─── Social share (ORIG/ui.js:189-224) ───────────────────────────────────────
+// Fed by the same `boundWorld`/`boundLocalId` pair `syncScreens` keeps
+// current — the share buttons only ever appear on the gameover/victory
+// screens this file already paints.
+const GAME_URL = 'https://gustavoktausend.github.io/DungeonGuys2/';
+
+function shareMessage(won: boolean, world: World, p: Player): string {
+  return won
+    ? `🏆 ${p.name} conquistou a masmorra! Zerei o DungeonGuys2 no nível ${p.level} ` +
+      `com ${world.score} pontos! Consegue igualar? ⚔️`
+    : `⚔️ ${p.name} lutou até a wave ${world.config.mode === 'endless' ? world.wave + ' (ENDLESS)' : world.wave + '/' + WAVES_TOTAL}` +
+      ` e caiu no nível ${p.level}, com ${world.score} pontos no DungeonGuys2! Consegue me superar?`;
+}
+
+function shareWhatsApp(won: boolean): void {
+  if (!boundWorld || !boundLocalId) return;
+  const p = boundWorld.players[boundLocalId];
+  if (!p) return;
+  window.open('https://wa.me/?text=' + encodeURIComponent(shareMessage(won, boundWorld, p) + ' ' + GAME_URL),
+    '_blank', 'noopener');
+}
+
+function shareTelegram(won: boolean): void {
+  if (!boundWorld || !boundLocalId) return;
+  const p = boundWorld.players[boundLocalId];
+  if (!p) return;
+  window.open('https://t.me/share/url?url=' + encodeURIComponent(GAME_URL) +
+    '&text=' + encodeURIComponent(shareMessage(won, boundWorld, p)),
+    '_blank', 'noopener');
+}
+
+dom.btnShareWa.addEventListener('click', mouseOnly(() => shareWhatsApp(false)));
+dom.btnShareTg.addEventListener('click', mouseOnly(() => shareTelegram(false)));
+dom.btnShareWaVictory.addEventListener('click', mouseOnly(() => shareWhatsApp(true)));
+dom.btnShareTgVictory.addEventListener('click', mouseOnly(() => shareTelegram(true)));
+
 /**
  * Pause is an app-layer concern, not a sim phase — `Phase` deliberately has
  * no 'paused' (task-18 boundary #2). Ported from ORIG/engine.js:45-48 (the
@@ -185,24 +228,48 @@ export function hurtFlash(): void {
  * while still rendering every frame. This function never touches `World`
  * or the loop — it only flips a local flag and shows/hides the pause
  * screen, exactly the same as any other screen here.
+ *
+ * Task 20 also wires the pause screen's own buttons here (ORIG/ui.js:
+ * 173-176 — Escape-only under task-18), since they all share this one
+ * `paused` flag: `deps.onRestart`/`deps.onQuit` are main.ts's game-lifecycle
+ * hooks (ORIG/engine.js:228's `quitGame`, :146's `startGame`) — this file
+ * only resets `paused` and hands off, it never creates a World itself.
  */
 export function createPauseControl(
-  getPhase: () => Phase,
+  // `null` before the first run ever starts (no World exists yet) — Escape
+  // must be a no-op on the start screen, same as ORIG's `gameState !==
+  // 'playing'` guard defaulting safely when `gameState === 'start'`.
+  getPhase: () => Phase | null,
   onChange: (paused: boolean) => void,
+  deps: { onRestart(): void; onQuit(): void },
 ): { isPaused(): boolean } {
   let paused = false;
+
+  function doPause(): void {
+    if (getPhase() !== 'playing') return; // ORIG only pauses from 'playing'
+    paused = true;
+    showScreen('pause');
+    onChange(true);
+  }
+  function doResume(): void {
+    paused = false;
+    showScreen(null);
+    onChange(false);
+  }
+
   addEventListener('keydown', e => {
     if (isTextInput(e.target)) return;
     if (e.code !== 'Escape') return;
-    if (!paused) {
-      if (getPhase() !== 'playing') return; // ORIG only pauses from 'playing'
-      paused = true;
-      showScreen('pause');
-    } else {
-      paused = false;
-      showScreen(null);
-    }
-    onChange(paused);
+    if (!paused) doPause(); else doResume();
   });
+
+  dom.btnResume.addEventListener('click', mouseOnly(doResume));
+  // Restart/quit don't route through doResume(): the original goes straight
+  // from 'paused' to a fresh run (or the start screen) without an
+  // intermediate resume of the *old* world (ORIG/engine.js:228). Only the
+  // internal flag needs resetting so a later Escape reads correctly.
+  dom.btnPauseRestart.addEventListener('click', mouseOnly(() => { paused = false; deps.onRestart(); }));
+  dom.btnQuit.addEventListener('click', mouseOnly(() => { paused = false; deps.onQuit(); }));
+
   return { isPaused: () => paused };
 }

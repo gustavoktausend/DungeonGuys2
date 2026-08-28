@@ -7,14 +7,20 @@ import { startRun } from './sim/run';
 import { startLoop } from './app/loop';
 import { createInput } from './app/input';
 import { createEventSink } from './app/events';
-import { createCamera, updateCamera } from './render/camera';
+import { Sfx } from './app/audio';
+import { Save } from './app/save';
+import { buildRunConfig, finishRun } from './app/forge';
+import { createCamera, updateCamera, type Camera } from './render/camera';
 import { loadSprites } from './render/sprites';
 import { buildTilemap } from './render/tilemap';
 import { createFx } from './render/fx';
 import { render } from './render/index';
 import { updateHud } from './ui/hud';
-import { syncScreens, announce, hurtFlash, createPauseControl } from './ui/screens';
-import type { World } from './sim/types';
+import { syncScreens, announce, hurtFlash, showScreen, createPauseControl } from './ui/screens';
+import { dom } from './ui/dom';
+import { setupTouch } from './ui/touch';
+import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
+import type { ClassKey, GameMode, Player, World } from './sim/types';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -27,31 +33,36 @@ function resize() {
 resize();
 addEventListener('resize', resize);
 
+// ─── PWA (Step 6, task-20-brief.md) ───────────────────────────────────────
+// `import.meta.env.BASE_URL` is Vite's `base` (vite.config.ts: '/DungeonGuys2/'
+// in production, '/' in dev) — registering a relative 'sw.js' would resolve
+// against the current page instead and 404 once the app is nested under a
+// repo subpath. ORIG/ui.js:282-284.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').catch(() => {});
+}
+
+const touch = setupTouch(canvas);
+
 await loadSprites();
-
-const world = createWorld({
-  seed: 20260827, mode: 'campaign', classKey: 'mage', playerName: 'DEV',
-  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
-});
+initStartScreen(); // paints the class-select color preview now that SHEET/COP_SHEET are decoded
 buildTilemap();
-const player = createPlayer(world, 'p1', 'mage', 'DEV');
-startRun(world);
 
-const cam = createCamera();
-const input = createInput(canvas, world, 'p1', cam);
-
-const fx = createFx();
-// sfx/unlock/bossMusic wiring are later tasks; those stay no-ops until then.
-// announce/hurtFlash are this task's — ui/screens.ts owns both.
-const sink = createEventSink({
-  fx,
-  playSfx: () => {},
-  announce,
-  hurtFlash,
-  unlock: () => {},
-  bossMusic: () => {},
-  onPhase: () => {},
-});
+// ─── Game lifecycle ───────────────────────────────────────────────────────
+// Nothing below creates a World until "START GAME" (or a restart button) is
+// clicked — task-18's report noted the start/forge/stats screens have no
+// `Phase` of their own, since the sim never had a menu state. This is the
+// piece that actually gates world-creation behind that screen, replacing
+// the hardcoded dev world earlier tasks booted straight into.
+let world: World;
+let player: Player;
+let cam: Camera;
+let input: ReturnType<typeof createInput>;
+let fx: ReturnType<typeof createFx>;
+let sink: ReturnType<typeof createEventSink>;
+let stopSimLoop: (() => void) | null = null;
+let pauseRaf = 0;
+let gameStarted = false; // false until the first beginRun() — guards `world.phase` reads
 
 /**
  * The frame drawn every requestAnimationFrame while the sim is advancing.
@@ -74,9 +85,6 @@ function drawFrozenFrame(): void {
   render(world, cam, 1, ctx, fx);
 }
 
-let stopSimLoop: (() => void) | null = null;
-let pauseRaf = 0;
-
 function startSimLoop(): void {
   stopSimLoop = startLoop(world, {
     collectInputs: tick => input.collect(tick),
@@ -84,6 +92,90 @@ function startSimLoop(): void {
     render: frame,
   });
 }
+
+/** ORIG/ui.js:169-171 — see the identical, deliberately-duplicated copy in
+ * app/forge.ts / ui/screens.ts / ui/settings.ts. */
+function mouseOnly(fn: () => void): (e: MouseEvent) => void {
+  return e => { if (e.detail !== 0) fn(); };
+}
+
+/**
+ * ORIG/engine.js:146-224 (`startGame`), run-state + lifecycle part — the
+ * player object itself is sim/player.ts's `createPlayer` (Task 9), the wave
+ * system is sim/run.ts's `startRun` (Task 15). This is also what every
+ * restart button (start/restart/victory-restart/pause-restart) calls.
+ */
+function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void {
+  // tear down whatever was running before — a no-op the very first time.
+  stopSimLoop?.();
+  stopSimLoop = null;
+  cancelAnimationFrame(pauseRaf);
+  input?.destroy();
+
+  const config = buildRunConfig(classKey, mode, playerName);
+  world = createWorld(config);
+  buildTilemap(); // fresh floor-tile variants each run, ORIG/engine.js:171,219
+  player = createPlayer(world, 'p1', classKey, playerName);
+  startRun(world);
+
+  cam = createCamera();
+  input = createInput(canvas, world, 'p1', cam, touch);
+  fx = createFx();
+  fx.setShakeEnabled(Save.data.settings.shake !== false);
+
+  sink = createEventSink({
+    fx,
+    playSfx: Sfx.play,
+    announce,
+    hurtFlash,
+    unlock: tryUnlock,
+    bossMusic: Sfx.setBossMode,
+    // The sim only ever does `setPhase(world, 'gameover' | 'victory')`
+    // (sim/player.ts, sim/run.ts) — it never touches Save. This is the one
+    // place app/ notices and settles the run (Step 4, ORIG/engine.js:
+    // 230-248 / entities.js:570-588).
+    onPhase: (_from, to) => {
+      if (to === 'gameover') {
+        Sfx.stopMusic();
+        Sfx.play('gameover');
+        finishRun(world, 'p1', false);
+        refreshClassRecord();
+      } else if (to === 'victory') {
+        Sfx.stopMusic(); // sim already emitted { t: 'sfx', name: 'victory' }
+        finishRun(world, 'p1', true);
+        refreshClassRecord();
+      }
+    },
+  });
+
+  showScreen(null);
+  dom.hud.classList.remove('hidden');
+  Sfx.init();
+  Sfx.startMusic();
+
+  gameStarted = true;
+  startSimLoop();
+}
+
+function startFromSelection(): void {
+  const { classKey, mode, playerName } = getSelection();
+  beginRun(classKey, mode, playerName);
+}
+
+/** ORIG/engine.js:228 (`quitGame`). */
+function quitGame(): void {
+  stopSimLoop?.();
+  stopSimLoop = null;
+  cancelAnimationFrame(pauseRaf); // Quit is only reachable from the pause screen — that RAF loop must not outlive it
+  gameStarted = false; // Escape must be a no-op again until the next run starts
+  dom.hud.classList.add('hidden');
+  showScreen('start');
+  Sfx.stopMusic();
+}
+
+dom.btnStart.addEventListener('click', mouseOnly(startFromSelection));
+dom.btnRestart.addEventListener('click', mouseOnly(startFromSelection));
+dom.btnVictoryRestart.addEventListener('click', mouseOnly(startFromSelection));
 
 /**
  * Pause is a property of app/, not of the world (task-18 boundary #2):
@@ -94,10 +186,11 @@ function startSimLoop(): void {
  * still update, but the simulation never advances and never learns a pause
  * exists. Resuming tears that down and starts a fresh sim loop, the same
  * way ORIG/engine.js:227 (`resumeGame`) reset `lastTime` to avoid a catch-up
- * jump.
+ * jump. Restart/quit (also wired by createPauseControl, Task 20) go through
+ * `beginRun`/`quitGame` above instead of resuming the old world.
  */
 createPauseControl(
-  () => world.phase,
+  () => (gameStarted ? world.phase : null),
   paused => {
     if (paused) {
       stopSimLoop?.();
@@ -109,6 +202,5 @@ createPauseControl(
       startSimLoop();
     }
   },
+  { onRestart: startFromSelection, onQuit: quitGame },
 );
-
-startSimLoop();
