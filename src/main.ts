@@ -74,7 +74,6 @@ function frame(w: World, alpha: number): void {
   updateHud(w, 'p1');
   syncScreens(w, 'p1');
   updateCamera(cam, player, canvas.width, canvas.height);
-  fx.update(DT_MS);
   render(w, cam, alpha, ctx, fx);
 }
 
@@ -86,10 +85,19 @@ function drawFrozenFrame(): void {
   render(world, cam, 1, ctx, fx);
 }
 
+/**
+ * `afterStep` runs once per FIXED tick (app/loop.ts:29-33 — inside the
+ * `while (acc >= DT_MS)` catch-up loop), while `render` runs once per
+ * rendered frame (app/loop.ts:35). `fx.update` takes a dtMs, so it belongs
+ * on the tick side: driving it from `frame()` aged the presentation fx at
+ * refreshRate/60 x real time (2.4x on a 144Hz display, 3x on 180Hz), which
+ * cut melee swing arcs, particles, damage numbers and screen shake short.
+ * `drawFrozenFrame` deliberately omits it — paused fx must hold still.
+ */
 function startSimLoop(): void {
   stopSimLoop = startLoop(world, {
     collectInputs: tick => input.collect(tick),
-    afterStep: w => { sink(drainEvents(w)); },
+    afterStep: w => { sink(drainEvents(w)); fx.update(DT_MS); },
     render: frame,
   });
 }
