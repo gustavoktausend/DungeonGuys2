@@ -24,10 +24,17 @@
 //    function's adjacent `setTimeout(victory, 1200)`, which this port
 //    already collapsed to a direct, synchronous `victory(world)` call (see
 //    below). `openShop` is called synchronously here too, for the same
-//    reason: it changes no gameplay outcome, only when the shop's DOM would
-//    have appeared, and `ui/screens.ts`'s `announce()` already runs its own
-//    independent 2600ms display timer for the banner regardless of what the
-//    phase underneath does. (Task 19.)
+//    reason. It is not entirely free, though, and Task 21 measured the
+//    difference: in the original the loop keeps running through those
+//    1500ms, so the player gets 1.5s more to hoover up coins after the last
+//    kill. That accounts for part of the gap between the original's 142-154
+//    gold at the end of wave 5 and this port's 130 (docs/PARIDADE.md). The
+//    effect is small and collapsing the delay is still the right call, but
+//    it is not "no gameplay outcome" — it is "a small one, in the player's
+//    favour, that this port drops". `ui/screens.ts`'s `announce()` already
+//    runs its own independent 2600ms display timer for the banner
+//    regardless of what the phase underneath does. (Task 19, measured in
+//    Task 21.)
 //  - `checkWaveComplete` -> shop.ts's `openShop` -> (eventually) `closeShop`
 //    -> this file's `startNextWave` is a two-file import cycle. Same shape,
 //    and same safety argument, as the already-documented enemies.ts<->boss.ts
@@ -221,6 +228,13 @@ export function startNextWave(world: World): void {
     // sqrt() makes the draw uniform over the disc's area, not over its
     // radius — without it the chest would crowd the player's feet.
     const r = Math.sqrt(world.rng.next()) * CHEST_RADIUS;
+    // The clamp keeps the original's `m = 90` margin, and it is the reason a
+    // player hugging a wall (they clamp to play.left + 10) sees chests pile
+    // up on the x = play.left + m line: roughly half the disc folds onto it.
+    // Harmless — the chest stays inside the play rect and no more than
+    // ~705px away — and it makes a chest land on top of the player LESS
+    // often than in the original, not more (P(r < 26) = 0.14% here against
+    // ~0.56% for the original's rectangle roll).
     world.chests.push({
       x: Math.max(world.play.left + m, Math.min(world.play.right - m, ax + Math.cos(angle) * r)),
       y: Math.max(world.play.top + m, Math.min(world.play.bottom - m, ay + Math.sin(angle) * r)),

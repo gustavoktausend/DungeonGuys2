@@ -111,11 +111,21 @@ Os dois grupos aparecem separados em tudo que depende disso.
 
 ## Combate
 
-- [x] Crítico, esquiva, bloqueio, lifesteal, burn, chill, poison
-      — crítico, lifesteal, burn e chill em `tests/combat.test.ts`;
-      esquiva e bloqueio em `tests/player.test.ts` ("dodge a 100% anula o
-      golpe e emite DODGE", "block é limitado a 75%"); burn e poison
-      drenando hp e expirando em `tests/enemies.test.ts`.
+- [x] Crítico, esquiva, bloqueio, lifesteal, burn, chill
+      — crítico, lifesteal, burn e chill em `tests/combat.test.ts`
+      ("crítico a 100% dobra e anuncia", "lifesteal a 100% cura 1 quando
+      ferido", "burn e chill aplicam seus efeitos quando procam"); esquiva
+      e bloqueio em `tests/player.test.ts` ("dodge a 100% anula o golpe e
+      emite DODGE", "block é limitado a 75%"); o burn drenando hp e
+      expirando em `tests/enemies.test.ts:122`.
+- [ ] **Poison** — **sem cobertura, nem a aplicação nem o dano ao longo do
+      tempo.** `applyPoison` (`src/sim/combat.ts:183`) só é chamado de
+      `src/sim/bullets.ts:86`
+      (`if (b.poison && !e.dead) applyPoison(e, b.poison.dps, b.poison.dur)`)
+      e nenhum teste passa por ali. Cuidado com o nome do teste
+      `tests/enemies.test.ts:122`, "burn e poison drenam hp e expiram": ele
+      só escreve `e.burnT`/`e.burnDps` e só asserta `e.burnT`. `poisonT` não
+      é escrito nem assertado em nenhum lugar da suíte.
 - [x] Pierce atravessa; fireball explode em área
       — `tests/combat.test.ts` ("pierce atravessa e não rebate no mesmo
       alvo"), `tests/special.test.ts` ("fireball do mago cria um projétil
@@ -130,21 +140,37 @@ Os dois grupos aparecem separados em tudo que depende disso.
 - [x] 16 waves na campanha; endless não termina
       — `tests/run.test.ts` ("a campanha vence ao limpar a última wave",
       "no endless não há vitória, só a próxima wave").
-- [x] Mini-boss nas waves 4 e 12; chefe nas 8 e 16
+- [x] Mini-boss nas waves 4 e 12; chefe na 16
       — `tests/boss.test.ts` ("as waves de mini-boss trazem o mini-boss
-      certo", "a wave final da campanha traz o chefe final", "waves comuns
-      não têm chefe") e `tests/defs.test.ts` ("as waves de mini-boss apontam
-      para inimigos existentes marcados como boss").
+      certo": 4 -> `goblin_chief`, 12 -> `necro_lord`; "a wave final da
+      campanha traz o chefe final": `WAVES_TOTAL` -> `ogre_warlord`; "waves
+      comuns não têm chefe": 1 e 3) e `tests/defs.test.ts` ("as waves de
+      mini-boss apontam para inimigos existentes marcados como boss").
+- [ ] Chefe na wave **8** — **sem cobertura**. O ramo `BOSS_WAVES[w]` de
+      `bossPlanForWave` (`src/sim/boss.ts:142`) é exercitado pela wave 16, e
+      a tabela é `BOSS_WAVES = { 8: 'zombie_king', 16: 'ogre_warlord' }`
+      (`src/sim/defs/enemies.ts:44`), então o mecanismo está provado — mas
+      nenhum teste asserta a chave 8, e o teste de tabela em
+      `tests/defs.test.ts` percorre apenas `MINIBOSS_WAVES`.
 - [x] Os 5 mutadores **aparecem**
-      — `tests/defs.test.ts` ("os 5 mutadores têm nome e descrição"). O
-      sorteio (`wave >= 3`, 40%, nunca em wave de chefe) está provado por
-      `tests/run.test.ts` ("waves de chefe não sorteiam mutador").
+      — `tests/defs.test.ts` ("os 5 mutadores têm nome e descrição"). Da
+      regra de sorteio, só a **exclusão em wave de chefe** tem teste:
+      `tests/run.test.ts:57-64` ("waves de chefe não sorteiam mutador")
+      entra na wave 4 e asserta `waveHasBoss === true` e
+      `waveMutator === null`.
 - [ ] Os 5 mutadores **fazem o que dizem** — parcial.
       `swarm`, `frenzy` e `bounty` estão provados em `tests/enemies.test.ts`.
       **Sem cobertura:** `elite` (a inundação de campeões é a
       `eliteChance` em `src/sim/enemies.ts:175-177`) e `fog` (visão
       limitada; é puramente `src/render/`, então também é *aguardando o
       humano*).
+- [ ] O portão `wave >= 3` e o sorteio de 40% do mutador — **sem
+      cobertura**. Os dois estão em `src/sim/run.ts:171`
+      (`!world.waveHasBoss && world.wave >= 3 && world.rng.next() < 0.4`) e
+      são fiéis ao original (`ORIG/engine.js:270`), mas nenhum teste entra
+      numa wave abaixo de 3 para confirmar que o mutador não sai, e nenhum
+      amostra a frequência. O teste citado acima prova só a cláusula do
+      chefe.
 - [ ] Elites a partir da wave 3 — **sem cobertura**. A trava está em
       `src/sim/enemies.ts:178` (`world.wave >= 3 && type !== 'mimic' && ...`)
       e é idêntica ao original (`ORIG/entities.js:192`), mas nenhum teste a
@@ -168,12 +194,12 @@ Os dois grupos aparecem separados em tudo que depende disso.
       cobertura** — *aguardando o humano*.
 - [ ] Desbloqueio de ninja (wave 6), coprobo (wave 10), witch (nível 8)
       — **sem cobertura**. A simulação emite os eventos
-      (`src/sim/run.ts:180-181` para ninja e coprobo, `src/sim/xp.ts:61`
+      (`src/sim/run.ts:187-188` para ninja e coprobo, `src/sim/xp.ts:61`
       para witch) e `src/ui/settings.ts:92` os consome, mas nenhum teste
       cobre a emissão nem o consumo. Ver também a questão aberta sobre
       coprobo mais abaixo.
 - [ ] Recordes por classe — *aguardando o humano*. `src/app/save.ts` +
-      `src/ui/settings.ts:76-88`, sem teste.
+      `src/ui/settings.ts:76-85` (`refreshClassRecord`), sem teste.
 
 ## Plataforma
 
@@ -343,11 +369,25 @@ aberto:
   também mais chance de o jogador se prender e de o pathing burro dos
   inimigos travar numa coluna.
 - **descer** deixa a arena mais vazia e mais rápida, com menos cobertura.
-- Cuidado ao mexer: `tests/arena.test.ts` ("escala a quantidade com a área
-  do mundo") usa uma tolerância `n * 1.5` que é apertada; uma mudança em
-  `AREA_SCALE` pode fazer esse teste falhar mesmo com implementação
-  correta. Se o valor mudar, a tolerância desse teste precisa ser revista
-  junto, deliberadamente.
+- Cuidado ao mexer, **nos dois sentidos, e são dois testes diferentes**:
+  - **descer** quebra `tests/arena.test.ts:37-41` ("escala a quantidade com
+    a área do mundo"), que exige `obstacles.length >= 16` e
+    `traps.length >= 8` — só um piso, sem razão nem tolerância. O piso de
+    colunas/caixas é `round(4 * AREA_SCALE)`, então qualquer `AREA_SCALE`
+    abaixo de **3,875** derruba a asserção de obstáculos (e abaixo de 3,75
+    a de armadilhas).
+  - **descer** também pode quebrar `tests/arena.test.ts:43-49` ("regenerar
+    zera o que havia antes"), que é o teste com a tolerância apertada
+    `n * 1.5` (linha 48) — é este, e não o de cima, o teste que o minor
+    adiado da Task 8 nomeou. Duas gerações seguidas sorteiam
+    `want ∈ {round(4·AS), round(5·AS), round(6·AS)}` de forma independente,
+    então a razão entre a maior e a menor encosta em 1,5 por construção e é
+    o arredondamento que decide. Com AS = 4,1667 os valores são
+    {17, 21, 25} e 25 ≤ 17 × 1,5 = 25,5 passa raspando; com AS = 3,6 seriam
+    {14, 18, 22} e 22 > 14 × 1,5 = 21 falha.
+  - Em qualquer um dos casos o limiar/tolerância do teste tem que ser
+    revisto junto, deliberadamente — não é o teste que está errado, é a
+    constante que mudou debaixo dele.
 
 ### Números lado a lado da run de 5 waves
 
@@ -371,7 +411,7 @@ As durações de wave batem quase exatamente — é a evidência mais forte de
 que o ritmo do combate foi preservado. O ouro do original vem um pouco
 mais alto em parte porque o original dá 1,5s de folga depois do último kill
 antes de abrir a loja (`setTimeout(openShop, 1500)` em
-`ORIG/entities.js:568`) e o jogo continua rodando nesse intervalo,
+`ORIG/entities.js:566`) e o jogo continua rodando nesse intervalo,
 recolhendo moeda; o porte chama `openShop` direto (desvio deliberado da
 Task 19, documentado no cabeçalho de `src/sim/run.ts`). É o único desvio de
 tempo com efeito mensurável em recurso, e é pequeno.
@@ -420,7 +460,7 @@ uma carta de classe aparece trancada. O `ORIG/engine.js:287` ainda chama
 redundante no próprio original.
 
 O porte reproduz isso exatamente: `src/ui/settings.ts:48-52` não tem
-entrada para coprobo, e `src/sim/run.ts:181` ainda emite
+entrada para coprobo, e `src/sim/run.ts:188` ainda emite
 `{ t: 'unlock', cls: 'coprobo' }` na wave 10, pela mesma razão de
 fidelidade.
 
