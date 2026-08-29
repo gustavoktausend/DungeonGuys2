@@ -184,17 +184,83 @@ Reconhecidos e adiados. Não entram no roadmap atual.
 
 ## Traceability
 
-Preenchido na criação do roadmap.
+Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| — | — | Pending |
+| FORM-01 | Phase 1 | Pending |
+| FORM-02 | Phase 1 | Pending |
+| FORM-03 | Phase 1 | Pending |
+| FORM-04 | Phase 1 | Pending |
+| FORM-05 | Phase 1 | Pending |
+| FORM-06 | Phase 1 | Pending |
+| FORM-07 | Phase 1 | Pending |
+| FORM-08 | Phase 1 | Pending |
+| FORM-09 | Phase 1 | Pending |
+| FORM-10 | Phase 1 | Pending |
+| FORM-11 | Phase 1 | Pending |
+| FORM-12 | Phase 1 | Pending |
+| INFRA-01 | Phase 2 | Pending |
+| INFRA-02 | Phase 2 | Pending |
+| INFRA-03 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Pending |
+| SALA-01 | Phase 3 | Pending |
+| SALA-02 | Phase 3 | Pending |
+| SALA-03 | Phase 3 | Pending |
+| SALA-04 | Phase 3 | Pending |
+| SALA-05 | Phase 3 | Pending |
+| SYNC-04 | Phase 3 | Pending |
+| SYNC-01 | Phase 4 | Pending |
+| SYNC-02 | Phase 4 | Pending |
+| SYNC-03 | Phase 4 | Pending |
+| COOP-01 | Phase 5 | Pending |
+| COOP-02 | Phase 5 | Pending |
+| COOP-03 | Phase 5 | Pending |
+| COOP-04 | Phase 5 | Pending |
+| COOP-05 | Phase 5 | Pending |
+| COOP-06 | Phase 5 | Pending |
+| COOP-07 | Phase 5 | Pending |
+| TEMP-04 | Phase 5 | Pending |
+| CONTA-01 | Phase 6 | Pending |
+| CONTA-02 | Phase 6 | Pending |
+| CONTA-03 | Phase 6 | Pending |
+| CONTA-04 | Phase 6 | Pending |
+| CONTA-05 | Phase 6 | Pending |
+| CONTA-06 | Phase 6 | Pending |
+| TEMP-03 | Phase 6 | Pending |
+| ARTE-01 | Phase 7 | Pending |
+| ARTE-02 | Phase 7 | Pending |
+| MISS-01 | Phase 8 | Pending |
+| MISS-02 | Phase 8 | Pending |
+| MISS-03 | Phase 8 | Pending |
+| RANK-01 | Phase 9 | Pending |
+| RANK-02 | Phase 9 | Pending |
+| RANK-03 | Phase 9 | Pending |
+| RANK-04 | Phase 9 | Pending |
+| TEMP-01 | Phase 9 | Pending |
+| TEMP-02 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 51 total
-- Mapped to phases: 0
-- Unmapped: 51 ⚠️
+- Mapped to phases: 51 ✓
+- Unmapped: 0
+
+**Notas de mapeamento** (onde o roadmap não seguiu a categoria):
+
+- **SYNC-04 → Phase 3**, não Phase 4. O codec binário quantizado é decisão de protocolo, não
+  otimização de sincronização: o `World` serializado já ocupa 13,8 KB com 4 jogadores na wave 1
+  contra 16 KiB de limite de DataChannel. O formato é definido na fase que define o fio; o
+  encoder é exercido na fase 4.
+- **TEMP-04 → Phase 5**, não a fase final. Reconexão está no bloco de table stakes da pesquisa
+  de features, junto com o indicador de conexão. Na fase final seria cortável; não é.
+- **TEMP-03 → Phase 6**. Progressão durável só existe depois que a conta existe; é o checkpoint
+  por wave concluída que a pesquisa já listava como entrega da fase de contas.
+- **TEMP-01 e TEMP-02 → Phase 9**, junto com o ranking. Temporadas são a estratégia de
+  versionamento do placar, não uma feature de fim de projeto: o esquema `(temporada,
+  SIM_VERSION)` precisa existir antes do primeiro board público.
+- **FORM-09 → Phase 1** apesar de a integração de arte (ARTE-01/02) só acontecer na Phase 7:
+  a spec destrava outro agente em outro repositório e tem o maior lead time do marco.
 
 ---
 *Requirements defined: 2026-08-29*
-*Last updated: 2026-08-29 after initial definition*
+*Last updated: 2026-08-29 — rastreabilidade preenchida na criação do roadmap*
