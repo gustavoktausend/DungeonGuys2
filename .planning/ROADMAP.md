@@ -121,7 +121,53 @@ outro agente, em outro repositório, e é o item de maior lead time do marco.
   3. Uma requisição a `/api/` nunca é servida do cache, uma resposta não-`ok` nunca é gravada nele, e um deploy novo não deixa o cache velho para trás.
   4. O deploy é um comando e é reversível; o backup do banco foi **restaurado** num ambiente limpo e o resultado da restauração está anotado.
 
-**Plans**: 3 (estimativa)
+**Plans**: 12 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Repositório publicado sem levar o Pages junto: `deploy.yml` apagado, INFRA-01 virando teste, e o `ci.yml` verde num runner pela primeira vez
+- [ ] 02-02-PLAN.md — `base: '/'`, caminhos absolutos de raiz e as duas fontes trazidas para a própria origem
+- [ ] 02-03-PLAN.md — `ops/`: Caddyfile, release por sha com symlink atômico, reversão sem rede, e o runbook
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-04-PLAN.md — A caixa e o bucket confirmados, a chave de deploy criada, e `docs/OPERACAO.md` aberto
+- [ ] 02-05-PLAN.md — Playwright, a fixture do build antigo congelada, e as specs de instalação e offline em vermelho
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-06-PLAN.md — O service worker derivado do build: template com sentinelas, `sw:emit` e `sw:verify`
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-07-PLAN.md — O aviso de atualização que só troca de versão fora de partida
+- [ ] 02-08-PLAN.md — `apps/server`: workspace confinado, migração da tabela do ledger e `/api/health` em loopback
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 02-09-PLAN.md — As duas specs que provam INFRA-03 e o job `pwa` no CI
+- [ ] 02-10-PLAN.md — `dg2.service`, Litestream, `cert-check` e o ensaio de restauração em código
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 02-11-PLAN.md — O job `deploy` no `ci.yml` e o empacotamento do servidor
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 02-12-PLAN.md — A caixa de verdade: primeiro certificado, deploy, reversão, restauração e o vigia
+
+**Sequência interna que não pode ser trocada**: `tests/pwa/fixtures/old-build/` é congelada no
+plano 02-05 — **depois** da mudança de `base` (02-02, para que o escopo do service worker
+antigo já seja `/`) e **antes** da reescrita do `sw.js` (02-06). Fora dessa janela a fixture
+nasce sendo o build novo, e o teste de atualização do critério 2 passa por vacuidade. O
+`depends_on` de 02-05 e de 02-06 é o que amarra isso.
+
+**Escopo novo, medido pela pesquisa e não previsto na discussão** (`02-RESEARCH.md` DM-1): o
+repositório nunca foi publicado — `git remote -v` vazio, 161 commits, e a API do GitHub
+respondendo 404. **O `ci.yml` nunca rodou num runner.** O plano 02-01 existe por isso, e apaga
+o `deploy.yml` antes do primeiro push, para que o primeiro deploy do projeto no GitHub Pages
+não aconteça por acidente (D2-18).
 
 **Nota de operação**: o Let's Encrypt encerrou o aviso de expiração por e-mail em jun/2025 —
 o monitoramento externo do certificado é parte do critério 1, não item separado.
