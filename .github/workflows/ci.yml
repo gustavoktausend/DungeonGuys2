@@ -28,6 +28,24 @@ jobs:
       # upgrade de Vite ou de TypeScript, que por D-07 fecha a temporada.
       - run: npm run sim:version:verify
 
+      # FORM-09: a spec de assets so vale se a recusa for executavel. Os tres
+      # passos rodam DEPOIS de sim:version:verify porque ele termina reconstruindo
+      # packages/sim/dist/sim.js, que e de onde as hitboxes de ENEMY_DEFS sao
+      # lidas -- o validador recusa a rodar sem ele.
+      #   selftest  prova a aceitacao (fixtures/good, com o caso de hitbox maior
+      #             que o sprite que so a tolerancia por entrada admite)
+      #   refusal   prova que o manifesto quebrado NAO passa, e que a recusa
+      #             aponta os tres defeitos por nome -- criterio de sucesso 5 da
+      #             fase. Um portao que so testa aceitacao nao testa nada
+      #   validate  roda contra public/assets, que e por onde a arte de verdade
+      #             chega: PR de outro repositorio, sem revisao humana antes do
+      #             CI (T-1-04). Hoje o diretorio nao tem manifesto e o passo e
+      #             verde por vacuidade; ele existe para ja estar aqui no dia em
+      #             que o primeiro lote chegar
+      - run: npm run assets:selftest
+      - run: npm run assets:refusal
+      - run: npm run assets:validate
+
       # A versao exata do Playwright e a variavel do experimento de determinismo:
       # um cache compartilhado entre versoes diferentes invalida o portao.
       - id: playwright-version

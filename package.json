@@ -18,6 +18,9 @@
     "sim:version": "node tools/sim-version/emit.mjs",
     "sim:version:verify": "node tools/sim-version/verify.mjs",
     "golden:rebaseline": "node tools/golden/rebaseline.mjs",
+    "assets:validate": "node tools/assets/validate.mjs",
+    "assets:selftest": "node tools/assets/validate.mjs tools/assets/fixtures/good",
+    "assets:refusal": "node tools/assets/refusal-check.mjs",
     "lint": "eslint ."
   },
   "dependencies": {},

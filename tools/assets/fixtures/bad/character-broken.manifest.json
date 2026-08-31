@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schema/manifest.v1.json",
+  "schemaVersion": 1,
+  "sheet": {
+    "file": "character-broken.png",
+    "width": 256,
+    "height": 288,
+    "format": "png32",
+    "premultipliedAlpha": false
+  },
+  "frameWidth": 64,
+  "frameHeight": 72,
+  "pivot": { "x": 32, "y": 36 },
+  "spriteScale": 2,
+  "animations": {
+    "idle": { "row": 0, "column": 0, "frameCount": 4, "frameDurationMs": 140 },
+    "run": { "row": 1, "column": 0, "frameCount": 4, "frameDurationMs": 140 }
+  },
+  "characters": {
+    "mage": { "row": 0 }
+  },
+  "entities": {
+    "brute": {
+      "row": 2,
+      "column": 0,
+      "spriteWidth": 40,
+      "spriteHeight": 44,
+      "scale": 1,
+      "hitboxTolerance": { "x": 0.82, "y": 0.87 }
+    }
+  }
+}
