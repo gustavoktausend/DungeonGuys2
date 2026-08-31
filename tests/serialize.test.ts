@@ -1,4 +1,5 @@
-// serialize.test.ts — FORM-07, half of success criterion 3 of the phase.
+// serialize.test.ts — FORM-07 and FORM-08, which together are success
+// criterion 3 of the phase.
 //
 // THE HASH CANNOT BE THE ONLY WITNESS OF ITS OWN SERIALISATION PATH. That
 // sentence is the reason this file has the shape it has, and the reason it
@@ -19,9 +20,12 @@
 // banned across this whole phase for the same family of reasons.
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, runTicks, hashWorld } from './helpers';
-import { createPlayer, INDESTRUCTIBLE_HP, loadWorld, saveWorld, startRun } from '@dg2/sim';
-import type { InputState, World } from '@dg2/sim';
-import { quantize } from '@dg2/protocol';
+import {
+  createPlayer, createWorld, drainEvents,
+  INDESTRUCTIBLE_HP, loadWorld, saveWorld, startRun,
+} from '@dg2/sim';
+import type { InputState, ObjectiveKind, ObjectiveState, World } from '@dg2/sim';
+import { OBJECTIVE_KIND, quantize } from '@dg2/protocol';
 
 /** `-0` printed as itself, so a failure message is readable. */
 function show(v: unknown): string {
@@ -91,6 +95,24 @@ function findNegativeZero(value: unknown, path = '$', seen = new Set<object>()):
   }
   const out: string[] = [];
   for (const [k, v] of Object.entries(value)) out.push(...findNegativeZero(v, `${path}.${k}`, seen));
+  return out;
+}
+
+/**
+ * Every node that is not plain JSON data — a Map, a Set, or any class
+ * instance — by path. Empty means the value is carryable by the format.
+ *
+ * It does not descend into an offender: naming the container is the useful
+ * answer, and walking a class's private fields would bury it in noise.
+ */
+function nonPlainNodes(value: unknown, path: string): string[] {
+  if (typeof value !== 'object' || value === null) return [];
+  if (value instanceof Map || value instanceof Set) return [`${path}: Map/Set`];
+  const proto = Object.getPrototypeOf(value) as object | null;
+  if (proto !== Object.prototype && proto !== Array.prototype) return [`${path}: instância de classe`];
+
+  const out: string[] = [];
+  for (const [k, child] of Object.entries(value)) out.push(...nonPlainNodes(child, `${path}.${k}`));
   return out;
 }
 
@@ -274,5 +296,88 @@ describe('os dois contratos do serialize.ts', () => {
       return hashWorld(w);
     };
     expect(new Set([mk(NaN), mk(Infinity), mk(-Infinity), mk(0)]).size).toBe(4);
+  });
+});
+
+describe('FORM-08 — objetivos de missão como campo do World', () => {
+  /**
+   * The simulation's `ObjectiveKind` is a TYPE, so it has no runtime list to
+   * compare against. A `Record` keyed by it does have one, and it is exhaustive
+   * BY CONSTRUCTION: adding a kind to the union without listing it here is a
+   * compile error, and listing one that is not in the union is too. That is
+   * what makes the parity test below able to fail in both directions.
+   */
+  const SIM_OBJECTIVE_KIND_INDEX: Record<ObjectiveKind, number> = {
+    none: 0, defend: 1, hunt: 2, purge: 3, fetch: 4, extract: 5,
+  };
+  const SIM_OBJECTIVE_KIND = (Object.keys(SIM_OBJECTIVE_KIND_INDEX) as ObjectiveKind[])
+    .sort((x, y) => SIM_OBJECTIVE_KIND_INDEX[x] - SIM_OBJECTIVE_KIND_INDEX[y]);
+
+  const twoObjectives: ObjectiveState[] = [
+    { kind: 'hunt', status: 'active', progress: 3, target: 10, ticksLeft: -1, marks: [7, 11, 13] },
+    { kind: 'extract', status: 'inactive', progress: 0, target: 1, ticksLeft: 3600, marks: [] },
+  ];
+
+  it('objectives nasce em createWorld, é array e vale [] numa run de campanha', () => {
+    const w = makeTestWorld();
+    expect(Array.isArray(w.objectives)).toBe(true);
+    expect(w.objectives.length).toBe(0);
+    expect(createWorld(w.config).objectives.length).toBe(0);
+  });
+
+  it('objectives populado sobrevive ao round-trip campo a campo', () => {
+    const w = busyWorld();
+    w.objectives = twoObjectives.map(o => ({ ...o, marks: [...o.marks] }));
+    const back = roundTrip(w);
+    expect(back.objectives.length).toBe(2);
+    expect(diffStrict(w.objectives, back.objectives, '$.objectives').join('\n')).toBe('');
+  });
+
+  it('drainEvents não remove nem altera objectives', () => {
+    // The executable form of ADR 0012's deliberate exception: events are the
+    // sim's only output, and `objectives` is the one piece of state that is
+    // NOT one — because what app/ drained leaves no trace in the snapshot, so
+    // an objective reached by event would be unverifiable by replay.
+    const w = makeTestWorld();
+    createPlayer(w, 'p1', 'mage', 'T');
+    w.objectives = twoObjectives.map(o => ({ ...o, marks: [...o.marks] }));
+    w.events.push({ t: 'announce', text: 'objetivo' });
+
+    const drained = drainEvents(w);
+    expect(drained.length).toBe(1);
+    expect(w.events.length).toBe(0);
+    expect(w.objectives.length).toBe(2);
+    expect(diffStrict(w.objectives, twoObjectives, '$.objectives').join('\n')).toBe('');
+  });
+
+  it('a tabela de objetivos do sim e a do protocolo são idênticas e na mesma ordem', () => {
+    // The sim cannot import @dg2/protocol — `dependencies: {}` in packages/sim
+    // is an invariant — so the list exists twice, and this test importing both
+    // is the only thing keeping them from drifting. Compared IN ORDER, because
+    // OBJECTIVE_KIND is append-only and the index IS the wire value: a
+    // reordering makes a message written as 'hunt' read as 'purge', silently,
+    // somewhere else, later.
+    expect(SIM_OBJECTIVE_KIND.join(',')).toBe([...OBJECTIVE_KIND].join(','));
+    expect(SIM_OBJECTIVE_KIND.length).toBe(OBJECTIVE_KIND.length);
+    expect(SIM_OBJECTIVE_KIND_INDEX.none).toBe(OBJECTIVE_KIND.indexOf('none'));
+  });
+
+  it('objectives é JSON-safe: nada de Map, Set ou instância de classe no serializado', () => {
+    const w = busyWorld();
+    w.objectives = twoObjectives.map(o => ({ ...o, marks: [...o.marks] }));
+    const data = saveWorld(w);
+
+    expect(nonPlainNodes(data.objectives, '$.objectives').join('\n')).toBe('');
+    // And not just objectives: the whole serialised world is plain data, which
+    // is the property the format rests on.
+    expect(nonPlainNodes(data, '$').join('\n')).toBe('');
+    expect(typeof data.rng).toBe('number');
+
+    // The scan proves nothing unless it can find something. Run it on the LIVE
+    // world and it must report exactly one offender — which is also the
+    // executable form of the claim loadWorld's comment makes: `world.rng` is
+    // THE only class instance in the World, so it is the only revive. The day
+    // a second one is added, this line names it.
+    expect(nonPlainNodes(w, '$').join('\n')).toBe('$.rng: instância de classe');
   });
 });
