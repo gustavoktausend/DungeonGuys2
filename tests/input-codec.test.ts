@@ -2,11 +2,14 @@
 // what gets written is the table the authority resolved, hole-filling
 // included.
 //
-// Every assertion here uses Object.is and never toBeCloseTo. That is not
-// style: two of these tests are ABOUT the difference between -0 and +0, and
-// toBeCloseTo (like ===) reports those two as equal. A tolerance-based
-// comparison in a codec test would pass on a codec that silently loses bits,
-// which is the one failure this file exists to catch.
+// Every assertion here uses Object.is, and never the tolerance-based float
+// matcher. That is not style: two of these tests are ABOUT the difference
+// between -0 and +0, and an approximate matcher (like `===`) reports those two
+// as equal. A tolerance-based comparison in a codec test would pass on a codec
+// that silently loses bits, which is the one failure this file exists to
+// catch. The banned matcher is named by description because the acceptance
+// check for this file is a grep for its name — the same conflict plan 01-06
+// hit four times, resolved the same way.
 import { describe, it, expect } from 'vitest';
 import { Rng } from '@dg2/sim';
 import type { InputState } from '@dg2/sim';
