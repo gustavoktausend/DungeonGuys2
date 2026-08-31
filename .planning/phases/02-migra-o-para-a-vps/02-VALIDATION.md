@@ -1,8 +1,8 @@
 ---
 phase: 2
 slug: migra-o-para-a-vps
-status: draft
-nyquist_compliant: false
+status: mapeado (planos 02-01 a 02-12)
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-08-31
 ---
@@ -50,21 +50,30 @@ created: 2026-08-31
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | INFRA-01 | — | `base` é `'/'`; nada em `dist/` carrega `/DungeonGuys2/` | unit | `npx vitest run tests/build-base.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-01 | — | Nenhum workflow publica no GitHub Pages | unit | `npx vitest run tests/workflows.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-01 | T-2-TLS | Domínio serve HTTPS com certificado válido | shell (VPS) | `ops/cert-check.sh` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-01 | T-2-TLS | Certificado com >30 dias, continuamente | timer + monitor externo | `systemctl start cert-check.service` · monitor externo em `/api/health` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-02 | — | Instalação limpa: SW ativa e o precache cobre todo o `dist/` | e2e | `npx playwright test tests/pwa/install.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-02 | — | Offline depois da instalação, **sem nunca ter jogado** | e2e | `npx playwright test tests/pwa/offline.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-02 | — | Manifesto instalável: `scope`/`start_url` batem com o escopo do SW | e2e | `npx playwright test tests/pwa/install.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-03 | T-2-CACHE | `/api/*` nunca entra no Cache Storage | e2e | `npx playwright test tests/pwa/api-isolation.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-03 | T-2-CACHE | Resposta não-`ok` nunca é gravada no cache | e2e | `npx playwright test tests/pwa/api-isolation.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-03 | — | Nome do cache deriva do build; update deixa **um** cache | e2e | `npx playwright test tests/pwa/update.spec.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-03 | — | O passo de build rodou de verdade (sem sentinela sobrando) | build gate | `npm run sw:verify` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-04 | — | Deploy é um comando e é reversível | shell (VPS) | `ops/deploy.sh <sha>` · `ops/rollback.sh` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-04 | — | Migração roda e é idempotente (dois starts seguidos) | integração | `npx vitest run tests/server-migrate.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-04 | T-2-LEAK | `/api/health` responde 200 e não vaza nada não-público | integração | `npx vitest run tests/server-health.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | INFRA-04 | — | Backup **restaurado** e conferido contra o banco vivo | shell (VPS) | `node tools/ops/restore-verify.mjs` | ❌ W0 | ⬜ pending |
+| 02-02 T1 | 02-02 | 1 | INFRA-01 | — | `base` e `'/'`; nenhuma fonte carrega `/DungeonGuys2/` | unit | `npx vitest run tests/build-base.test.ts` | ❌ W0 | ⬜ pending |
+| 02-06 T3 | 02-06 | 3 | INFRA-01 | — | Nenhum arquivo emitido em `dist/` carrega `/DungeonGuys2/` (metade de artefato: `npm test` roda antes de `npm run build` no CI) | build gate | `npm run build && npm run sw:verify` | ❌ W0 | ⬜ pending |
+| 02-01 T1 | 02-01 | 1 | INFRA-01 | T-2-PAGES | Nenhum workflow publica no GitHub Pages | unit | `npx vitest run tests/workflows.test.ts` | ❌ W0 | ⬜ pending |
+| 02-10 T2 | 02-10 | 5 | INFRA-01 | T-2-TLS | O script de vigilancia local do certificado existe e falha por codigo de saida | estrutural | `sh -n ops/cert-check.sh && npx vitest run tests/ops-config.test.ts` | ❌ W0 | ⬜ pending |
+| 02-12 T1 | 02-12 | 7 | INFRA-01 | T-2-TLS | Dominio serve HTTPS com certificado valido, emitido no primeiro boot | shell (VPS) | `ops/cert-check.sh` | ❌ W0 | ⬜ pending |
+| 02-12 T3 | 02-12 | 7 | INFRA-01 | T-2-TLS / T-2-MUTE | Certificado com mais de 30 dias, continuamente, e o monitor externo ja ficou verde **e** vermelho | timer + monitor externo | `systemctl start cert-check.service` · monitor externo em `/api/health` | ❌ W0 | ⬜ pending |
+| 02-05 T3 → 02-06 T3 | 02-05 / 02-06 | 2 → 3 | INFRA-02 | — | Instalacao limpa: SW ativa e o precache cobre todo o `dist/`. Escrita em VERMELHO no 02-05, vira verde no 02-06 | e2e | `npx playwright test tests/pwa/install.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-05 T3 → 02-06 T3 | 02-05 / 02-06 | 2 → 3 | INFRA-02 | — | Offline depois da instalacao, **sem nunca ter jogado**, com zero falha de rede da propria origem (possivel por D2-20) | e2e | `npx playwright test tests/pwa/offline.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-05 T3 | 02-05 | 2 | INFRA-02 | — | Manifesto instalavel: `scope`/`start_url` batem com o escopo do SW | e2e | `npx playwright test tests/pwa/install.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-05 T2 | 02-05 | 2 | INFRA-02 | T-2-VACUOUS | A fixture da instalacao antiga e o worker de ANTES da reescrita, e foi construida DEPOIS da mudanca de `base` | unit | `npx vitest run tests/build-base.test.ts` | ❌ W0 | ⬜ pending |
+| 02-07 T1 | 02-07 | 4 | INFRA-02 | T-2-STUCK | Todo id resolvido em `dom.ts` existe no `index.html`, inclusive `btn-update` | unit | `npx vitest run tests/dom-ids.test.ts` | ❌ W0 | ⬜ pending |
+| 02-09 T2 | 02-09 | 5 | INFRA-03 | T-2-CACHE | `/api/*` nunca entra em nenhum cache da origem | e2e | `npx playwright test tests/pwa/api-isolation.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-09 T2 | 02-09 | 5 | INFRA-03 | T-2-STALE | Resposta nao-`ok` nunca e gravada, e uma 200 seguinte E gravada (guarda anti-vacuidade) | e2e | `npx playwright test tests/pwa/api-isolation.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-09 T1 | 02-09 | 5 | INFRA-03 | T-2-STALECACHE | Nome do cache deriva do build; a atualizacao deixa **um** cache e apaga `dungeonguys2-v1` | e2e | `npx playwright test tests/pwa/update.spec.ts` | ❌ W0 | ⬜ pending |
+| 02-06 T3 | 02-06 | 3 | INFRA-03 | T-2-SILENT | O passo de build rodou de verdade (sem sentinela sobrando, precache batendo com o `dist/`) | build gate | `npm run sw:verify` | ❌ W0 | ⬜ pending |
+| 02-09 T3 | 02-09 | 5 | INFRA-02 / INFRA-03 | — | Os quatro testes de PWA rodam no CI a cada push | pipeline | `npm run build && npm run sw:verify && npm run test:pwa` | ❌ W0 | ⬜ pending |
+| 02-03 T1..T3 | 02-03 | 1 | INFRA-01 / INFRA-04 | T-2-404 / T-2-ROLLBACK / T-2-KEY | Caddyfile sem `try_files` e com `{$VAR}`; symlink trocado com `mv -T`; rollback sem rede; nenhum segredo nem IPv4 em `ops/` | estrutural | `npx vitest run tests/ops-config.test.ts` | ❌ W0 | ⬜ pending |
+| 02-08 T1 | 02-08 | 4 | INFRA-04 | T-2-DEPLEAK | A raiz continua com `dependencies` vazio e `apps/server` tem exatamente as quatro dependencias | unit | `npx vitest run tests/workspaces.test.ts` | ❌ W0 | ⬜ pending |
+| 02-08 T2 | 02-08 | 4 | INFRA-04 | T-2-DATA | Migracao roda e e idempotente (dois starts seguidos); colunas iguais ao `LedgerEvent` canonico | integracao | `npx vitest run tests/server-migrate.test.ts` | ❌ W0 | ⬜ pending |
+| 02-08 T3 | 02-08 | 4 | INFRA-04 | T-2-LEAK / T-2-BIND | `/api/health` responde 200, com exatamente tres chaves, e escuta em loopback | integracao | `npx vitest run tests/server-health.test.ts` | ❌ W0 | ⬜ pending |
+| 02-10 T1 | 02-10 | 5 | INFRA-04 | T-2-MEM / T-2-LOOP / T-2-SECRET | `MemoryMax` pareado com o heap do V8, `StartLimitBurst`, `replica` singular, e nenhum segredo literal | estrutural | `npx vitest run tests/ops-config.test.ts` | ❌ W0 | ⬜ pending |
+| 02-11 T1..T2 | 02-11 | 6 | INFRA-01 / INFRA-04 | T-2-SSH / T-2-SC / T-2-RACE | Sem `ssh-keyscan`, sem `StrictHostKeyChecking=no`, `concurrency` presente, e so acoes da propria GitHub | unit | `npx vitest run tests/workflows.test.ts` | ❌ W0 | ⬜ pending |
+| 02-12 T2 | 02-12 | 7 | INFRA-04 | T-2-ROLLBACK | Deploy e um comando e e reversivel, com o GitHub irrelevante na reversao | shell (VPS) | `ops/deploy.sh <sha>` · `ops/rollback.sh` | ❌ W0 | ⬜ pending |
+| 02-12 T3 | 02-12 | 7 | INFRA-04 | T-2-BACKUP | Backup **restaurado** e conferido contra o banco vivo, com prova de recusa | shell (VPS) | `node tools/ops/restore-verify.mjs` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
