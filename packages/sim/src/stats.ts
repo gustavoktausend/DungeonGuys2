@@ -62,15 +62,7 @@ export function applyMods(p: Player, mods: Mods): void {
   if (heal) p.hp = Math.min(p.maxHp, p.hp + heal);
 }
 
-export const STAT_LABELS: Record<string, string> = {
-  hpRegen: 'HP REGEN', lifeSteal: 'LIFESTEAL', dmgPct: 'DAMAGE',
-  meleeDmg: 'MELEE DMG', rangedDmg: 'RANGED DMG', elementalDmg: 'ELEM DMG',
-  atkSpeedPct: 'ATK SPEED', crit: 'CRIT', armor: 'ARMOR',
-  dodge: 'DODGE', range: 'RANGE', speedPct: 'SPEED', luck: 'LUCK',
-  stamina: 'STAMINA', maxHp: 'MAX HP', burn: 'BURN', chill: 'CHILL', block: 'BLOCK',
-};
-
-export const PCT_STATS = new Set([
-  'dmgPct', 'atkSpeedPct', 'speedPct', 'crit', 'dodge',
-  'lifeSteal', 'luck', 'burn', 'chill', 'block',
-]);
+// The two HUD label tables that used to close this file now live in
+// src/ui/labels.ts. They were pure presentation, so their bytes had no
+// business inside the hash that decides which runs share a ranking season
+// (D-06). Nothing in the simulation ever read them.

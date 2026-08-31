@@ -35,6 +35,7 @@ import { emit } from './world';
 import { DT_MS, TICK_FACTOR, WORLD, WAVES_TOTAL } from './constants';
 import { BOSS_WAVES, MINIBOSS_WAVES } from './defs/enemies';
 import { makeEnemy, nearestPlayer, SPAWN_MIN, SPAWN_MAX } from './enemies';
+import { cos, sin } from './math';
 import type { Enemy, World } from './types';
 
 /** ORIG/entities.js:303-309, with the spawn-position deviation (see file header). */
@@ -113,7 +114,7 @@ export function updateBossPattern(world: World, e: Enemy, dx: number, dy: number
       const a = (i / n) * Math.PI * 2;
       world.enemyBullets.push({
         x: e.x, y: e.y,
-        vx: Math.cos(a) * 3.8, vy: Math.sin(a) * 3.8,
+        vx: cos(a) * 3.8, vy: sin(a) * 3.8,
         dmg: 12, dist: 0, dead: false,
       });
     }

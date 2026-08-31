@@ -64,13 +64,26 @@ let pauseRaf = 0;
 let gameStarted = false; // false until the first beginRun() — guards `world.phase` reads
 
 /**
+ * The slot this machine plays. FORM-01/D-30 numbers the slots p0..p3, and this
+ * app has always occupied the first one — it just used to spell that slot with
+ * a one-based name, repeated as a literal in six places.
+ *
+ * The name matters more than the number. `playerId` is the slot the AUTHORITY
+ * assigns and the replay knows; it is not `accountId` (the durable server ULID,
+ * which never enters the World) and it is not `peerId` (a transport handle that
+ * dies with the connection). When phase 4 makes this value arrive from a lobby
+ * instead of being a constant, this is the single line that stops being one.
+ */
+const LOCAL_SLOT = 'p0';
+
+/**
  * The frame drawn every requestAnimationFrame while the sim is advancing.
  * `updateHud`/`syncScreens` are called once per frame here, reading `world`
  * — no game or sim code pushes to the DOM (T1, task-18-brief.md).
  */
 function frame(w: World, alpha: number): void {
-  updateHud(w, 'p1');
-  syncScreens(w, 'p1');
+  updateHud(w, LOCAL_SLOT);
+  syncScreens(w, LOCAL_SLOT);
   updateCamera(cam, player, canvas.width, canvas.height);
   render(w, cam, alpha, ctx, fx);
 }
@@ -116,11 +129,11 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
   const config = buildRunConfig(classKey, mode, playerName);
   world = createWorld(config);
   buildTilemap(); // fresh floor-tile variants each run, ORIG/engine.js:171,219
-  player = createPlayer(world, 'p1', classKey, playerName);
+  player = createPlayer(world, LOCAL_SLOT, classKey, playerName);
   startRun(world);
 
   cam = createCamera();
-  input = createInput(canvas, world, 'p1', cam, touch);
+  input = createInput(canvas, world, LOCAL_SLOT, cam, touch);
   fx = createFx();
   fx.setShakeEnabled(Save.data.settings.shake !== false);
 
@@ -143,11 +156,11 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
       if (to === 'gameover') {
         Sfx.stopMusic();
         Sfx.play('gameover');
-        finishRun(world, 'p1', false);
+        finishRun(world, LOCAL_SLOT, false);
         refreshClassRecord();
       } else if (to === 'victory') {
         Sfx.stopMusic(); // sim already emitted { t: 'sfx', name: 'victory' }
-        finishRun(world, 'p1', true);
+        finishRun(world, LOCAL_SLOT, true);
         refreshClassRecord();
       }
     },

@@ -243,6 +243,57 @@ export type InputState = {
   sprint: boolean;
 };
 
+/**
+ * What a mission asks of the players.
+ *
+ * The order MIRRORS `OBJECTIVE_KIND` in packages/protocol, where the INDEX of
+ * a name is its wire value. The two lists are two spellings of one table, so
+ * they have to be reordered together or a message written as 'hunt' is read as
+ * 'purge' — silently, somewhere else, later. Plan 01-14 pins them to each
+ * other with a test; until then, treat the protocol's copy as the original.
+ *
+ * 'none' is first for the same reason it is first there: a zeroed field should
+ * decode to "no objective" rather than to a real one.
+ */
+export type ObjectiveKind = 'none' | 'defend' | 'hunt' | 'purge' | 'fetch' | 'extract';
+
+/**
+ * One mission objective, as the simulation carries it.
+ *
+ * Three properties of this shape are the reason it looks like this, and each
+ * one is a mistake that would be expensive to undo after the format is frozen:
+ *
+ * (a) IT IS A FIELD OF THE WORLD, NOT A DRAINABLE EVENT. Objective progress
+ *     reached through `world.events` would be unverifiable by replay: `app/`
+ *     drains that array every tick, so what it consumed leaves no trace in the
+ *     snapshot, and a verifier re-running the log would have nothing to
+ *     compare against. State that decides whether a run counted has to survive
+ *     in the World. This is what ADR 0012 decided.
+ *
+ * (b) IT IS JSON-SAFE. No Map, no Set, no class instance — plain numbers,
+ *     strings and arrays. `world.rng` is the single class instance in the
+ *     World and it is going to stay the single one, because every additional
+ *     one is another special case in the snapshot codec and in `hashWorld`.
+ *
+ * (c) IT IS ALWAYS PRESENT, ALWAYS THE SAME SHAPE. A campaign run with no
+ *     mission carries `objectives: []`, never a missing key and never an
+ *     optional field. A key that exists only in mission mode is a hash
+ *     divergence lying in wait for the moment when it is most expensive — the
+ *     same doctrine already written on `eliteName`/`eliteTint` above.
+ */
+export type ObjectiveState = {
+  kind: ObjectiveKind;
+  status: 'inactive' | 'active' | 'complete' | 'failed';
+  /** How far along, in whatever unit `kind` counts. */
+  progress: number;
+  /** The value of `progress` that completes it. */
+  target: number;
+  /** Ticks remaining; -1 when the objective is not timed. */
+  ticksLeft: number;
+  /** Entity ids this objective tracks; empty when it tracks none. */
+  marks: number[];
+};
+
 export type World = {
   tick: number;
   phase: Phase;
@@ -267,8 +318,13 @@ export type World = {
   waveTimer: number;
   waveHasBoss: boolean;
   waveMutator: MutatorKey | null;
-  nextWaveDelay: number;
   pendingAfterLevelUp: 'shop' | 'victory' | null;
+
+  /**
+   * Mission objectives for this run. Empty on a campaign or survival run, and
+   * empty is a REAL value here, not an absence — see ObjectiveState.
+   */
+  objectives: ObjectiveState[];
 
   score: number;
   combo: number;

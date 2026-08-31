@@ -30,6 +30,7 @@
 import { emit } from './world';
 import { damageCrate } from './arena';
 import { killEnemy } from './enemies';
+import { atan2, cos, sin } from './math';
 import type { AttackKind, DamageKind, Enemy, Player, Weapon, World } from './types';
 
 export function attack(world: World, p: Player): void {
@@ -59,8 +60,8 @@ export function fireProjectile(world: World, p: Player, angle: number, type: Att
     owner: p.id,
     x: p.x,
     y: p.y,
-    vx: Math.cos(angle + spread) * speed,
-    vy: Math.sin(angle + spread) * speed,
+    vx: cos(angle + spread) * speed,
+    vy: sin(angle + spread) * speed,
     angle: angle + spread,
     speed,
     range: w.range + p.stats.range,
@@ -82,8 +83,8 @@ export function meleeAttack(world: World, p: Player, angle: number, w: Weapon): 
   emit(world, { t: 'swing', x: p.x, y: p.y, angle, range, arc });
   emit(world, {
     t: 'particles',
-    x: p.x + Math.cos(angle) * range * 0.6,
-    y: p.y + Math.sin(angle) * range * 0.6,
+    x: p.x + cos(angle) * range * 0.6,
+    y: p.y + sin(angle) * range * 0.6,
     color: '#ffe066',
     count: 4,
   });
@@ -93,7 +94,7 @@ export function meleeAttack(world: World, p: Player, angle: number, w: Weapon): 
     const odx = o.x - p.x, ody = o.y - p.y;
     const od = Math.sqrt(odx * odx + ody * ody);
     if (od <= range + o.r) {
-      let diff = Math.atan2(o.y - p.y, o.x - p.x) - angle;
+      let diff = atan2(o.y - p.y, o.x - p.x) - angle;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) <= arc / 2) damageCrate(world, o, w.damage[1]);
@@ -107,7 +108,7 @@ export function meleeAttack(world: World, p: Player, angle: number, w: Weapon): 
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > range + Math.max(e.w, e.h) / 2) continue;
 
-    let diff = Math.atan2(dy, dx) - angle;
+    let diff = atan2(dy, dx) - angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     if (Math.abs(diff) > arc / 2) continue;

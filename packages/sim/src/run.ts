@@ -83,6 +83,7 @@ import { openShop } from './shop';
 import { MUTATORS } from './defs/mutators';
 import { ENEMY_DEFS, WAVE_DURATION } from './defs/enemies';
 import { DT_MS, WAVES_TOTAL, WORLD } from './constants';
+import { cos, sin } from './math';
 import type { MutatorKey, World } from './types';
 
 /**
@@ -236,8 +237,8 @@ export function startNextWave(world: World): void {
     // often than in the original, not more (P(r < 26) = 0.14% here against
     // ~0.56% for the original's rectangle roll).
     world.chests.push({
-      x: Math.max(world.play.left + m, Math.min(world.play.right - m, ax + Math.cos(angle) * r)),
-      y: Math.max(world.play.top + m, Math.min(world.play.bottom - m, ay + Math.sin(angle) * r)),
+      x: Math.max(world.play.left + m, Math.min(world.play.right - m, ax + cos(angle) * r)),
+      y: Math.max(world.play.top + m, Math.min(world.play.bottom - m, ay + sin(angle) * r)),
       state: 'closed', // closed → opening → looted
       timer: 0,
       fade: 0, // meaningful only once looted (Ruling B on task-16-report.md)

@@ -1,6 +1,7 @@
 // arena.ts — per-run layout (columns, crates, spike traps) and circle collision.
 import { emit } from './world';
 import { WORLD } from './constants';
+import { cos, sin } from './math';
 import type { Obstacle, Trap, World } from './types';
 
 /** The original tuned its counts for a ~1280x720 arena; keep that density. */
@@ -106,7 +107,7 @@ export function damageCrate(world: World, o: Obstacle, dmg: number): void {
       const a = world.rng.next() * Math.PI * 2;
       world.coins.push({
         x: o.x, y: o.y,
-        vx: Math.cos(a) * 2, vy: Math.sin(a) * 2,
+        vx: cos(a) * 2, vy: sin(a) * 2,
         dead: false, bob: world.rng.next() * 6,
       });
     }

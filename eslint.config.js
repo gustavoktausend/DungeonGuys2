@@ -22,10 +22,34 @@ export default tseslint.config(
         { name: 'setTimeout',             message: 'sim/ is pure — use world.tick (T4)' },
         { name: 'setInterval',            message: 'sim/ is pure — use world.tick (T4)' },
       ],
+      // D-01: the engine's transcendental functions are implementation-
+      // approximated, so Chromium, Firefox, WebKit and Node may each return
+      // different bits for the same angle — measured on this simulation in
+      // plan 01-04, three fingerprints across four engines. sim/math.ts holds
+      // bit-exact ports of the three the game actually needs; the other five
+      // are listed so the next one to be reached for is refused at the door
+      // instead of being discovered by a desynchronised co-op session.
       'no-restricted-properties': ['error',
         { object: 'Math', property: 'random', message: 'use world.rng (T3)' },
         { object: 'Date', property: 'now',    message: 'use world.tick (T4)' },
+        { object: 'Math', property: 'sin',    message: 'use sin from sim/math.ts — the engine version is implementation-approximated (D-01)' },
+        { object: 'Math', property: 'cos',    message: 'use cos from sim/math.ts — the engine version is implementation-approximated (D-01)' },
+        { object: 'Math', property: 'atan2',  message: 'use atan2 from sim/math.ts — the engine version is implementation-approximated (D-01)' },
+        { object: 'Math', property: 'tan',    message: 'no bit-exact port exists yet — add one to sim/math.ts before using it (D-01)' },
+        { object: 'Math', property: 'pow',    message: 'no bit-exact port exists yet — use repeated multiplication, or add one to sim/math.ts (D-01)' },
+        { object: 'Math', property: 'exp',    message: 'no bit-exact port exists yet — add one to sim/math.ts before using it (D-01)' },
+        { object: 'Math', property: 'log',    message: 'no bit-exact port exists yet — add one to sim/math.ts before using it (D-01)' },
+        { object: 'Math', property: 'hypot',  message: 'use Math.sqrt(dx * dx + dy * dy) — the spec pins sqrt to IEEE-754, hypot it does not (D-01)' },
       ],
+      // packages/sim/src/math.ts — the replacement itself — gets NO override,
+      // and the absence is the point. The rule matches the member expression
+      // `Math.<name>`, never a bare identifier, so the module's own `export
+      // function sin` and its internal calls are already out of reach; only a
+      // literal `Math.sin` inside it would trip, and that is exactly the thing
+      // that must never exist there. An exemption block would open the hole in
+      // the one file where it costs the most: math.ts silently delegating to
+      // the engine would keep every test green while giving back the very
+      // divergence the port was written to remove.
       // The patterns are gitignore-style: '**/render/**' requires a segment
       // AFTER 'render/', so a bare-directory import (`from '../render'`)
       // slips past it. The '**/render' forms close that hole.

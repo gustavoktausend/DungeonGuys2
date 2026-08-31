@@ -58,8 +58,14 @@ jobs:
 
       - run: npx playwright install --with-deps chromium firefox webkit
 
-      # vermelho de proposito ate o plano 01-12 trocar a trigonometria; a remocao deste `continue-on-error` e criterio de aceitacao daquele plano
+      # FORM-04, criterio de sucesso 1 da fase: os quatro motores (Node, acima,
+      # mais estes tres) tem de produzir o MESMO hashWorld na run de ouro.
+      # Bloqueante desde o plano 01-12, que trocou a trigonometria do motor
+      # pelo port fdlibm de sim/math.ts e virou este passo de vermelho para
+      # verde. Se ele voltar a falhar, algum caminho de sim/ voltou a depender
+      # de aritmetica que a spec so aproxima -- e o sintoma alternativo seria
+      # uma sessao co-op dessincronizando na fase 4, onde diagnosticar custa
+      # dez vezes mais.
       - run: npm run test:browser
-        continue-on-error: true
 
       - run: npm run build

@@ -16,7 +16,7 @@
 // sim's 'swing' event, and Fx.draw (not drawHeldWeapon) is what paints them.
 // The weapon keeps falling back to the plain facing angle, exactly as the
 // original did whenever no swing was in flight.
-import { SPRITE_SCALE, CLASS_DEFS, nearestPlayer, trapFrameAt } from '@dg2/sim';
+import { CLASS_DEFS, nearestPlayer, trapFrameAt } from '@dg2/sim';
 import type { Player, World } from '@dg2/sim';
 import { worldToScreen, isVisible, type Camera } from './camera';
 import {
@@ -26,6 +26,22 @@ import {
 } from './sprites';
 import { torchPositions } from './tilemap';
 import type { Fx } from './fx';
+
+/**
+ * How many screen pixels one source pixel of the current spritesheet covers.
+ *
+ * Declared here, not imported from the sim: this is a DRAWING decision and the
+ * sim has no opinion on it (D-19). The sim's `DEFAULT_ENTITY_SCALE` happens to
+ * carry the same number today, but it means something else — it is the default
+ * `Enemy.scale`, world state a replay can observe — and the two must be free to
+ * move apart. Phase 7 is when they do: the new art is 32x48 authored at scale
+ * 1, so THIS constant becomes 1 and the character keeps the exact screen
+ * footprint it has now (16x28 at 2). That edit will not touch packages/sim and
+ * so will not change SIM_VERSION.
+ *
+ * ORIG/config.js:5.
+ */
+const SPRITE_SCALE = 2;
 
 /** Draws a frame centered on (x, y) in SCREEN space, optionally mirrored horizontally. */
 function drawSprite(

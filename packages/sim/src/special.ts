@@ -27,6 +27,7 @@ import { emit } from './world';
 import { fireProjectile, meleeAttack, dealDamage, applyPoison } from './combat';
 import { resolveObstacles } from './arena';
 import { CLASS_DEFS } from './defs/classes';
+import { cos, sin } from './math';
 import type { Enemy, Player, World } from './types';
 
 export function castSpecial(world: World, p: Player): void {
@@ -70,8 +71,8 @@ export function castSpecial(world: World, p: Player): void {
       // shadow dash: teleport toward the aim, slicing everything on the path
       const d = 170;
       const sx = p.x, sy = p.y;
-      const tx = Math.max(world.play.left + 12, Math.min(world.play.right - 12, sx + Math.cos(angle) * d));
-      const ty = Math.max(world.play.top + 12, Math.min(world.play.bottom - 12, sy + Math.sin(angle) * d));
+      const tx = Math.max(world.play.left + 12, Math.min(world.play.right - 12, sx + cos(angle) * d));
+      const ty = Math.max(world.play.top + 12, Math.min(world.play.bottom - 12, sy + sin(angle) * d));
       const hit = new Set<Enemy>();
       const steps = 10;
       for (let i = 0; i <= steps; i++) {
