@@ -1,6 +1,5 @@
 {
-  "config": {"seed":20260827,"mode":"campaign","classKey":"mage","playerName":"GOLD","forge":{"vigor":0,"honed":0,"fleet":0,"startgold":0,"merchant":0,"wise":0,"golden":0}},
-  "players": [{"id":"p0","cls":"mage","name":"GOLD"}],
+  "config": {"seed":20260827,"mode":"campaign","players":[{"id":"p0","name":"GOLD","cls":"mage","forge":{"vigor":0,"honed":0,"fleet":0,"startgold":0,"merchant":0,"wise":0,"golden":0}}]},
   "ticks": 3000,
   "maxTicks": 648000,
   "hash": "53f86446",

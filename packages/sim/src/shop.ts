@@ -7,8 +7,10 @@
 //
 // Deliberate deviations from the original — see task-19-brief.md:
 //  - `gold` (a global) becomes `p.gold`: gold is per-player, not per-run.
-//  - `forgeLevel('merchant')` becomes `world.config.forge.merchant` (T7 —
-//    forge levels are part of RunConfig, sim never reads Save/localStorage).
+//  - `forgeLevel('merchant')` becomes the buyer's own merchant level, read
+//    through `slotForge` (T7 — forge levels are part of RunConfig, sim never
+//    reads Save/localStorage; and they are per player, so the discount is
+//    the one the buyer forged, never the room's).
 //  - The original's `[...pool].sort(() => Math.random() - 0.5)` becomes
 //    `world.rng.shuffled(pool)` (Fisher-Yates on a copy). Same deliberate
 //    correction already applied to the blessing roll in xp.ts (task-16):
@@ -34,7 +36,7 @@
 //    level-up chosen mid-wave-clear must resolve before the shop can open;
 //    see xp.ts's `closeLevelUp`), ported as `world.phase` checks exactly
 //    like `victory` (run.ts) and `maybeOpenLevelUp` (xp.ts) already do.
-import { emit, setPhase } from './world';
+import { emit, setPhase, slotForge } from './world';
 import { startNextWave } from './run';
 import { ITEM_POOL, HEAL_PRICE } from './defs/items';
 import { EQUIPMENT } from './equipment-catalog';
@@ -84,13 +86,14 @@ export function rollOffers(world: World, p: Player): void {
     .map(item => ({ item, sold: false }));
 }
 
-/** ORIG/ui.js:100-108. `p` is unused by the formula (kept for interface
- * symmetry with the other shop functions, all of which take `p`). Accepts
- * either offer kind (ShopItem or EquipItem) since both are priced the
- * same way — only `.price` is read. */
-export function itemPrice(world: World, _p: Player, item: ShopItem | EquipItem): number {
+/** ORIG/ui.js:100-108. `p` is the BUYER, and the merchant discount is read
+ * from that player's own forge — in co-op two people standing at the same
+ * shop see two different prices, which is what "forge is per player" means.
+ * Accepts either offer kind (ShopItem or EquipItem) since both are priced
+ * the same way — only `.price` is read. */
+export function itemPrice(world: World, p: Player, item: ShopItem | EquipItem): number {
   const waveScale = 1 + (world.wave - 1) * 0.06; // pricier as waves go
-  const discount = 1 - world.config.forge.merchant * 0.05;
+  const discount = 1 - slotForge(world, p.id).merchant * 0.05;
   return Math.max(1, Math.round(item.price * waveScale * discount));
 }
 

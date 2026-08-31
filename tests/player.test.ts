@@ -31,7 +31,7 @@ describe('createPlayer', () => {
 
   it('aplica os perks de forge na camada permanente', () => {
     const w = makeTestWorld();
-    w.config.forge = { vigor: 2, honed: 3, fleet: 1, startgold: 2, merchant: 0, wise: 0, golden: 0 };
+    w.config.players[0].forge = { vigor: 2, honed: 3, fleet: 1, startgold: 2, merchant: 0, wise: 0, golden: 0 };
     const p = createPlayer(w, 'p1', 'mage', 'T');
     expect(p.maxHp).toBe(120);        // 100 + 2 * 10
     expect(p.permStats.dmgPct).toBe(6);  // 3 * 2

@@ -1,16 +1,36 @@
-import { createWorld, step } from '@dg2/sim';
-import type { InputState, RunConfig, World } from '@dg2/sim';
+import { createWorld, orderedPlayers, step } from '@dg2/sim';
+import type { InputState, Player, RunConfig, World } from '@dg2/sim';
 
+/**
+ * The run manifest almost every test builds its world from.
+ *
+ * The single slot is 'p1' because that is the id the suite has always passed
+ * to `createPlayer`, and `runTicks` below feeds inputs under the same key —
+ * `step()` iterates `config.players`, so a slot that is not listed here gets
+ * no tick at all.
+ */
 export const BASE_CONFIG: RunConfig = {
   seed: 20260827,
   mode: 'campaign',
-  classKey: 'mage',
-  playerName: 'TEST',
-  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+  players: [{
+    id: 'p1',
+    name: 'TEST',
+    cls: 'mage',
+    forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+  }],
 };
 
+/**
+ * A world from BASE_CONFIG, with `players` DEEP-COPIED.
+ *
+ * The copy is what lets a test write `w.config.players[0].forge.wise = 3`
+ * without that value leaking into every other world built afterwards — a
+ * shared literal would make the suite order-dependent, which is the one thing
+ * a determinism suite must never be.
+ */
 export function makeTestWorld(overrides: Partial<RunConfig> = {}): World {
-  return createWorld({ ...BASE_CONFIG, ...overrides });
+  const players = BASE_CONFIG.players.map(s => ({ ...s, forge: { ...s.forge } }));
+  return createWorld({ ...BASE_CONFIG, players, ...overrides });
 }
 
 export function noInput(tick: number): InputState {
@@ -32,15 +52,33 @@ export function runTicks(
 /**
  * A stable fingerprint of everything the simulation owns. Excludes `events`
  * (drained every tick by app/) and `config` (the run's constant input — seed,
- * mode, class, name, forge levels — never changes across ticks, so including
- * it can only mask or fake a divergence, never reveal one). Includes the rng
+ * mode and the player manifest with each slot's class, name and forge levels
+ * — never changes across ticks, so including it can only mask or fake a
+ * divergence, never reveal one). Includes the rng
  * cursor, so a divergence in random draws shows up even when no entity moved
  * yet.
+ *
+ * `players` is re-keyed into canonical order before it is serialised.
+ * `JSON.stringify` emits object keys in INSERTION order, so without this two
+ * rooms holding bit-identical simulations would fingerprint differently for
+ * the sole reason that the four people joined in a different sequence — a
+ * false desync, reported by the very thing whose job is to detect real ones
+ * (FORM-02/D-13). Key ORDER inside the Record is not simulation state; who is
+ * in it, and what they are, is, and that is still compared exactly.
+ *
+ * This does not move any recorded hash: a world whose insertion order already
+ * matches the manifest — every solo run, including tests/golden — serialises
+ * to the same bytes as before.
  */
 export function hashWorld(world: World): string {
   const snapshot = JSON.stringify(world, (key, value) => {
     if (key === 'events') return undefined;
     if (key === 'config') return undefined;
+    if (key === 'players') {
+      const canonical: Record<string, Player> = {};
+      for (const p of orderedPlayers(world)) canonical[p.id] = p;
+      return canonical;
+    }
     if (key === 'rng') return (value as { save(): number }).save();
     // JSON.stringify collapses NaN, Infinity and -Infinity all to `null`, so
     // an unfiltered replacer gives the same fingerprint to a healthy world

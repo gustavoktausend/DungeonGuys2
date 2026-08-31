@@ -17,7 +17,7 @@ import { dom } from './ui/dom';
 import { setupTouch } from './ui/touch';
 import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
 import { mouseOnly } from './ui/events';
-import type { ClassKey, GameMode, Player, World } from '@dg2/sim';
+import type { ClassKey, GameMode, Player, PlayerSlot, World } from '@dg2/sim';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -74,7 +74,7 @@ let gameStarted = false; // false until the first beginRun() — guards `world.p
  * dies with the connection). When phase 4 makes this value arrive from a lobby
  * instead of being a constant, this is the single line that stops being one.
  */
-const LOCAL_SLOT = 'p0';
+const LOCAL_SLOT: PlayerSlot = 'p0';
 
 /**
  * The frame drawn every requestAnimationFrame while the sim is advancing.
@@ -126,10 +126,14 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
   cancelAnimationFrame(pauseRaf);
   input?.destroy();
 
-  const config = buildRunConfig(classKey, mode, playerName);
+  const config = buildRunConfig(LOCAL_SLOT, classKey, mode, playerName);
   world = createWorld(config);
   buildTilemap(); // fresh floor-tile variants each run, ORIG/engine.js:171,219
-  player = createPlayer(world, LOCAL_SLOT, classKey, playerName);
+  // Read back from the manifest rather than from the arguments: the manifest
+  // is what a replay is rebuilt from, so a run that starts from a different
+  // class than it records is a divergence nobody would see until the replay.
+  const local = config.players[0];
+  player = createPlayer(world, local.id, local.cls, local.name);
   startRun(world);
 
   cam = createCamera();

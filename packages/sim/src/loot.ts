@@ -24,7 +24,7 @@
 //    original's exact condition, `ch.state !== 'looted' || ch.fade > 0`.
 //  - Every `Math.random()` becomes `world.rng.next()`/`.int()` — see
 //    task-16-report.md for the exact draw-by-draw accounting per branch.
-import { emit } from './world';
+import { emit, slotForge } from './world';
 import { COIN_MAGNET, TICK_FACTOR, DT_MS } from './constants';
 import { makeEnemy, nearestPlayer } from './enemies';
 import { cos, sin } from './math';
@@ -57,8 +57,11 @@ export function updateCoins(world: World): void {
       c.dead = true;
       // unconditional draw, even at golden level 0 (Ruling A) — matching
       // `chance()` here would skip it and desync a level-0 run against one
-      // that has ever rolled the perk.
-      const doubled = world.rng.next() < world.config.forge.golden * 0.1 ? 2 : 1;
+      // that has ever rolled the perk. The perk is the COLLECTOR's: in co-op
+      // the coin doubles for the player who picked it up, or not, by their
+      // own golden level. The draw is taken either way, so a room whose
+      // members forged different levels still consumes rng identically.
+      const doubled = world.rng.next() < slotForge(world, target.id).golden * 0.1 ? 2 : 1;
       target.gold += doubled;
       world.runGoldEarned += doubled;
       emit(world, { t: 'particles', x: c.x, y: c.y, color: '#ffd700', count: 4 });

@@ -2,7 +2,7 @@
 // Ported from ORIG/engine.js:170-215 (creation), ORIG/combat.js:22-97 (update)
 // and ORIG/entities.js:265-292 (damage). updatePlayer reads only `world`, `p`
 // and `input` — no keyboard, mouse, touch or performance.now() (T-input).
-import { emit, setPhase } from './world';
+import { emit, setPhase, slotForge } from './world';
 import { DT_MS, TICK_FACTOR, WORLD, STAMINA_BASE, SPRINT_MULT, FATIGUE_MULT, STAMINA_DRAIN, STAMINA_REGEN } from './constants';
 import { XP_BASE } from './defs/blessings';
 import { CLASS_DEFS } from './defs/classes';
@@ -16,7 +16,9 @@ import type { ClassKey, InputState, Player, World } from './types';
 export function createPlayer(world: World, id: string, cls: ClassKey, name: string): Player {
   const def = CLASS_DEFS[cls];
   const weapon = startWeapon(cls);
-  const forge = world.config.forge;
+  // This player's own forge, resolved by slot — not the run's, which no
+  // longer exists: four people in one room bring four different ones.
+  const forge = slotForge(world, id);
 
   const p: Player = {
     id, name, cls,

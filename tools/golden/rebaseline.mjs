@@ -95,14 +95,20 @@ function generateLog(ticks) {
 
 function freshFixture() {
   return {
+    // `config.players` IS the canonical order (FORM-02/D-13), and it is the
+    // fixture's only list of who is in the run — plan 01-13 folded the old
+    // top-level `players` into it. Two such lists is two answers to one
+    // question, and the simulation only ever reads this one.
     config: {
       seed: 20260827,
       mode: 'campaign',
-      classKey: 'mage',
-      playerName: 'GOLD',
-      forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+      players: [{
+        id: 'p0',
+        name: 'GOLD',
+        cls: 'mage',
+        forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+      }],
     },
-    players: [{ id: 'p0', cls: 'mage', name: 'GOLD' }],
     ticks: TICKS,
     maxTicks: MAX_TICKS,
     hash: '',
@@ -126,7 +132,6 @@ function serialize(f) {
   return [
     '{',
     `  "config": ${JSON.stringify(f.config)},`,
-    `  "players": ${JSON.stringify(f.players)},`,
     `  "ticks": ${f.ticks},`,
     `  "maxTicks": ${f.maxTicks},`,
     `  "hash": ${JSON.stringify(f.hash)},`,
@@ -196,7 +201,7 @@ function main() {
   }
 
   // The fixture must be on disk before the test can import it. An existing
-  // config/players/ticks/log is NEVER regenerated: re-rolling the script
+  // config/ticks/log is NEVER regenerated: re-rolling the script
   // would change the hash for a reason other than a change in the sim.
   if (!exists) {
     mkdirSync(dirname(FIXTURE), { recursive: true });

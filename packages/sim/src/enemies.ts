@@ -30,7 +30,7 @@
 //    437-438) are app-layer persistence — sim/ never touches localStorage.
 //    killEnemy emits `{ t: 'bossKill' }` instead so app/events.ts can do the
 //    persisting (Task 20 fix round 1, see task-20-report.md).
-import { emit } from './world';
+import { emit, orderedPlayers } from './world';
 import { DT_MS, TICK_FACTOR, WORLD, DEFAULT_ENTITY_SCALE, COMBO_WINDOW } from './constants';
 import { ENEMY_DEFS, ELITE_TYPES } from './defs/enemies';
 import { damagePlayer } from './player';
@@ -49,11 +49,15 @@ export const SPAWN_MAX = 620;
  * Closest living player to (x, y), or null if none are alive. No ORIG source
  * range — the original always read the single global `player`; this is its
  * multiplayer-ready replacement, used everywhere that used to say `player`.
+ *
+ * Canonical order, not insertion order (FORM-02/D-13): the comparison below is
+ * strict, so an exact distance TIE is won by whoever comes first — and four
+ * players standing on the same spawn point is how every run begins.
  */
 export function nearestPlayer(world: World, x: number, y: number): Player | null {
   let best: Player | null = null;
   let bestD = Infinity;
-  for (const p of Object.values(world.players)) {
+  for (const p of orderedPlayers(world)) {
     if (p.hp <= 0) continue;
     const d = (p.x - x) ** 2 + (p.y - y) ** 2;
     if (d < bestD) { bestD = d; best = p; }
@@ -136,9 +140,17 @@ export function makeElite(world: World, e: Enemy): EliteType {
   return t;
 }
 
-/** A living player, or the world centre if none are alive — the spawn ring's anchor. */
+/**
+ * A living player, or the world centre if none are alive — the spawn ring's
+ * anchor.
+ *
+ * Canonical order matters more here than anywhere else: `rng.pick` indexes
+ * this array, so the very SAME draw would choose a different anchor in two
+ * rooms that filled in a different order, and the wave would spawn somewhere
+ * else with the rng cursor looking perfectly healthy (FORM-02/D-13).
+ */
 function pickSpawnAnchor(world: World): { x: number; y: number } {
-  const alive = Object.values(world.players).filter(p => p.hp > 0);
+  const alive = orderedPlayers(world).filter(p => p.hp > 0);
   if (alive.length === 0) return { x: WORLD.w / 2, y: WORLD.h / 2 };
   return world.rng.pick(alive);
 }

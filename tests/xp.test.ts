@@ -33,7 +33,7 @@ describe('gainXp', () => {
 
   it('o perk wise do forge aumenta o xp ganho', () => {
     const w = makeTestWorld();
-    w.config.forge.wise = 3;            // the perk's max level
+    w.config.players[0].forge.wise = 3;            // the perk's max level
     const p = createPlayer(w, 'p1', 'mage', 'T');
     gainXp(w, p, 50);
     expect(p.xp).toBe(65);              // round(50 * (1 + 3 * 0.1))
