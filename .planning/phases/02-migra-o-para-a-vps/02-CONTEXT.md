@@ -6,7 +6,8 @@
 > Rótulos de estrutura ficam em inglês porque são lidos por ferramenta.
 > O conteúdo é em português, como o resto dos documentos do projeto.
 >
-> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-17`. As decisões
+> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-21` (`D2-18` a `D2-21`
+> são emendas pós-pesquisa de 2026-08-31; `D2-12` foi revogada por `D2-18`). As decisões
 > da fase 1 são citadas como `D-nn (fase 1)` para que nunca se confundam.
 
 <domain>
@@ -106,12 +107,11 @@ roadmap: nunca migrar infra e estrear rede na mesma semana.
   PWA em iOS/Safari físico continua sem cobertura, e a caixa correspondente em
   `docs/PARIDADE.md` **permanece aberta** — o verificador da fase deve ler o critério 2 com
   essa ressalva, que é escolha deliberada e não lacuna.
-- **D2-12:** **O GitHub Pages recebe um último deploy de despedida.** Uma página estática
-  apontando para o domínio novo, e um `sw.js` que **se desregistra e limpa o próprio Cache
-  Storage**. Motivo: um PWA instalado é offline-first — simplesmente desligar o Pages
-  deixaria o jogo velho abrindo do cache, jogando e gravando progresso num domínio que não
-  existe mais, sem nunca dizer isso ao jogador. Depois disso o Pages não recebe mais build
-  (INFRA-01).
+- **D2-12:** ~~**O GitHub Pages recebe um último deploy de despedida.**~~ **[REVOGADA em
+  2026-08-31 por D2-18 — nenhum plano deve cobrir esta decisão.]** O texto original previa
+  uma página estática apontando para o domínio novo e um `sw.js` que se desregistra e limpa
+  o próprio Cache Storage, porque um PWA instalado é offline-first e desligar o Pages em
+  silêncio deixaria o jogo velho abrindo do cache. A premissa era falsa: ver D2-18.
 
 ### Domínio, configuração e operação
 
@@ -140,6 +140,42 @@ roadmap: nunca migrar infra e estrear rede na mesma semana.
   Ponto de recuperação em segundos em vez de um dia — para um ledger de moeda, um dia
   perdido é soul gold que sumiu. Fora da VPS por princípio: a Hostinger cair leva o snapshot
   junto. É exatamente esse caminho que o script de D2-03 exercita.
+
+### Emendas pós-pesquisa (2026-08-31)
+
+Quatro decisões tomadas **depois** da discussão, a partir de fatos que a pesquisa mediu e que
+a discussão não podia conhecer. Valem como decisões travadas, iguais às de cima.
+
+- **D2-18:** **A despedida do GitHub Pages é cortada — D2-12 está revogada.** Medido:
+  `gustavoktausend.github.io/DungeonGuys2/` retorna **404**, a API do GitHub retorna 404 para
+  o repositório, e a listagem pública de `gustavoktausend` não contém `DungeonGuys2`. Nunca
+  houve URL de onde instalar o PWA, logo não existe jogador para avisar, e publicar a
+  despedida faria o **primeiro** deploy do projeto no Pages ser também o último. INFRA-01
+  ("existe **um** alvo de deploy") passa a ser satisfeito por não haver espelho para matar —
+  e continua sendo provado de forma executável por `tests/workflows.test.ts`, que assere que
+  nenhum workflow publica no Pages. **Consequência que fica registrada:** o service worker
+  do **DungeonGuys original** (`/DungeonGuys/sw.js`, HTTP 200, `CACHE = 'dungeonguys-v3'`)
+  faz `caches.keys()` e apaga todo cache que não seja o dele. Como Cache Storage é **por
+  origem, não por escopo**, os dois jogos nunca poderiam ter funcionado offline ao mesmo
+  tempo em `gustavoktausend.github.io`. Domínio próprio não é conforto: é o que faz o PWA
+  funcionar. Nada nesta fase toca o jogo original.
+- **D2-19:** **A VPS é KVM 2 (2 GB).** Fecha o orçamento de memória que D2-01 e o sandbox do
+  systemd dependiam: `MemoryHigh`/`MemoryMax` por unit continuam obrigatórios mesmo com
+  folga, porque o ponto não é higiene — é impedir que um vazamento no signaling da fase 3
+  mate a API. O par `MemoryMax` + `--max-old-space-size` do Node é o que troca OOM-kill por
+  GC.
+- **D2-20:** **As fontes do Google passam a ser auto-hospedadas.** Os `.woff2` vêm para a
+  própria origem e entram no precache derivado de D2-10. Motivo: sem isso, "abre sem rede"
+  do critério 2 significa "abre com tipografia diferente", e `offline.spec.ts` teria de
+  filtrar `requestfailed` por origem para não dar vermelho falso. Com auto-hospedagem, o
+  offline é idêntico ao online e o teste assere **zero** falhas de rede, sem exceção — a
+  asserção mais forte custa alguns KB num bundle de 350 KB.
+- **D2-21:** **A segunda perna de D2-16 é serviço externo de terceiro**, não GitHub Action
+  agendada. Um workflow agendado é desabilitado automaticamente após 60 dias sem atividade no
+  repositório — exatamente quando o projeto está parado é que o alarme calaria. O serviço
+  (UptimeRobot, Healthchecks.io, Better Stack ou equivalente) aponta para `/api/health` com
+  keyword matching em `"status":"ok"`. Configuração manual, com a primeira checagem verde
+  registrada em `docs/OPERACAO.md`.
 
 ### Claude's Discretion
 
@@ -308,9 +344,12 @@ e da pesquisa já feita:
 - **Verificação só por Playwright, aceita com a lacuna nomeada** (D2-11). A cobertura de
   iOS/Safari em aparelho real fica de fora **por escolha**, não por esquecimento; a caixa
   de `docs/PARIDADE.md` continua aberta e deve ser lida como decisão registrada.
-- **O Pages morre com aviso, não com 404** (D2-12). Um PWA instalado é offline-first: sem o
-  service worker suicida, o jogo velho continuaria abrindo e gravando progresso num domínio
-  morto. O jogador precisa ser avisado enquanto ainda dá para migrar.
+- ~~**O Pages morre com aviso, não com 404** (D2-12).~~ **Revogado por D2-18:** medimos que
+  o Pages do DungeonGuys2 nunca existiu, então não há PWA instalado para avisar. O argumento
+  original — um PWA instalado é offline-first e continuaria gravando progresso num domínio
+  morto — permanece verdadeiro em geral, e é exatamente por isso que ele vale a partir de
+  **agora**: quem instalar do domínio próprio passa a estar nessa situação se o domínio um dia
+  mudar.
 - **Vigilância em duas pernas porque as falhas são diferentes** (D2-16). O timer local vê o
   certificado real mas cala junto com a caixa; o monitor externo sobrevive à queda mas só
   infere o certificado. A escolha inicial foi só o timer local; a segunda perna entrou
