@@ -86,8 +86,74 @@ export const Save = (() => {
     const src = source as Record<string, unknown>;
     const dst = target as Record<string, unknown>;
     for (const key of Object.keys(dst)) {
-      if (src[key] !== undefined) dst[key] = src[key];
+      const incoming = src[key];
+      if (incoming === undefined) continue;
+      if (!sameShape(dst[key], incoming)) continue;
+      dst[key] = incoming;
     }
+  }
+
+  /**
+   * `localStorage` is a trust boundary, exactly as app/ledger.ts treats it:
+   * anything with devtools can rewrite it, and so can a half-finished write
+   * from a previous version. The failure this guards is not hypothetical —
+   * a string where `progress.forge[key]` should hold a number reaches
+   * app/forge.ts's `forgeCost`, becomes `NaN`, and `NaN < cost` is `false`,
+   * which unlocks every buy button and then throws out of `Ledger.spend`'s
+   * amount assertion inside a click handler.
+   *
+   * The rule is deliberately shallow-but-strict: the incoming value must have
+   * the same runtime shape as the default it replaces. Defaults are the
+   * schema, so nothing here needs updating when SaveData grows a field.
+   */
+  function sameShape(expected: unknown, incoming: unknown): boolean {
+    if (typeof expected !== typeof incoming) return false;
+    if (typeof expected === 'number') return Number.isFinite(incoming);
+    if (Array.isArray(expected)) {
+      if (!Array.isArray(incoming)) return false;
+      // A non-empty default names the element type it wants (`unlocked` is
+      // string[]). An empty one has nothing to say, so any storable leaf goes.
+      const sample = expected[0];
+      return sample === undefined
+        ? incoming.every(isStorable)
+        : incoming.every(v => typeof v === sample && isStorable(v));
+    }
+    if (expected !== null && typeof expected === 'object') {
+      if (incoming === null || Array.isArray(incoming)) return false;
+      // The string-keyed maps (`colors`, `forge`) start empty, so there is no
+      // default entry to compare against — validate the values themselves.
+      // Both hold numbers or numeric tuples; neither ever holds a string, and
+      // a string is precisely what turns into NaN downstream.
+      return Object.values(incoming as Record<string, unknown>).every(isNumericLeaf);
+    }
+    return true; // boolean and string match on typeof alone
+  }
+
+  /** Finite number, or a tuple of them — what `colors` and `forge` may hold. */
+  function isNumericLeaf(v: unknown): boolean {
+    if (typeof v === 'number') return Number.isFinite(v);
+    return Array.isArray(v) && v.every(n => typeof n === 'number' && Number.isFinite(n));
+  }
+
+  /** A leaf an array-typed field may hold: finite number, string, or boolean. */
+  function isStorable(v: unknown): boolean {
+    if (typeof v === 'number') return Number.isFinite(v);
+    return typeof v === 'string' || typeof v === 'boolean';
+  }
+
+  /** Drops entries that would make a score table render or compare as NaN. */
+  function adoptRecords(source: unknown): Record<string, ClassRecord> {
+    if (typeof source !== 'object' || source === null || Array.isArray(source)) return {};
+    const out: Record<string, ClassRecord> = {};
+    for (const [cls, rec] of Object.entries(source as Record<string, unknown>)) {
+      if (typeof rec !== 'object' || rec === null || Array.isArray(rec)) continue;
+      const r = rec as Record<string, unknown>;
+      const num = (k: string): boolean => typeof r[k] === 'number' && Number.isFinite(r[k]);
+      if (!num('score') || !num('wave') || !num('level') || !num('victories')) continue;
+      if (r.ewave !== undefined && !num('ewave')) continue;
+      out[cls] = rec as ClassRecord;
+    }
+    return out;
   }
 
   function load(): void {
@@ -98,7 +164,7 @@ export const Save = (() => {
         data = defaults();
         adopt(data.settings, parsed.settings);
         adopt(data.progress, parsed.progress);
-        data.records = parsed.records || {};
+        data.records = adoptRecords(parsed.records);
       }
     } catch { data = defaults(); }
   }
