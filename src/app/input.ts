@@ -8,10 +8,32 @@
 // threaded in by main.ts: touch always auto-aims (there's no mouse to aim
 // with), restored from ORIG/ui.js:397-398. `nearestEnemy`/`aimAngle`
 // (ORIG/ui.js:385-403) landed in Task 12/16 since they need the enemy list.
+//
+// WHY THE HYPOTENUSE AND TWO-ARGUMENT ARC-TANGENT HELPERS OF THE STANDARD
+// MATH OBJECT ARE SAFE HERE, AND ONLY HERE (D-05). They are named by
+// description rather than spelled out, because the audit for this file counts
+// their call sites by grep, and prose that trips the audit it explains is how
+// an audit gets retired for being noisy — the same lesson plan 01-06 recorded.
+// Both are implementation-approximated by ECMA-262: Chromium, Firefox and
+// WebKit are allowed to disagree on the last bit, and they do. That would be
+// fatal inside packages/sim, and it is harmless here because of one written
+// rule of the protocol: THE QUANTISED InputState IS WHAT CROSSES THE NETWORK
+// AND WHAT GOES INTO THE LOG — no peer ever recomputes aim or movement from
+// world state. `collect()` below runs everything it builds through
+// `quantize`, so what leaves this file is an integer times a literal step, not
+// the float an engine happened to return. The engine-specific result dies at
+// capture and never reaches recorded data.
+//
+// The corollary is a constraint, not a courtesy: the day some peer starts
+// deriving its own aim from the world instead of reading the transmitted
+// InputState, this comment becomes false and the determinism guarantee goes
+// with it. Auto-aim (`nearestEnemy`, `aimAngle`) stays outside sim/ for the
+// same reason.
 import { worldToScreen, type Camera } from '../render/camera';
 import { Save } from './save';
 import { isTextInput } from '../ui/events';
 import type { TouchState } from '../ui/touch';
+import { quantize } from '@dg2/protocol';
 import type { Enemy, InputState, World } from '@dg2/sim';
 
 /** Below this magnitude the joystick is treated as centered — ORIG/ui.js
@@ -115,14 +137,23 @@ export function createInput(
         // magnitude (an analog stick, unlike WASD, isn't always full-speed).
         x = touch.vec.x; y = touch.vec.y;
       }
-      const input: InputState = {
+      // Quantise between assembling x/y/aim and handing the InputState over:
+      // the sim never sees the raw float, only the integer grid the log can
+      // store (D-02, D-03). Shape and units are unchanged — `aim` is still a
+      // number in radians and `move` still has components in [-1, 1] — so no
+      // consumer inside sim/ changes. The measured price is the keyboard
+      // diagonal: 1/sqrt(2) becomes int8 90, which decodes to 0.708661 and
+      // takes the vector's magnitude from 1.000000 to 1.002199 (+0,22%). The
+      // analog stick's partial magnitude survives, which is why move is an
+      // int8 and not a direction bit.
+      const input: InputState = quantize({
         tick,
         move: { x, y },
         aim: aimAngle(),
         attack: mouseDown || !!keys['Space'] || !!keys['KeyZ'] || (touch.active && world.enemies.some(e => !e.dead)),
         special: specialQueued,
         sprint: !!(keys['ShiftLeft'] || keys['ShiftRight']),
-      };
+      });
       specialQueued = false; // edge-triggered: one cast per press
       return { [localId]: input };
     },
