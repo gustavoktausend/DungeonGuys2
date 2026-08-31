@@ -288,6 +288,17 @@ Nenhum — não há serviço externo a configurar.
 - **`npm run test:browser` continua vermelho** (6/6) e deve continuar até o 01-12. Ele é o
   critério de sucesso 1 da fase e só fica verde quando a `sim/` de fato usar este módulo.
 
+## Self-Check: PASSED
+
+- `packages/sim/src/math.ts` — FOUND
+- `tests/math-oracle.test.ts` — FOUND
+- `.planning/phases/01-formato-e-costuras/01-09-SUMMARY.md` — FOUND
+- commit `60318d6` — FOUND
+- commit `cff4568` — FOUND
+- Diff total contra a base `4d09784`: exatamente 5 arquivos, todos dentro do escopo declarado
+  (`math.ts`, `index.ts`, `math-oracle.test.ts`, `purity.test.ts`, `01-09-SUMMARY.md`).
+  `package-lock.json` ausente da lista, como exigido pela wave.
+
 ---
 *Phase: 01-formato-e-costuras*
 *Completed: 2026-08-31*
