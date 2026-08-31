@@ -43,13 +43,36 @@ placar em que estar no topo significa ter jogado.
   3. `saveWorld`/`loadWorld` fazem round-trip do `World` inteiro — RNG e objetivos de missão incluídos — sem perda, verificado por hash antes e depois.
   4. Embaralhar a ordem de entrada dos jogadores não muda o resultado: `step()` itera pela ordem canônica do `RunConfig` e o hash é o mesmo.
   5. A spec técnica de assets está publicada com as unidades lógicas congeladas, e o validador de manifesto no CI recusa um manifesto de exemplo fora do formato.
-**Plans**: 5 (estimativa)
+**Plans**: 14 plans
 
-**Sequência interna que não pode ser trocada**: o corte da aresta `xp → run` (SCC 8 → 6) vem
-**antes** do `sim/math.ts`, porque uma `const` avaliada em tempo de módulo cruzando o ciclo vira
-`undefined` em silêncio — que é exatamente a forma de um `math.ts` com tabela de lookup. A
-cobertura de `updateBossPattern` (hoje sem teste nenhum, a maior superfície descoberta de
-`sim/`) acontece **junto** com o `math.ts`, não depois.
+Plans:
+- [ ] 01-01-PLAN.md — Toolchain alvo, configs de teste e o primeiro CI de teste do repositório
+- [ ] 01-02-PLAN.md — Os 12 ADRs de `docs/adr/`: identidade, merge, temporada, placar e replay
+- [ ] 01-03-PLAN.md — Ledger append-only de soul gold e o ULID escrito à mão
+- [ ] 01-04-PLAN.md — Passo fixo (`app/stepper.ts`), o ouro versionado e o portão cross-engine que falha
+- [ ] 01-05-PLAN.md — Extração de `packages/sim` com npm workspaces e as três guardas de pureza
+- [ ] 01-06-PLAN.md — `packages/protocol`: `PROTOCOL_VERSION`, enums congelados e vocabulário sem "host"
+- [ ] 01-07-PLAN.md — `SIM_VERSION` por hash de bundle, em build de duas etapas
+- [ ] 01-08-PLAN.md — Corte do ciclo de `sim/` (SCC 8 → 5+2) e cobertura direta de `updateBossPattern`
+- [ ] 01-09-PLAN.md — `sim/math.ts`: port fdlibm com domínio restrito, contra o oráculo `@stdlib`
+- [ ] 01-10-PLAN.md — Codec do log de inputs, quantização na captura e o envelope de run
+- [ ] 01-11-PLAN.md — Spec técnica de assets e o validador de manifesto no CI
+- [ ] 01-12-PLAN.md — Troca dos 27 call sites, limpeza de `sim/` e o re-baseline único
+- [ ] 01-13-PLAN.md — `RunConfig.players[]`, ordem canônica em `step()` e os três espaços de identidade
+- [ ] 01-14-PLAN.md — `serialize.ts`, `world.objectives` e o round-trip sem perda
+
+**Sequência interna que não pode ser trocada**: o corte do ciclo de `sim/` vem **antes** do
+`sim/math.ts`, porque uma `const` avaliada em tempo de módulo cruzando o ciclo vira `undefined`
+em silêncio — que é exatamente a forma de um `math.ts` com tabela de lookup. A cobertura de
+`updateBossPattern` (hoje sem teste nenhum, a maior superfície descoberta de `sim/`) acontece
+**junto** com o `math.ts`, não depois.
+
+**Correção de 2026-08-31 (`01-RESEARCH.md`, Tarjan sobre o grafo real):** o corte não é de uma
+aresta e o resultado não é 6. Cortar só `xp → run` deixa o componente com os mesmos 8 módulos,
+porque `xp → shop → run → enemies → xp` fecha sozinho: é preciso remover as **duas** saídas de
+`closeLevelUp`, e o resultado é **5 + 2**. `run ↔ shop` é ciclo genuíno e independente, **não**
+cai junto (ao contrário do que `docs/BACKLOG.md` afirmava), e fica registrado como dívida. A
+contagem de call sites de trigonometria é **27** (12 `sin`, 12 `cos`, 3 `atan2`) em 7 arquivos.
 
 **Escritos aqui, implementados depois** (decisão barata agora, migração cara depois): o esquema
 de identidade em três espaços, a política de merge por campo do save, o esquema
@@ -315,7 +338,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 0/5 | Not started | - |
+| 1. Formato e costuras | 0/14 | Planned | - |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
