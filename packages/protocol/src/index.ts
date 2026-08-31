@@ -10,4 +10,6 @@
 // shapes from here, they do not live here.
 
 export * from './enums';
+export * from './inputCodec';
+export * from './runEnvelope';
 export * from './version';
