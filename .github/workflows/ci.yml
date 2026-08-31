@@ -21,6 +21,13 @@ jobs:
       - run: npm run typecheck:sim
       - run: npm test
 
+      # FORM-03: prova que o SIM_VERSION e reproduzivel (dois builds da mesma
+      # fonte dao o mesmo valor) e sensivel (editar packages/sim/src muda o
+      # valor). Roda aqui, e nao so no build final, para que a perda de
+      # reprodutibilidade apareca no proprio PR que a causou -- tipicamente um
+      # upgrade de Vite ou de TypeScript, que por D-07 fecha a temporada.
+      - run: npm run sim:version:verify
+
       # A versao exata do Playwright e a variavel do experimento de determinismo:
       # um cache compartilhado entre versoes diferentes invalida o portao.
       - id: playwright-version
