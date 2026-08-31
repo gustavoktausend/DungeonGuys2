@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "golden:rebaseline": "node tools/golden/rebaseline.mjs",
     "lint": "eslint ."
   },
   "dependencies": {},

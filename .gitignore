@@ -3,3 +3,9 @@ dist/
 *.local
 .DS_Store
 .claude/worktrees/
+
+# Vitest browser mode dumps a screenshot and an attachment for every failing
+# test. The cross-engine gate is red ON PURPOSE until plan 01-12, so these are
+# regenerated on every run and must never be committed.
+tests/__screenshots__/
+.vitest-attachments/

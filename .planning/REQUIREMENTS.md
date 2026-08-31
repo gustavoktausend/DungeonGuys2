@@ -40,7 +40,7 @@ que a síntese classificou assim moram nesta categoria.
       congeladas, e um validador de manifesto no CI recusa arte fora do formato — **[decidido]**
       `TILE` muda como tamanho de tile de desenho, `world.play` ganha margem própria, e
       `WORLD` continua 2400×1600
-- [ ] **FORM-10**: O passo fixo roda separado de `requestAnimationFrame`, de modo que a
+- [x] **FORM-10**: O passo fixo roda separado de `requestAnimationFrame`, de modo que a
       simulação seja dirigível por teste e por servidor sem um relógio de tela
 - [ ] **FORM-11**: As tabelas de enum do protocolo são congeladas e append-only, verificado
       por teste de snapshot
@@ -197,7 +197,7 @@ Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 | FORM-07 | Phase 1 | Pending |
 | FORM-08 | Phase 1 | Pending |
 | FORM-09 | Phase 1 | Pending |
-| FORM-10 | Phase 1 | Pending |
+| FORM-10 | Phase 1 | Complete |
 | FORM-11 | Phase 1 | Pending |
 | FORM-12 | Phase 1 | Pending |
 | INFRA-01 | Phase 2 | Pending |

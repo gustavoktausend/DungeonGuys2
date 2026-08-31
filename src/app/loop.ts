@@ -1,8 +1,9 @@
-// loop.ts — fixed-timestep driver. The sim only ever advances in DT_MS slices;
-// rendering interpolates between the last two states so 60Hz simulation does
-// not stutter on a 144Hz display.
-import { DT_MS } from '../sim/constants';
-import { step } from '../sim/step';
+// loop.ts — the browser adapter for the fixed timestep, and nothing else.
+// The tick arithmetic lives in stepper.ts, which knows no wall clock; what
+// stays here is the clock reading, the frame pump and the running flag.
+// Rendering interpolates between the last two states so a 60Hz simulation
+// does not stutter on a 144Hz display.
+import { createStepper } from './stepper';
 import type { InputState, World } from '../sim/types';
 
 export type LoopHooks = {
@@ -13,26 +14,23 @@ export type LoopHooks = {
 
 /** Starts the loop; the returned function stops it. */
 export function startLoop(world: World, hooks: LoopHooks): () => void {
+  const stepper = createStepper(world);
   let last = performance.now();
-  let acc = 0;
   let raf = 0;
   let running = true;
 
-  // A long stall (tab in the background) must not trigger a spiral of death.
-  const MAX_CATCHUP = DT_MS * 5;
-
   const frame = (now: number) => {
     if (!running) return;
-    acc += Math.min(now - last, MAX_CATCHUP);
+    // Wrapped rather than passed by reference: hooks are methods, and a bare
+    // reference would drop their `this`.
+    const alpha = stepper.advance(
+      now - last,
+      tick => hooks.collectInputs(tick),
+      stepped => hooks.afterStep(stepped),
+    );
     last = now;
 
-    while (acc >= DT_MS) {
-      step(world, hooks.collectInputs(world.tick));
-      hooks.afterStep(world);
-      acc -= DT_MS;
-    }
-
-    hooks.render(world, acc / DT_MS);
+    hooks.render(world, alpha);
     raf = requestAnimationFrame(frame);
   };
 
