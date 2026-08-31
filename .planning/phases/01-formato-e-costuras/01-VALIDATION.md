@@ -1,8 +1,8 @@
 ---
 phase: 1
 slug: formato-e-costuras
-status: draft
-nyquist_compliant: false
+status: planned
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-08-31
 ---
@@ -58,22 +58,22 @@ a coluna *Threat Ref* abaixo não vire referência solta:
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | FORM-01 | — | `World` não carrega `accountId` nem `peerId`; travessia de identidade não vaza entre espaços | unit | `npx vitest run tests/identity.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-02 | — | Ordem de entrada não influencia resultado — sem canal lateral por ordem de jogador | unit | `npx vitest run tests/canonical-order.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-03 | T-1-01 | `SIM_VERSION` reproduzível; divergência recusa entrada na sala em vez de dessincronizar | integration | `node tools/sim-version/verify.mjs` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-04 | — | `hashWorld` idêntico em node/chromium/firefox/webkit contra o ouro versionado | integration | `npx vitest run --config vitest.browser.config.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-04 | — | `sim/math.ts` bit-exato contra o oráculo `@stdlib`; `throw` fora do domínio `\|x\| < 2^20` | unit | `npx vitest run tests/math-oracle.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-05 | T-1-02 | Saldo = soma do ledger; evento duplicado é no-op (idempotência por `UNIQUE(id)`); gasto é negativo | unit | `npx vitest run tests/ledger.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-05 | T-1-02 | ULID: 26 chars, alfabeto Crockford, monotônico no mesmo ms — id de cliente não colide | unit | `npx vitest run tests/ulid.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-06 | T-1-03 | `encode(decode(x)) === x`; `-0` normalizado; pacote de 6 bytes; buraco no log = repetir último input | unit | `npx vitest run tests/input-codec.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-07 | — | `saveWorld`/`loadWorld` round-trip por hash **e** por `Object.is` estrutural; RNG restaurado | unit | `npx vitest run tests/serialize.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-08 | — | `world.objectives` sobrevive ao round-trip e não é evento drenável | unit | `npx vitest run tests/serialize.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-09 | T-1-04 | Manifesto bom passa; manifesto ruim é recusado com mensagem apontando o campo | integration | `node tools/assets/validate.mjs` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-10 | — | `stepper.advance(ms)` produz n ticks exatos; `MAX_CATCHUP` respeitado; sem leitura de relógio | unit | `npx vitest run tests/stepper.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-11 | — | Snapshot dos enums: inserir no meio falha, acrescentar no fim passa | unit | `npx vitest run tests/protocol-enums.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | FORM-12 | — | Nenhum fonte de `packages/protocol` contém `/\bhost\b/i` fora de comentário | unit | `npx vitest run tests/protocol-vocabulary.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | (invariante) | — | `packages/sim` mantém `dependencies: {}`; pureza; SCC ≤ 5 | unit | `npx vitest run tests/purity.test.ts` | ⚠️ existe, faltam 3 asserções | ⬜ pending |
-| TBD | TBD | TBD | (invariante) | — | `updateBossPattern`: 10 casos diretos, incluindo o ramo `ring` que hoje nunca executa | unit | `npx vitest run tests/boss.test.ts` | ⚠️ existe, sem cobertura direta | ⬜ pending |
+| 01-13 T3 | 01-13 | 7 | FORM-01 | — | `World` não carrega `accountId` nem `peerId`; travessia de identidade não vaza entre espaços | unit | `npx vitest run tests/identity.test.ts` | ❌ W0 | ⬜ pending |
+| 01-13 T2 | 01-13 | 7 | FORM-02 | — | Ordem de entrada não influencia resultado — sem canal lateral por ordem de jogador | unit | `npx vitest run tests/canonical-order.test.ts` | ❌ W0 | ⬜ pending |
+| 01-07 T2 | 01-07 | 4 | FORM-03 | T-1-01 | `SIM_VERSION` reproduzível; divergência recusa entrada na sala em vez de dessincronizar | integration | `node tools/sim-version/verify.mjs` | ❌ W0 | ⬜ pending |
+| 01-04 T3 / 01-12 T3 | 01-04, 01-12 | 2, 6 | FORM-04 | — | `hashWorld` idêntico em node/chromium/firefox/webkit contra o ouro versionado | integration | `npx vitest run --config vitest.browser.config.ts` | ❌ W0 | ⬜ pending |
+| 01-09 T1-T2 | 01-09 | 5 | FORM-04 | — | `sim/math.ts` bit-exato contra o oráculo `@stdlib`; `throw` fora do domínio `\|x\| < 2^20` | unit | `npx vitest run tests/math-oracle.test.ts` | ❌ W0 | ⬜ pending |
+| 01-03 T2 | 01-03 | 1 | FORM-05 | T-1-02 | Saldo = soma do ledger; evento duplicado é no-op (idempotência por `UNIQUE(id)`); gasto é negativo | unit | `npx vitest run tests/ledger.test.ts` | ❌ W0 | ⬜ pending |
+| 01-03 T1 | 01-03 | 1 | FORM-05 | T-1-02 | ULID: 26 chars, alfabeto Crockford, monotônico no mesmo ms — id de cliente não colide | unit | `npx vitest run tests/ulid.test.ts` | ❌ W0 | ⬜ pending |
+| 01-10 T1 | 01-10 | 5 | FORM-06 | T-1-03 | `encode(decode(x)) === x`; `-0` normalizado; pacote de 6 bytes; buraco no log = repetir último input | unit | `npx vitest run tests/input-codec.test.ts` | ❌ W0 | ⬜ pending |
+| 01-14 T2 | 01-14 | 8 | FORM-07 | — | `saveWorld`/`loadWorld` round-trip por hash **e** por `Object.is` estrutural; RNG restaurado | unit | `npx vitest run tests/serialize.test.ts` | ❌ W0 | ⬜ pending |
+| 01-14 T3 | 01-14 | 8 | FORM-08 | — | `world.objectives` sobrevive ao round-trip e não é evento drenável | unit | `npx vitest run tests/serialize.test.ts` | ❌ W0 | ⬜ pending |
+| 01-11 T3 | 01-11 | 5 | FORM-09 | T-1-04 | Manifesto bom passa; manifesto ruim é recusado com mensagem apontando o campo | integration | `node tools/assets/validate.mjs` | ❌ W0 | ⬜ pending |
+| 01-04 T1 | 01-04 | 2 | FORM-10 | — | `stepper.advance(ms)` produz n ticks exatos; `MAX_CATCHUP` respeitado; sem leitura de relógio | unit | `npx vitest run tests/stepper.test.ts` | ❌ W0 | ⬜ pending |
+| 01-06 T2 | 01-06 | 4 | FORM-11 | — | Snapshot dos enums: inserir no meio falha, acrescentar no fim passa | unit | `npx vitest run tests/protocol-enums.test.ts` | ❌ W0 | ⬜ pending |
+| 01-06 T3 | 01-06 | 4 | FORM-12 | — | Nenhum fonte de `packages/protocol` contém `/\bhost\b/i` fora de comentário | unit | `npx vitest run tests/protocol-vocabulary.test.ts` | ❌ W0 | ⬜ pending |
+| 01-05 T3 / 01-08 T2 | 01-05, 01-08 | 3, 4 | (invariante) | — | `packages/sim` mantém `dependencies: {}`; pureza; SCC ≤ 5 | unit | `npx vitest run tests/purity.test.ts` | ⚠️ existe, faltam 3 asserções | ⬜ pending |
+| 01-08 T3 | 01-08 | 4 | (invariante) | — | `updateBossPattern`: 10 casos diretos, incluindo o ramo `ring` que hoje nunca executa | unit | `npx vitest run tests/boss.test.ts` | ⚠️ existe, sem cobertura direta | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -115,11 +115,11 @@ a coluna *Threat Ref* abaixo não vire referência solta:
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags (`vitest run`, nunca `vitest` sozinho)
-- [ ] Feedback latency < 3 s por task / < 90 s por wave
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references — cada arquivo listado abaixo nasce num plano desta fase
+- [x] No watch-mode flags (`vitest run`, nunca `vitest` sozinho)
+- [x] Feedback latency < 3 s por task / < 90 s por wave
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** planejada em 2026-08-31 — 14 planos em 8 waves; ver `.planning/ROADMAP.md` § Phase 1
