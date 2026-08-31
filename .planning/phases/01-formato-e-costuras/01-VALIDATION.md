@@ -61,6 +61,7 @@ a coluna *Threat Ref* abaixo não vire referência solta:
 | 01-13 T3 | 01-13 | 7 | FORM-01 | — | `World` não carrega `accountId` nem `peerId`; travessia de identidade não vaza entre espaços | unit | `npx vitest run tests/identity.test.ts` | ❌ W0 | ⬜ pending |
 | 01-13 T2 | 01-13 | 7 | FORM-02 | — | Ordem de entrada não influencia resultado — sem canal lateral por ordem de jogador | unit | `npx vitest run tests/canonical-order.test.ts` | ❌ W0 | ⬜ pending |
 | 01-07 T2 | 01-07 | 4 | FORM-03 | T-1-01 | `SIM_VERSION` reproduzível; divergência recusa entrada na sala em vez de dessincronizar | integration | `node tools/sim-version/verify.mjs` | ❌ W0 | ⬜ pending |
+| 01-10 T4 | 01-10 | 5 | FORM-03 | T-1-01 | Envelope real → `checkVersions` → replay → hash gravado; um envelope de outro `SIM_VERSION` recusa com as **duas** versões na mensagem e **zero** tick executado | integration | `npx vitest run tests/run-envelope-replay.test.ts` | ❌ W0 | ⬜ pending |
 | 01-04 T3 / 01-12 T3 | 01-04, 01-12 | 2, 6 | FORM-04 | — | `hashWorld` idêntico em node/chromium/firefox/webkit contra o ouro versionado | integration | `npx vitest run --config vitest.browser.config.ts` | ❌ W0 | ⬜ pending |
 | 01-09 T1-T2 | 01-09 | 5 | FORM-04 | — | `sim/math.ts` bit-exato contra o oráculo `@stdlib`; `throw` fora do domínio `\|x\| < 2^20` | unit | `npx vitest run tests/math-oracle.test.ts` | ❌ W0 | ⬜ pending |
 | 01-03 T2 | 01-03 | 1 | FORM-05 | T-1-02 | Saldo = soma do ledger; evento duplicado é no-op (idempotência por `UNIQUE(id)`); gasto é negativo | unit | `npx vitest run tests/ledger.test.ts` | ❌ W0 | ⬜ pending |
@@ -91,6 +92,7 @@ a coluna *Threat Ref* abaixo não vire referência solta:
 - [ ] `tests/canonical-order.test.ts` — FORM-02 (critério 4)
 - [ ] `tests/serialize.test.ts` — FORM-07 / FORM-08 (critério 3)
 - [ ] `tests/input-codec.test.ts` — FORM-06
+- [ ] `tests/replayVerify.ts` + `tests/run-envelope-replay.test.ts` — FORM-03 (critério 2: a costura envelope → recusa → replay → hash)
 - [ ] `tests/stepper.test.ts` — FORM-10
 - [ ] `tests/protocol-enums.test.ts` + `tests/protocol-vocabulary.test.ts` — FORM-11 / FORM-12
 - [ ] `tests/ledger.test.ts` + `tests/ulid.test.ts` — FORM-05

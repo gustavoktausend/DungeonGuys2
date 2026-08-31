@@ -1422,7 +1422,12 @@ process.exit(failed ? 1 : 0);
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **Todas as cinco foram resolvidas no planejamento da fase 1.** O orquestrador rodava em
+> modo `yolo` (sem gates interativos) e adotou a recomendação do pesquisador em cada uma.
+> Cada item abaixo carrega um marcador `RESOLVED:` apontando o plano e a task que a executa.
+> Para derrubar qualquer uma delas, edite o plano citado antes de `/gsd:execute-phase 1`.
 
 1. **`STAT_LABELS`/`PCT_STATS` saem de `sim/stats.ts`?**
    - O que sabemos: são vocabulário de HUD (`ui/screens.ts:14`, `ui/shop.ts:17`), estão dentro do
@@ -1431,6 +1436,9 @@ process.exit(failed ? 1 : 0);
      movendo-os, ou se a exceção é aceitável.
    - Recomendação: **mover para `ui/`** nesta fase, junto com a remoção de `SPRITE_SCALE` e
      `nextWaveDelay`. Custa minutos agora e uma temporada fechada à toa depois.
+   - **RESOLVED:** adotada. `STAT_LABELS`/`PCT_STATS` → `src/ui/labels.ts`, conceito de
+     `SPRITE_SCALE` → `render/`, `nextWaveDelay` removido — **plano 01-12, Task 2**, no mesmo
+     commit do re-baseline.
 
 2. **O `playerId` local vira `p0` (hoje é `'p1'` em 6 lugares de `main.ts`)?**
    - O que sabemos: FORM-01/D-30 definem os slots como `p0..p3`. O código usa `'p1'` para o jogador
@@ -1438,6 +1446,8 @@ process.exit(failed ? 1 : 0);
    - O que não está claro: se a troca acontece nesta fase ou na 3 (quando a autoridade atribui slots).
    - Recomendação: **trocar nesta fase**, no mesmo commit do re-baseline de hashes — porque muda o
      hash e você só quer pagar esse re-baseline uma vez.
+   - **RESOLVED:** adotada. `'p1'` → `p0` nesta fase — **plano 01-12, Task 2**. O ouro gravado
+     em 01-04 já nasce com `p0`, então a troca não custa re-baseline extra.
 
 3. **`sim/` fica totalmente acíclico ou para em 5 + 2?**
    - O que sabemos: o corte do rabo de `closeLevelUp` leva a `{boss, combat, enemies, player,
@@ -1445,18 +1455,25 @@ process.exit(failed ? 1 : 0);
      `closeShop → startNextWave`.
    - Recomendação: parar em 5 + 2 nesta fase (é o que o roadmap pediu) e **registrar o segundo corte
      no backlog**, porque a fase 3 vai acrescentar arestas.
+   - **RESOLVED:** adotada. Para em 5 + 2 — **plano 01-08**, guardado por `tests/scc.test.ts`
+     (01-08 Task 2). O segundo corte (`run ↔ shop`) vai para `docs/BACKLOG.md` em 01-02 Task 3.
 
 4. **Codificação de `aim`: `int16` ou `uint16` na decodificação?**
    - O que sabemos: `int16` preserva a faixa `[−π, π)` que o sim vê hoje; `uint16` a move para
      `[0, 2π)` e muda a contagem de iterações dos laços de normalização de ângulo em
      `combat.ts:97-98,111-112`, o que muda bits no limite do arco de melee.
    - Recomendação: **`int16`**. O fio continua carregando 16 bits; só a interpretação muda.
+   - **RESOLVED:** adotada. `int16` — **plano 01-04 Task 2** (decodificador do ouro) e
+     **plano 01-10 Task 1** (codec do protocolo), ambos citando `combat.ts:97-98,111-112`.
 
 5. **Quem pode refazer um hash-ouro, e como isso é auditado?**
    - Área de discrição explícita do CONTEXT.
    - Recomendação: script dedicado com `--confirm`, rodando **só em Node**, e a regra de que um PR que
      mexe em `tests/golden/` não mexe em mais nada. Assim `git log -- tests/golden/` é a história
      completa das mudanças de simulação — que é exatamente o que a fase 9 vai precisar consultar.
+   - **RESOLVED:** adotada. `tools/golden/rebaseline.mjs --confirm`, só Node, commit de um
+     arquivo só — **plano 01-04 Task 2**, cobrado nos acceptance criteria de 01-12 Task 3 e
+     01-13 Task 3.
 
 ---
 
