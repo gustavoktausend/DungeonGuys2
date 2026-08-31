@@ -3,7 +3,7 @@
 //
 // These two roles are the same file on purpose. SIM_VERSION is the hash of ONE
 // emitted bundle, so the package exposes ONE entry: `exports` in package.json
-// has only ".", and there are no subpaths such as `@dg2/sim/math`. Whatever is
+// has only ".", and no subpath entry (no separate `math` export). Whatever is
 // not reachable from this barrel does not enter the bundle, which makes the
 // boundary of the hash coincide with the boundary of the package.
 //
