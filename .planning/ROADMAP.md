@@ -66,9 +66,9 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-06-PLAN.md — `packages/protocol`: `PROTOCOL_VERSION`, enums congelados e vocabulário sem "host"
-- [ ] 01-07-PLAN.md — `SIM_VERSION` por hash de bundle, em build de duas etapas
-- [ ] 01-08-PLAN.md — Corte do ciclo de `sim/` (SCC 8 → 5+2) e cobertura direta de `updateBossPattern`
+- [x] 01-06-PLAN.md — `packages/protocol`: `PROTOCOL_VERSION`, enums congelados e vocabulário sem "host"
+- [x] 01-07-PLAN.md — `SIM_VERSION` por hash de bundle, em build de duas etapas
+- [x] 01-08-PLAN.md — Corte do ciclo de `sim/` (SCC 8 → 5+2) e cobertura direta de `updateBossPattern`
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 5/14 | In Progress|  |
+| 1. Formato e costuras | 8/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
