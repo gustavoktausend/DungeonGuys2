@@ -52,7 +52,7 @@ placar em que estar no topo significa ter jogado.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Toolchain alvo, configs de teste e o primeiro CI de teste do repositório
+- [x] 01-01-PLAN.md — Toolchain alvo, configs de teste e o primeiro CI de teste do repositório
 - [x] 01-02-PLAN.md — Os 12 ADRs de `docs/adr/`: identidade, merge, temporada, placar e replay
 - [x] 01-03-PLAN.md — Ledger append-only de soul gold e o ULID escrito à mão
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 2/14 | In Progress|  |
+| 1. Formato e costuras | 3/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
