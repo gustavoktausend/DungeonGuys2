@@ -58,7 +58,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-04-PLAN.md — Passo fixo (`app/stepper.ts`), o ouro versionado e o portão cross-engine que falha
+- [x] 01-04-PLAN.md — Passo fixo (`app/stepper.ts`), o ouro versionado e o portão cross-engine que falha
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 3/14 | In Progress|  |
+| 1. Formato e costuras | 4/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
