@@ -18,13 +18,11 @@
 // the two legs must drive the sim identically or the comparison between them
 // means nothing. Change one, change the other.
 import { describe, it, expect } from 'vitest';
-import { createWorld } from '../src/sim/world';
-import { createPlayer } from '../src/sim/player';
-import { startRun } from '../src/sim/run';
+import { createWorld, createPlayer, startRun } from '@dg2/sim';
 import { createStepper } from '../src/app/stepper';
 import { hashWorld } from './helpers';
 import { decodeInputLog, type GoldenFixture } from './inputLog';
-import type { World } from '../src/sim/types';
+import type { World } from '@dg2/sim';
 import FIXTURE from './golden/campaign-mage-3000.json';
 
 const GOLDEN = FIXTURE as unknown as GoldenFixture;

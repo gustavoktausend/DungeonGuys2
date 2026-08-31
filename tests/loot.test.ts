@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { updateCoins, updatePotions, updateChests, lootChest } from '../src/sim/loot';
-import { COIN_MAGNET } from '../src/sim/constants';
+import { createPlayer, updateCoins, updatePotions, updateChests, lootChest, COIN_MAGNET } from '@dg2/sim';
 
 describe('moedas', () => {
   it('são atraídas quando entram no raio do ímã', () => {

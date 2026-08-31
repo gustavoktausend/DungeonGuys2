@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
 import {
-  makeEnemy, makeElite, spawnEnemy, updateEnemies, updateEnemyBullets, killEnemy, nearestPlayer,
-} from '../src/sim/enemies';
-import { spawnBoss } from '../src/sim/boss';
-import { DT_MS } from '../src/sim/constants';
+  createPlayer, makeEnemy, makeElite, spawnEnemy, updateEnemies, updateEnemyBullets,
+  killEnemy, nearestPlayer, spawnBoss, DT_MS,
+} from '@dg2/sim';
 
 describe('makeEnemy', () => {
   it('escala hp e velocidade com a wave', () => {

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createStepper, MAX_CATCHUP_MS } from '../src/app/stepper';
-import { DT_MS } from '../src/sim/constants';
+import { DT_MS } from '@dg2/sim';
 import { makeTestWorld, noInput } from './helpers';
-import type { InputState } from '../src/sim/types';
+import type { InputState } from '@dg2/sim';
 
 // Raw source of app/, so "no wall clock, no frame pump" is asserted on the
 // file itself and not merely on its behavior. Same trick as purity.test.ts:

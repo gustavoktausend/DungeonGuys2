@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { startRun, checkWaveComplete } from '../src/sim/run';
-import { maybeOpenLevelUp, pickBlessing } from '../src/sim/xp';
 import {
+  createPlayer, startRun, checkWaveComplete, maybeOpenLevelUp, pickBlessing,
   rollOffers, itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, equipItem, closeShop,
-} from '../src/sim/shop';
-import { EQUIPMENT } from '../src/sim/equipment-catalog';
-import { HEAL_PRICE } from '../src/sim/defs/items';
+  EQUIPMENT, HEAL_PRICE,
+} from '@dg2/sim';
 
 describe('rollOffers', () => {
   it('oferece 4 consumíveis e 4 equipamentos', () => {

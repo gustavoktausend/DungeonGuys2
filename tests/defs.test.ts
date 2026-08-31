@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { CLASS_DEFS, CLASS_KEYS } from '../src/sim/defs/classes';
-import { ENEMY_DEFS, ELITE_TYPES, MINIBOSS_WAVES } from '../src/sim/defs/enemies';
-import { ITEM_POOL } from '../src/sim/defs/items';
-import { LEVELUP_POOL } from '../src/sim/defs/blessings';
-import { MUTATORS } from '../src/sim/defs/mutators';
-import { baseStats } from '../src/sim/stats';
+import {
+  CLASS_DEFS, CLASS_KEYS, ENEMY_DEFS, ELITE_TYPES, MINIBOSS_WAVES,
+  ITEM_POOL, LEVELUP_POOL, MUTATORS, baseStats,
+} from '@dg2/sim';
 
 const STAT_KEYS = new Set([...Object.keys(baseStats()), 'maxHp']);
 

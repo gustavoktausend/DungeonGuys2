@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createWorld, emit } from '../src/sim/world';
-import { drainEvents } from '../src/sim/step';
-import { WORLD, TILE } from '../src/sim/constants';
-import type { RunConfig } from '../src/sim/types';
+import { createWorld, emit, drainEvents, WORLD, TILE } from '@dg2/sim';
+import type { RunConfig } from '@dg2/sim';
 
 const config: RunConfig = {
   seed: 1234,

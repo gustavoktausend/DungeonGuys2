@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, noInput } from './helpers';
-import { createPlayer, updatePlayer, damagePlayer } from '../src/sim/player';
-import { WORLD } from '../src/sim/constants';
-import type { InputState, World, Player } from '../src/sim/types';
+import { createPlayer, updatePlayer, damagePlayer, WORLD } from '@dg2/sim';
+import type { InputState, World, Player } from '@dg2/sim';
 
 function setup(): { w: World; p: Player } {
   const w = makeTestWorld();

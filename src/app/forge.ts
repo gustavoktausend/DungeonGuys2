@@ -9,8 +9,8 @@ import { Sfx } from './audio';
 import { dom } from '../ui/dom';
 import { showScreen } from '../ui/screens';
 import { mouseOnly } from '../ui/events';
-import { FORGE_RATE } from '../sim/constants';
-import type { ClassKey, GameMode, RunConfig, World } from '../sim/types';
+import { FORGE_RATE } from '@dg2/sim';
+import type { ClassKey, GameMode, RunConfig, World } from '@dg2/sim';
 
 export function forgeLevel(key: string): number {
   return Save.data.progress.forge[key] ?? 0;

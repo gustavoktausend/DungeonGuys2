@@ -1,9 +1,5 @@
 import './style.css';
-import { createWorld } from './sim/world';
-import { drainEvents } from './sim/step';
-import { DT_MS } from './sim/constants';
-import { createPlayer } from './sim/player';
-import { startRun } from './sim/run';
+import { createWorld, drainEvents, DT_MS, createPlayer, startRun } from '@dg2/sim';
 import { startLoop } from './app/loop';
 import { createInput } from './app/input';
 import { createEventSink } from './app/events';
@@ -21,7 +17,7 @@ import { dom } from './ui/dom';
 import { setupTouch } from './ui/touch';
 import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
 import { mouseOnly } from './ui/events';
-import type { ClassKey, GameMode, Player, World } from './sim/types';
+import type { ClassKey, GameMode, Player, World } from '@dg2/sim';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;

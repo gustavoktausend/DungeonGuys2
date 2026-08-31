@@ -1,6 +1,5 @@
-import { createWorld } from '../src/sim/world';
-import { step } from '../src/sim/step';
-import type { InputState, RunConfig, World } from '../src/sim/types';
+import { createWorld, step } from '@dg2/sim';
+import type { InputState, RunConfig, World } from '@dg2/sim';
 
 export const BASE_CONFIG: RunConfig = {
   seed: 20260827,

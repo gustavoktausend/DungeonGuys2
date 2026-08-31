@@ -1,8 +1,8 @@
 // tests/equipment-equip.test.ts — pure equip-rule checks, ported from
 // ORIG/tests/equipment-equip.test.js.
 import { describe, it, expect } from 'vitest';
-import * as eq from '../src/sim/equipment';
-import type { EquipItem } from '../src/sim/types';
+import * as eq from '@dg2/sim';
+import type { EquipItem } from '@dg2/sim';
 
 describe('archetypeOf', () => {
   it('melee -> melee', () => {

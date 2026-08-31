@@ -9,12 +9,8 @@
 // logic and pushes nothing anywhere else; it only ever writes DOM text/style
 // derived from the current world snapshot.
 import { dom } from './dom';
-import { CLASS_DEFS } from '../sim/defs/classes';
-import { maxStamina } from '../sim/stats';
-import { WAVE_DURATION } from '../sim/defs/enemies';
-import { comboMult } from '../sim/enemies';
-import { WAVES_TOTAL } from '../sim/constants';
-import type { World } from '../sim/types';
+import { CLASS_DEFS, maxStamina, WAVE_DURATION, comboMult, WAVES_TOTAL } from '@dg2/sim';
+import type { World } from '@dg2/sim';
 
 export function updateHud(world: World, localId: string): void {
   const p = world.players[localId];

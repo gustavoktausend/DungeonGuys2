@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, runTicks, hashWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { startRun, startNextWave, pickEnemyType, checkWaveComplete } from '../src/sim/run';
-import { WAVES_TOTAL } from '../src/sim/constants';
-import type { InputState } from '../src/sim/types';
+import { createPlayer, startRun, startNextWave, pickEnemyType, checkWaveComplete, WAVES_TOTAL } from '@dg2/sim';
+import type { InputState } from '@dg2/sim';
 
 // A scripted input sequence: moves, attacks and specials at fixed ticks.
 // Local to this file on purpose — tests/determinism.test.ts has its own

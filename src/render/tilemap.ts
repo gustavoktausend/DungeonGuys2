@@ -7,7 +7,7 @@
 // window only moves the camera's viewport over the same pre-rendered world.
 // Tile variation still uses Math.random(): it is cosmetic and lives in
 // render/, not in the seeded sim RNG.
-import { TILE, WORLD } from '../sim/constants';
+import { TILE, WORLD } from '@dg2/sim';
 import { SHEET, WALL_TILES, FLOOR_TILES, type Frame } from './sprites';
 import type { Camera } from './camera';
 

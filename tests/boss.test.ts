@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { spawnBoss, bossPlanForWave } from '../src/sim/boss';
-import { updateEnemies } from '../src/sim/enemies';
-import { WAVES_TOTAL } from '../src/sim/constants';
+import { createPlayer, spawnBoss, bossPlanForWave, updateEnemies, WAVES_TOTAL } from '@dg2/sim';
 
 describe('bossPlanForWave', () => {
   it('waves comuns não têm chefe', () => {

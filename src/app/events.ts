@@ -3,7 +3,7 @@
 // about), then dispatched to whichever app-layer callback owns that event's
 // type. sfx/announce/UI wiring are later tasks; main.ts currently passes
 // no-op callbacks for them.
-import type { SimEvent } from '../sim/types';
+import type { SimEvent } from '@dg2/sim';
 
 export function createEventSink(deps: {
   fx: { handle(e: SimEvent): void };

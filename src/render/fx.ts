@@ -15,7 +15,7 @@
 //    (shakeT countdown), ORIG/render.js:7-10 (the fading translate)
 //  - draw styling: ORIG/render.js:192-217 (swings), :357-371 (float texts),
 //    :372-379 (particles)
-import type { SimEvent } from '../sim/types';
+import type { SimEvent } from '@dg2/sim';
 import { worldToScreen, isVisible, type Camera } from './camera';
 
 type Particle = {

@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 
 // Vite's raw glob, not node:fs — tsconfig's `types` is ["vite/client"] only.
-const FILES = import.meta.glob<string>('../src/sim/**/*.ts', {
+const FILES = import.meta.glob<string>('../packages/sim/src/**/*.ts', {
   query: '?raw', import: 'default', eager: true,
 });
 

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { applyPoison, attack, dealDamage, fireProjectile, meleeAttack } from '../src/sim/combat';
-import { updateBullets } from '../src/sim/bullets';
-import { makeEnemy } from '../src/sim/enemies';
-import type { Enemy, Player, World } from '../src/sim/types';
+import {
+  createPlayer, applyPoison, attack, dealDamage, fireProjectile, meleeAttack,
+  updateBullets, makeEnemy,
+} from '@dg2/sim';
+import type { Enemy, Player, World } from '@dg2/sim';
 
 function setup(cls: Player['cls'] = 'mage'): { w: World; p: Player } {
   const w = makeTestWorld();

@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { castSpecial } from '../src/sim/special';
-import { makeEnemy, updateEnemies } from '../src/sim/enemies';
-import { DT_MS } from '../src/sim/constants';
-import { CLASS_DEFS } from '../src/sim/defs/classes';
-import type { ClassKey } from '../src/sim/types';
+import { createPlayer, castSpecial, makeEnemy, updateEnemies, DT_MS, CLASS_DEFS } from '@dg2/sim';
+import type { ClassKey } from '@dg2/sim';
 
 const ALL: ClassKey[] = ['mage', 'archer', 'warrior', 'ninja', 'priestess', 'witch', 'coprobo'];
 

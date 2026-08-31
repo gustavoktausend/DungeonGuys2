@@ -12,7 +12,7 @@ import { worldToScreen, type Camera } from '../render/camera';
 import { Save } from './save';
 import { isTextInput } from '../ui/events';
 import type { TouchState } from '../ui/touch';
-import type { Enemy, InputState, World } from '../sim/types';
+import type { Enemy, InputState, World } from '@dg2/sim';
 
 /** Below this magnitude the joystick is treated as centered — ORIG/ui.js
  * doesn't have this deadzone (the original always trusted `touchVec`
