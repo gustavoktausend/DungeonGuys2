@@ -1,0 +1,31 @@
+{
+  "MSG_KIND": [
+    "hello",
+    "welcome",
+    "reject",
+    "lobbyState",
+    "startRun",
+    "input",
+    "snapshot",
+    "ack"
+  ],
+  "REJECT_REASON": [
+    "simVersion",
+    "protocolVersion",
+    "roomFull",
+    "roomClosed",
+    "badCode"
+  ],
+  "CHANNEL_CLASS": [
+    "reliable",
+    "unreliable"
+  ],
+  "OBJECTIVE_KIND": [
+    "none",
+    "defend",
+    "hunt",
+    "purge",
+    "fetch",
+    "extract"
+  ]
+}

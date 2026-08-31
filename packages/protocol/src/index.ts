@@ -9,4 +9,5 @@
 // socket and holds no state — the transports of phases 3 to 5 import the
 // shapes from here, they do not live here.
 
+export * from './enums';
 export * from './version';
