@@ -25,7 +25,7 @@ import {
   drawCoins, drawPotions, drawChests,
 } from './entities';
 import type { Camera } from './camera';
-import type { World } from '../sim/types';
+import type { World } from '@dg2/sim';
 import type { Fx } from './fx';
 
 export function render(world: World, cam: Camera, alpha: number, ctx: CanvasRenderingContext2D, fx: Fx): void {

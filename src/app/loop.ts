@@ -4,7 +4,7 @@
 // Rendering interpolates between the last two states so a 60Hz simulation
 // does not stutter on a 144Hz display.
 import { createStepper } from './stepper';
-import type { InputState, World } from '../sim/types';
+import type { InputState, World } from '@dg2/sim';
 
 export type LoopHooks = {
   collectInputs(tick: number): Record<string, InputState>;

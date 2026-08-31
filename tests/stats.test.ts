@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { baseStats, recalcStats, startWeapon, maxStamina, playerDmgKind, playerArchetype, applyMods } from '../src/sim/stats';
-import { emptyEquipment } from '../src/sim/equipment';
-import type { EquipItem, Player } from '../src/sim/types';
+import {
+  baseStats, recalcStats, startWeapon, maxStamina, playerDmgKind, playerArchetype, applyMods,
+  emptyEquipment,
+} from '@dg2/sim';
+import type { EquipItem, Player } from '@dg2/sim';
 
 function makePlayer(cls: Player['cls'] = 'mage'): Player {
   const weapon = startWeapon(cls);

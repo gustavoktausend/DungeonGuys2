@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
 import {
   generateArena, resolveObstacles, trapDangerous, trapFrameAt, damageCrate, rectCircle,
-  INDESTRUCTIBLE_HP,
-} from '../src/sim/arena';
-import { WORLD } from '../src/sim/constants';
+  INDESTRUCTIBLE_HP, WORLD,
+} from '@dg2/sim';
 
 describe('generateArena', () => {
   it('é determinística para a mesma seed', () => {

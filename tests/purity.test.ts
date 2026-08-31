@@ -1,7 +1,11 @@
-// purity.test.ts — the second half of the sim/ purity contract. The plan
-// (linha 17) says it is enforced "por lint (Task 1) E POR TESTE (Task 4)";
-// this is that test. It is not redundant with eslint.config.js, which
-// structurally cannot see:
+// purity.test.ts — the third of the three independent guards on the purity of
+// packages/sim (D-16). The other two are eslint.config.js (the
+// `packages/sim/src/**/*.ts` block) and packages/sim/tsconfig.json, whose
+// `lib` has no browser library and whose `types` is empty, so the compiler
+// itself rejects `window` and `document`.
+//
+// This test is not redundant with eslint.config.js, which structurally
+// cannot see:
 //   - `new Date()` / `Date.parse` / `Date.UTC` — `no-restricted-properties`
 //     only pins `Date.now`, while the plan names `Date` bare;
 //   - `globalThis.window` — `no-restricted-globals` matches bare identifiers;
@@ -15,9 +19,23 @@
 import { describe, it, expect } from 'vitest';
 
 // Vite's raw glob, not node:fs — tsconfig's `types` is ["vite/client"] only.
-const FILES = import.meta.glob<string>('../src/sim/**/*.ts', {
+const FILES = import.meta.glob<string>('../packages/sim/src/**/*.ts', {
   query: '?raw', import: 'default', eager: true,
 });
+
+// The package manifest, read the same way, for the `dependencies: {}` check.
+const MANIFEST = import.meta.glob<string>('../packages/sim/package.json', {
+  query: '?raw', import: 'default', eager: true,
+});
+
+/**
+ * Exact count, on purpose — this used to be a lower bound, and a lower bound
+ * does not notice a file left behind by an extraction, which is precisely the
+ * failure mode of the move that created this package. 24 moved modules plus
+ * the index.ts barrel. Adding a module to the package means changing this
+ * number in the same commit, deliberately.
+ */
+const EXPECTED_FILE_COUNT = 25;
 
 /**
  * Removes comments; also blanks string/template literal bodies when
@@ -57,9 +75,18 @@ const FORBIDDEN: RegExp[] = [
 const LAYER_IMPORT = /\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
 const FORBIDDEN_LAYER = /(^|[/\\])(render|ui|app)([/\\]|$)/;
 
-describe('pureza de src/sim', () => {
-  it('encontrou os arquivos de sim/', () => {
-    expect(Object.keys(FILES).length).toBeGreaterThanOrEqual(15);
+describe('pureza de packages/sim', () => {
+  it('encontrou exatamente os arquivos do pacote', () => {
+    expect(Object.keys(FILES).length).toBe(EXPECTED_FILE_COUNT);
+  });
+
+  it('packages/sim declara dependencies vazio', () => {
+    const raw = MANIFEST['../packages/sim/package.json'];
+    expect(raw, 'o glob não encontrou packages/sim/package.json').toBeTypeOf('string');
+    const pkg = JSON.parse(raw!) as { dependencies?: Record<string, string> };
+    // Equality with {}, not "no keys": npm silently deletes an empty object on
+    // install, and the invariant of CLAUDE.md is that the key is there and empty.
+    expect(pkg.dependencies).toEqual({});
   });
 
   it('nenhum arquivo toca DOM, relógio de parede ou aleatoriedade não semeada', () => {

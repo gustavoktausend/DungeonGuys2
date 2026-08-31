@@ -10,13 +10,11 @@
 // main.ts's render hook) instead of the original's scattered `showScreen()`
 // calls sprinkled through game logic. No sim or game code calls into this
 // file's screen-switching; it only ever reads `world`.
-import { pickBlessing } from '../sim/xp';
-import { STAT_LABELS, PCT_STATS } from '../sim/stats';
-import { WAVES_TOTAL } from '../sim/constants';
+import { pickBlessing, STAT_LABELS, PCT_STATS, WAVES_TOTAL } from '@dg2/sim';
 import { dom } from './dom';
 import { renderShop } from './shop';
 import { mouseOnly, isTextInput } from './events';
-import type { Blessing, Phase, Player, World } from '../sim/types';
+import type { Blessing, Phase, Player, World } from '@dg2/sim';
 
 const SCREEN_FOR_PHASE: Record<Phase, string | null> = {
   playing: null,

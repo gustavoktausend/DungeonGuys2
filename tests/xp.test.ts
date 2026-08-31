@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { gainXp, rollLevelChoices, pickBlessing } from '../src/sim/xp';
-import { XP_BASE, XP_GROWTH, LEVEL_HP } from '../src/sim/defs/blessings';
+import { createPlayer, gainXp, rollLevelChoices, pickBlessing, XP_BASE, XP_GROWTH, LEVEL_HP } from '@dg2/sim';
 
 describe('gainXp', () => {
   it('acumula xp sem subir de nível abaixo do limiar', () => {

@@ -16,11 +16,8 @@
 // sim's 'swing' event, and Fx.draw (not drawHeldWeapon) is what paints them.
 // The weapon keeps falling back to the plain facing angle, exactly as the
 // original did whenever no swing was in flight.
-import { SPRITE_SCALE } from '../sim/constants';
-import { CLASS_DEFS } from '../sim/defs/classes';
-import { nearestPlayer } from '../sim/enemies';
-import { trapFrameAt } from '../sim/arena';
-import type { Player, World } from '../sim/types';
+import { SPRITE_SCALE, CLASS_DEFS, nearestPlayer, trapFrameAt } from '@dg2/sim';
+import type { Player, World } from '@dg2/sim';
 import { worldToScreen, isVisible, type Camera } from './camera';
 import {
   ANIMS, WEAPON_SPRITES, SHEET, playerSheet,

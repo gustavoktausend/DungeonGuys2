@@ -6,8 +6,8 @@
 //    this app under a base path in production (T-render);
 //  - loadSprites() returns a Promise that resolves once SHEET and COP_SHEET
 //    are done loading, instead of the original's per-frame `.complete` poll.
-import { CLASS_DEFS } from '../sim/defs/classes';
-import type { ClassKey } from '../sim/types';
+import { CLASS_DEFS } from '@dg2/sim';
+import type { ClassKey } from '@dg2/sim';
 
 const BASE = import.meta.env.BASE_URL;
 

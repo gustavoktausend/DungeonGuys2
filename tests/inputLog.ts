@@ -11,7 +11,7 @@
 // catch. Integers are bit-identical everywhere, and the decoding below is
 // only division and multiplication — both correctly rounded by IEEE-754 per
 // the ECMAScript spec, so it is bit-identical everywhere too.
-import type { ClassKey, InputState, RunConfig } from '../src/sim/types';
+import type { ClassKey, InputState, RunConfig } from '@dg2/sim';
 
 /** 2*pi/65536 — one turn split into 65536 steps (0.005493 degrees). */
 export const AIM_STEP = (Math.PI * 2) / 65536;

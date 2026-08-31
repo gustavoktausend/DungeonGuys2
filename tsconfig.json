@@ -11,7 +11,15 @@
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+
+    // `paths` without `baseUrl`: TS 6.0 rejects `baseUrl` outright (TS5101,
+    // removed in TS 7), and since TS 4.1 a non-relative mapping resolves
+    // relative to this tsconfig. The mapping exists so `tsc` sees the package
+    // as source; runtime resolution comes from the npm workspace symlink.
+    "paths": {
+      "@dg2/sim": ["./packages/sim/src/index.ts"]
+    }
   },
-  "include": ["src", "tests", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "tests", "packages", "vite.config.ts", "eslint.config.js"]
 }

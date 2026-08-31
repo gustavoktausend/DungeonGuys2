@@ -7,9 +7,8 @@
 // rewritten — the render pacing must not change just because the code did.
 // See tests/stepper.test.ts for the one place where IEEE-754 makes that
 // arithmetic surprising (DT_MS * 3 is not three whole slices).
-import { DT_MS } from '../sim/constants';
-import { step } from '../sim/step';
-import type { World } from '../sim/types';
+import { DT_MS, step } from '@dg2/sim';
+import type { World } from '@dg2/sim';
 import type { LoopHooks } from './loop';
 
 /** A long stall (a backgrounded tab) must not trigger a spiral of death. */

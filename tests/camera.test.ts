@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCamera, updateCamera, worldToScreen, isVisible } from '../src/render/camera';
-import { WORLD } from '../src/sim/constants';
+import { WORLD } from '@dg2/sim';
 
 describe('câmera', () => {
   it('centra no alvo quando ele está longe das bordas', () => {

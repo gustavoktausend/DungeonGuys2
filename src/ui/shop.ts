@@ -13,11 +13,11 @@
 // `renderShop()` call, just split across the sim/ui boundary.
 import { dom } from './dom';
 import { mouseOnly } from './events';
-import { EQUIP_SLOTS, canEquip, targetSlot } from '../sim/equipment';
-import { STAT_LABELS, PCT_STATS } from '../sim/stats';
-import { itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, closeShop } from '../sim/shop';
-import { HEAL_PRICE } from '../sim/defs/items';
-import type { EquipItem, EquipSlot, Equipment, Mods, Player, Stats, Weapon, World } from '../sim/types';
+import {
+  EQUIP_SLOTS, canEquip, targetSlot, STAT_LABELS, PCT_STATS,
+  itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, closeShop, HEAL_PRICE,
+} from '@dg2/sim';
+import type { EquipItem, EquipSlot, Equipment, Mods, Player, Stats, Weapon, World } from '@dg2/sim';
 
 const SLOT_LABELS: Record<EquipSlot, string> = {
   weapon: 'WEAPON', offhand: 'OFF-HAND', helm: 'HELM', armor: 'ARMOR',

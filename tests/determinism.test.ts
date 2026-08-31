@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestWorld, runTicks, hashWorld, noInput } from './helpers';
-import { createPlayer } from '../src/sim/player';
-import { generateArena } from '../src/sim/arena';
-import type { InputState } from '../src/sim/types';
+import { createPlayer, generateArena } from '@dg2/sim';
+import type { InputState } from '@dg2/sim';
 
 // A scripted input sequence: moves, attacks and specials at fixed ticks.
 function scripted(tick: number): Record<string, InputState> {

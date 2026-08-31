@@ -1,5 +1,5 @@
 // camera.ts — the viewport into the fixed world. Pure math, unit-testable.
-import { WORLD } from '../sim/constants';
+import { WORLD } from '@dg2/sim';
 
 export type Camera = { x: number; y: number; w: number; h: number };
 

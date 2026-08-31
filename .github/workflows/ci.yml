@@ -16,6 +16,9 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      # segunda guarda de pureza de packages/sim (D-16): lib sem DOM e types vazio,
+      # entao o proprio compilador recusa window/document dentro do pacote
+      - run: npm run typecheck:sim
       - run: npm test
 
       # A versao exata do Playwright e a variavel do experimento de determinismo:

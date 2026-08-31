@@ -23,9 +23,9 @@ import { Save } from '../app/save';
 import { balance, Ledger } from '../app/ledger';
 import { Sfx } from '../app/audio';
 import { ANIMS, OUTFIT_COLORS, recolorPlayerSheet, playerSheet } from '../render/sprites';
-import { CLASS_DEFS } from '../sim/defs/classes';
+import { CLASS_DEFS } from '@dg2/sim';
 import { mouseOnly, isTextInput } from './events';
-import type { ClassKey, GameMode } from '../sim/types';
+import type { ClassKey, GameMode } from '@dg2/sim';
 
 // ORIG/ui.js:162-165 — buttons drop focus after click so Space (the attack
 // key) never re-activates them, and every click gets a tiny confirmation blip.

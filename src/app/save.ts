@@ -9,7 +9,7 @@
 // `localStorage`, letting one game's progress overwrite the other's. The
 // original's legacy `dg_*` key migration is dropped entirely — there is no
 // legacy save under this key.
-import type { GameMode } from '../sim/types';
+import type { GameMode } from '@dg2/sim';
 
 export type ClassRecord = {
   score: number;

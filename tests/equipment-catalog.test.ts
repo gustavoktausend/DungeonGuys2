@@ -1,7 +1,7 @@
 // tests/equipment-catalog.test.ts — catalog integrity, ported from
 // ORIG/tests/equipment-catalog.test.js.
 import { describe, it, expect } from 'vitest';
-import { EQUIPMENT } from '../src/sim/equipment-catalog';
+import { EQUIPMENT } from '@dg2/sim';
 
 const VALID_SLOTS = ['weapon', 'offhand', 'helm', 'armor', 'boots', 'ring', 'amulet'];
 const VALID_ARCH = ['melee', 'ranged', 'elemental'];
