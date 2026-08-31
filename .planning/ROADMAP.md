@@ -62,7 +62,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-05-PLAN.md — Extração de `packages/sim` com npm workspaces e as três guardas de pureza
+- [x] 01-05-PLAN.md — Extração de `packages/sim` com npm workspaces e as três guardas de pureza
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 4/14 | In Progress|  |
+| 1. Formato e costuras | 5/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
