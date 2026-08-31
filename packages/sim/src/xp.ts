@@ -16,8 +16,9 @@
 //    `LEVELUP_POOL` (IGNITE, FROST) now show up as often as the ones near
 //    the front. Flagging this explicitly per the brief so it never reads
 //    as an accidental behavior change.
-//  - `forgeLevel('wise')` is `world.config.forge.wise`; `tryUnlock('witch')`
-//    at level 8 is `emit(world, { t: 'unlock', cls: 'witch' })`.
+//  - `forgeLevel('wise')` is the earning player's own wise level, read
+//    through `slotForge`; `tryUnlock('witch')` at level 8 is
+//    `emit(world, { t: 'unlock', cls: 'witch' })`.
 //
 // CYCLE CUT (phase 01, plan 01-08). This file used to import `victory` from
 // ./run and `openShop` from ./shop. Both were used by exactly one function —
@@ -44,14 +45,15 @@
 // construction — same calls, same order, same tick, same `world.rng`
 // consumption sequence — which is why the golden hash is the proof that this
 // change was structural and nothing else.
-import { emit, setPhase } from './world';
+import { emit, setPhase, slotForge } from './world';
 import { LEVELUP_POOL, XP_GROWTH, LEVEL_HP } from './defs/blessings';
 import { recalcStats, playerDmgKind } from './stats';
 import type { Player, World } from './types';
 
 /** ORIG/entities.js:68-86. */
 export function gainXp(world: World, p: Player, amount: number): void {
-  const gained = Math.round(amount * (1 + world.config.forge.wise * 0.1));
+  // The wise bonus belongs to whoever earned the xp, not to the run.
+  const gained = Math.round(amount * (1 + slotForge(world, p.id).wise * 0.1));
   p.xp += gained;
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;

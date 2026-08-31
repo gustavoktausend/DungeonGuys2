@@ -45,7 +45,7 @@ const LIVE_UNTIL = 1800;
 /** The canonical start-of-run sequence, exactly as main.ts:120-124 does it. */
 function buildWorld(): World {
   const world = createWorld(GOLDEN.config);
-  for (const slot of GOLDEN.players) createPlayer(world, slot.id, slot.cls, slot.name);
+  for (const slot of GOLDEN.config.players) createPlayer(world, slot.id, slot.cls, slot.name);
   startRun(world);
   return world;
 }
@@ -54,7 +54,7 @@ function buildWorld(): World {
 function runWithCheckpoints(): { t: number; hash: string }[] {
   const world = buildWorld();
   const stepper = createStepper(world);
-  const collect = decodeInputLog(GOLDEN.log, GOLDEN.players);
+  const collect = decodeInputLog(GOLDEN.log, GOLDEN.config.players);
   const marks: { t: number; hash: string }[] = [];
   while (world.tick < GOLDEN.ticks) {
     stepper.runTicks(Math.min(CHECKPOINT_EVERY, GOLDEN.ticks - world.tick), collect);
@@ -66,7 +66,7 @@ function runWithCheckpoints(): { t: number; hash: string }[] {
 describe('run de ouro em Node', () => {
   it('reproduz o hash-ouro depois dos ticks do fixture', () => {
     const world = buildWorld();
-    createStepper(world).runTicks(GOLDEN.ticks, decodeInputLog(GOLDEN.log, GOLDEN.players));
+    createStepper(world).runTicks(GOLDEN.ticks, decodeInputLog(GOLDEN.log, GOLDEN.config.players));
     expect(world.tick).toBe(GOLDEN.ticks);
     const hash = hashWorld(world);
     if (EMIT) {
@@ -107,13 +107,13 @@ describe('run de ouro em Node', () => {
   // FORM-01/D-30 fixes the slots as p0..p3. Recording the golden against 'p1'
   // would cost an extra re-baseline the day the ids are aligned.
   it('os slots do ouro seguem a numeração p0..p3', () => {
-    expect(GOLDEN.players.map(p => p.id)).toEqual(['p0']);
+    expect(GOLDEN.config.players.map(p => p.id)).toEqual(['p0']);
   });
 
   it('simula de verdade até a onda 1 fechar, e o tamanho desse trecho está fixado', () => {
     const world = buildWorld();
     const stepper = createStepper(world);
-    const collect = decodeInputLog(GOLDEN.log, GOLDEN.players);
+    const collect = decodeInputLog(GOLDEN.log, GOLDEN.config.players);
     let live = 0;
     while (world.tick < GOLDEN.ticks && world.phase === 'playing') {
       stepper.runTicks(1, collect);
@@ -127,7 +127,7 @@ describe('run de ouro em Node', () => {
   // log stores changes only. Without this the fixture would be 3000 records.
   it('o log é esparso, e a política de buracos é repetir o último input', () => {
     expect(GOLDEN.log.length).toBeLessThan(GOLDEN.ticks);
-    const collect = decodeInputLog(GOLDEN.log, GOLDEN.players);
+    const collect = decodeInputLog(GOLDEN.log, GOLDEN.config.players);
     const first = GOLDEN.log[0];
     const next = GOLDEN.log.find(r => r.t > first.t)!;
     // Any tick strictly between two records must read as the earlier one.

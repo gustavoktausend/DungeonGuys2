@@ -49,7 +49,7 @@ const CHECKPOINT_EVERY = 60;
 /** The canonical start-of-run sequence, exactly as main.ts:120-124 does it. */
 function buildWorld(): World {
   const world = createWorld(GOLDEN.config);
-  for (const slot of GOLDEN.players) createPlayer(world, slot.id, slot.cls, slot.name);
+  for (const slot of GOLDEN.config.players) createPlayer(world, slot.id, slot.cls, slot.name);
   startRun(world);
   return world;
 }
@@ -60,7 +60,7 @@ function buildWorld(): World {
 describe('determinismo entre motores', () => {
   it('a run de ouro produz o mesmo hashWorld neste motor', () => {
     const world = buildWorld();
-    createStepper(world).runTicks(GOLDEN.ticks, decodeInputLog(GOLDEN.log, GOLDEN.players));
+    createStepper(world).runTicks(GOLDEN.ticks, decodeInputLog(GOLDEN.log, GOLDEN.config.players));
     expect(world.tick).toBe(GOLDEN.ticks);
     expect(hashWorld(world)).toBe(GOLDEN.hash);
   });
@@ -68,7 +68,7 @@ describe('determinismo entre motores', () => {
   it('os hashes intermediários batem, para localizar o tick da divergência', () => {
     const world = buildWorld();
     const stepper = createStepper(world);
-    const collect = decodeInputLog(GOLDEN.log, GOLDEN.players);
+    const collect = decodeInputLog(GOLDEN.log, GOLDEN.config.players);
 
     const marks: { t: number; hash: string }[] = [];
     while (world.tick < GOLDEN.ticks) {

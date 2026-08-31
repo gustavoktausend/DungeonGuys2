@@ -40,7 +40,7 @@ describe('moedas', () => {
     let sawDouble = false;
     for (let seed = 0; seed < 60 && !sawDouble; seed++) {
       const w = makeTestWorld({ seed });
-      w.config.forge.golden = 3;
+      w.config.players[0].forge.golden = 3;
       const p = createPlayer(w, 'p1', 'mage', 'T');
       const gold0 = p.gold;
       w.coins.push({ x: p.x, y: p.y, vx: 0, vy: 0, bob: 0, dead: false });
@@ -59,7 +59,7 @@ describe('moedas', () => {
     // world's cursor behind the other's.
     const pickOneCoin = (golden: number) => {
       const w = makeTestWorld({ seed: 777 });
-      w.config.forge.golden = golden;
+      w.config.players[0].forge.golden = golden;
       const p = createPlayer(w, 'p1', 'mage', 'T');
       w.coins.push({ x: p.x, y: p.y, vx: 0, vy: 0, bob: 0, dead: false });
       updateCoins(w);

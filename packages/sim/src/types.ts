@@ -221,17 +221,61 @@ export type SimEvent =
   | { t: 'bossMusic'; on: boolean }
   | { t: 'bossKill' };
 
+/**
+ * The slot a player occupies in a run — the ONLY space of identity the
+ * simulation and the replay know about (ADR 0001, FORM-01/D-30).
+ *
+ * The authority assigns it once, when the room closes, and it lives until the
+ * run ends: a player who reconnects comes back to the same slot, and a vacant
+ * slot is never recycled inside the same run. The two identities it is NOT are
+ * deliberately absent from this package — the durable server-side account id
+ * and the transport handle both stay outside `packages/sim`, which is what
+ * makes a stored replay readable without a database (see tests/identity.ts).
+ *
+ * A four-value union rather than `string`, because the width of a room is a
+ * decision, not an accident, and because it is frozen inside every replay
+ * recorded from phase 4 on.
+ *
+ * NOTE: `@dg2/protocol` exports a DIFFERENT type also called `PlayerSlot` —
+ * there it is the {id, cls, name} record of the envelope's canonical order.
+ * This one is the id alone. They are never imported into the same file.
+ */
+export type PlayerSlot = 'p0' | 'p1' | 'p2' | 'p3';
+
+/** Forge levels, read from Save by app/ — sim never touches localStorage. */
+export type ForgeLevels = {
+  vigor: number; honed: number; fleet: number;
+  startgold: number; merchant: number; wise: number; golden: number;
+};
+
+/**
+ * One player of the run, as the run manifest describes them.
+ *
+ * `forge` is PER PLAYER, not per run: in co-op four people bring four
+ * different sets of permanent upgrades to the same world, and a single
+ * run-wide value would silently give everyone the host's.
+ */
+export type RunPlayer = {
+  id: PlayerSlot;
+  name: string;
+  cls: ClassKey;
+  forge: ForgeLevels;
+};
+
 /** Everything the sim needs from the outside, decided once per run. */
 export type RunConfig = {
   seed: number;
   mode: GameMode;
-  classKey: ClassKey;
-  playerName: string;
-  /** Forge levels, read from Save by app/ — sim never touches localStorage. */
-  forge: {
-    vigor: number; honed: number; fleet: number;
-    startgold: number; merchant: number; wise: number; golden: number;
-  };
+  /**
+   * Every player of the run, and THE ORDER OF THIS ARRAY IS THE CANONICAL
+   * ORDER (FORM-02/D-13). `step()` iterates it — not `Object.keys(players)` —
+   * so that who gets which draw from `world.rng` is decided by the run
+   * manifest instead of by the order in which people happened to join.
+   *
+   * It is the same order byte 5 of a packed input tick indexes into (D-12),
+   * so the replay already looks here for it.
+   */
+  players: RunPlayer[];
 };
 
 export type InputState = {

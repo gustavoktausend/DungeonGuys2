@@ -1,7 +1,39 @@
 // world.ts — the single mutable state object the whole simulation operates on.
 import { Rng } from './rng';
 import { WORLD, TILE } from './constants';
-import type { RunConfig, SimEvent, World } from './types';
+import type { ForgeLevels, RunConfig, SimEvent, World } from './types';
+
+/**
+ * What a slot the run manifest does not describe is worth: nothing.
+ *
+ * Shared and frozen rather than rebuilt per call — `slotForge` runs once per
+ * coin per tick — and frozen so a caller that treats the fallback as writable
+ * cannot poison every later reader.
+ */
+const NO_FORGE: Readonly<ForgeLevels> = Object.freeze({
+  vigor: 0, honed: 0, fleet: 0,
+  startgold: 0, merchant: 0, wise: 0, golden: 0,
+});
+
+/**
+ * The forge levels of one slot (FORM-01/D-30).
+ *
+ * Forge is PER PLAYER, so every read site has to say WHOSE — the player who
+ * collected the coin, who bought the item, who earned the xp. Each of the four
+ * call sites already has that player in scope, so this never has to guess.
+ *
+ * It lives in world.ts on purpose: all four consumers already import from this
+ * module, so resolving forge adds no edge to the import graph (tests/scc.ts).
+ *
+ * A slot missing from `config.players` gets NO_FORGE instead of throwing. That
+ * is not leniency about a malformed manifest — it is the honest answer for a
+ * player the manifest does not describe, and it is deterministic, which is the
+ * only property that matters here: every peer computes the same nothing.
+ */
+export function slotForge(world: World, id: string): Readonly<ForgeLevels> {
+  const slot = world.config.players.find(s => s.id === id);
+  return slot ? slot.forge : NO_FORGE;
+}
 
 export function createWorld(config: RunConfig): World {
   return {

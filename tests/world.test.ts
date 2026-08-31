@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { createWorld, emit, drainEvents, WORLD, TILE } from '@dg2/sim';
+import { createWorld, emit, drainEvents, slotForge, WORLD, TILE } from '@dg2/sim';
 import type { RunConfig } from '@dg2/sim';
 
 const config: RunConfig = {
   seed: 1234,
   mode: 'campaign',
-  classKey: 'mage',
-  playerName: 'TEST',
-  forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+  players: [{
+    id: 'p1',
+    name: 'TEST',
+    cls: 'mage',
+    forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 },
+  }],
 };
 
 describe('createWorld', () => {
@@ -55,6 +58,31 @@ describe('createWorld', () => {
     const a = w.nextId++;
     const b = w.nextId++;
     expect(b).toBe(a + 1);
+  });
+});
+
+// FORM-01/D-30: o forge é por slot, e quem lê precisa dizer de quem.
+describe('slotForge', () => {
+  it('devolve o forge do slot pedido, não o do primeiro da lista', () => {
+    const w = createWorld({
+      ...config,
+      players: [
+        { id: 'p0', name: 'A', cls: 'mage', forge: { vigor: 1, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0 } },
+        { id: 'p1', name: 'B', cls: 'archer', forge: { vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 4, wise: 0, golden: 0 } },
+      ],
+    });
+    expect(slotForge(w, 'p0').vigor).toBe(1);
+    expect(slotForge(w, 'p0').merchant).toBe(0);
+    expect(slotForge(w, 'p1').merchant).toBe(4);
+    expect(slotForge(w, 'p1').vigor).toBe(0);
+  });
+
+  it('um slot fora do manifesto vale zero em todos os sete níveis, sem lançar', () => {
+    const w = createWorld(config);
+    const forge = slotForge(w, 'p3');
+    expect(forge).toEqual({
+      vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0,
+    });
   });
 });
 

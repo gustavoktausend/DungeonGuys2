@@ -56,12 +56,12 @@ function goldenEnvelope(): RunEnvelope {
     config: GOLDEN.config,
     simVersion: SIM_VERSION,
     protocolVersion: PROTOCOL_VERSION,
-    players: GOLDEN.players,
+    players: GOLDEN.config.players,
     ticks: GOLDEN.ticks,
     maxTicks: MAX_RUN_TICKS,
     score: 0,
     finalHash: GOLDEN.hash,
-    log: encodeLog(recordsToTable(GOLDEN.log, GOLDEN.players)),
+    log: encodeLog(recordsToTable(GOLDEN.log, GOLDEN.config.players)),
   };
 }
 

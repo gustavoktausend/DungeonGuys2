@@ -10,33 +10,51 @@ import { dom } from '../ui/dom';
 import { showScreen } from '../ui/screens';
 import { mouseOnly } from '../ui/events';
 import { FORGE_RATE } from '@dg2/sim';
-import type { ClassKey, GameMode, RunConfig, World } from '@dg2/sim';
+import type { ClassKey, GameMode, PlayerSlot, RunConfig, World } from '@dg2/sim';
 
 export function forgeLevel(key: string): number {
   return Save.data.progress.forge[key] ?? 0;
 }
 
-export function buildRunConfig(classKey: ClassKey, mode: GameMode, playerName: string): RunConfig {
+/**
+ * The run manifest this machine starts a run from.
+ *
+ * `players` is a one-entry array today because the game is solo, and the
+ * ARRAY IS THE CANONICAL ORDER (FORM-02/D-13) — `step()` iterates it. When
+ * phase 4 makes a room, the authority builds this array instead, and nothing
+ * inside the simulation has to change to notice.
+ *
+ * `slot` is a PARAMETER rather than a constant read from here, because the
+ * slot is assigned by the authority (ADR 0001) and this module is not it.
+ * Today main.ts always passes p0; the day a lobby answers instead, this
+ * signature already says so.
+ */
+export function buildRunConfig(
+  slot: PlayerSlot, classKey: ClassKey, mode: GameMode, playerName: string,
+): RunConfig {
   return {
     // The seed is the one place a run is allowed to be non-deterministic.
     // In Marco 1 the host picks it and sends it to every client.
     seed: (Math.random() * 0xffffffff) >>> 0,
     mode,
-    classKey,
-    playerName,
-    forge: {
-      vigor: forgeLevel('vigor'),
-      honed: forgeLevel('honed'),
-      fleet: forgeLevel('fleet'),
-      startgold: forgeLevel('startgold'),
-      merchant: forgeLevel('merchant'),
-      wise: forgeLevel('wise'),
-      // Debt #4 (task-20-brief.md): RunConfig.forge has seven perks — the
-      // brief's own buildRunConfig snippet dropped `golden` (the "double
-      // coins" perk, ORIG/ui.js:468). A missing key here would silently
-      // zero it out for every run regardless of what the player forged.
-      golden: forgeLevel('golden'),
-    },
+    players: [{
+      id: slot,
+      name: playerName,
+      cls: classKey,
+      forge: {
+        vigor: forgeLevel('vigor'),
+        honed: forgeLevel('honed'),
+        fleet: forgeLevel('fleet'),
+        startgold: forgeLevel('startgold'),
+        merchant: forgeLevel('merchant'),
+        wise: forgeLevel('wise'),
+        // Debt #4 (task-20-brief.md): a slot's forge has seven perks — the
+        // brief's own buildRunConfig snippet dropped `golden` (the "double
+        // coins" perk, ORIG/ui.js:468). A missing key here would silently
+        // zero it out for every run regardless of what the player forged.
+        golden: forgeLevel('golden'),
+      },
+    }],
   };
 }
 

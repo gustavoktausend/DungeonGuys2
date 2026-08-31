@@ -55,14 +55,14 @@ describe('itemPrice', () => {
     const item = { name: 'X', icon: '', price: 100, mods: {} };
     w.wave = 1;
     const full = itemPrice(w, p, item);
-    w.config.forge.merchant = 5;
+    w.config.players[0].forge.merchant = 5;
     expect(itemPrice(w, p, item)).toBeLessThan(full);
   });
 
   it('nunca custa menos de 1', () => {
     const w = makeTestWorld();
     const p = createPlayer(w, 'p1', 'mage', 'T');
-    w.config.forge.merchant = 100;
+    w.config.players[0].forge.merchant = 100;
     expect(itemPrice(w, p, { name: 'X', icon: '', price: 1, mods: {} })).toBeGreaterThanOrEqual(1);
   });
 });
