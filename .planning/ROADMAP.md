@@ -78,7 +78,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 01-12-PLAN.md — Troca dos 27 call sites, limpeza de `sim/` e o re-baseline único
+- [x] 01-12-PLAN.md — Troca dos 27 call sites, limpeza de `sim/` e o re-baseline único
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 11/14 | In Progress|  |
+| 1. Formato e costuras | 12/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
