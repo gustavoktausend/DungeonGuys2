@@ -93,8 +93,32 @@ módulo de `sim/` puxa os oito; e extrair um bundle headless do sim para o host 
 tudo-ou-nada.
 
 **O corte mais barato é a aresta `xp → run`:** `closeLevelUp` chama `victory` só para
-resolver `pendingAfterLevelUp`. Subir essa resolução para o `step()` remove `xp → run`, e
-`run ↔ shop` cai junto. Fazer antes de o Marco 1 acrescentar arestas.
+resolver `pendingAfterLevelUp`. Subir essa resolução para o `step()` remove `xp → run` —
+e **só** essa aresta. Fazer antes de o Marco 1 acrescentar arestas.
+
+**Correção registrada na fase 1 (2026-08-31).** A redação anterior deste item afirmava que
+`run ↔ shop` cairia junto com o corte de `xp → run`. **Isso está errado**, e contradiz a
+medição do SCC feita na pesquisa da fase 1: são dois ciclos independentes, e o segundo
+sobrevive ao primeiro corte. Ver o item seguinte.
+
+### O segundo corte: `run ↔ shop` é um ciclo genuíno e independente
+
+`closeShop → startNextWave` (`src/sim/shop.ts:57`) e `checkWaveComplete → openShop`
+(`src/sim/run.ts:288`) formam um ciclo próprio entre `run.ts` e `shop.ts`. Ele **não** cai
+com o corte da aresta `xp → run`: nenhuma das duas arestas que o fecham passa por `xp.ts`,
+e os cabeçalhos dos dois arquivos já o descrevem como um ciclo de dois arquivos
+(`src/sim/shop.ts:26-29`, `src/sim/run.ts:38-39`).
+
+Depois do corte de `xp → run`, o nó de 8 módulos se abre em **5 + 2** componentes —
+`{enemies, player, combat, special, boss}` e `{run, shop}` — com `xp.ts` livre. **A fase 1
+para aí, de propósito:** cortar `run ↔ shop` exigiria subir para o `step()` a decisão de
+abrir a loja e a de começar a próxima wave, e a fase 3 vai acrescentar arestas nessa mesma
+região quando o snapshot e a fronteira de autoridade entrarem. Cortar agora seria refazer
+o corte depois.
+
+**Fazer quando:** a fase 3 estabilizar a fronteira de autoridade — ou antes disso, se
+alguma constante avaliada em tempo de módulo precisar cruzar `run ↔ shop`, que é o modo de
+falha real deste ciclo e o único que é silencioso.
 
 ### A tela do forge mora em `app/`
 
