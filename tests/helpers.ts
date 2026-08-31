@@ -1,5 +1,5 @@
-import { createWorld, step } from '@dg2/sim';
-import type { InputState, RunConfig, World } from '@dg2/sim';
+import { createWorld, orderedPlayers, step } from '@dg2/sim';
+import type { InputState, Player, RunConfig, World } from '@dg2/sim';
 
 /**
  * The run manifest almost every test builds its world from.
@@ -57,11 +57,28 @@ export function runTicks(
  * divergence, never reveal one). Includes the rng
  * cursor, so a divergence in random draws shows up even when no entity moved
  * yet.
+ *
+ * `players` is re-keyed into canonical order before it is serialised.
+ * `JSON.stringify` emits object keys in INSERTION order, so without this two
+ * rooms holding bit-identical simulations would fingerprint differently for
+ * the sole reason that the four people joined in a different sequence — a
+ * false desync, reported by the very thing whose job is to detect real ones
+ * (FORM-02/D-13). Key ORDER inside the Record is not simulation state; who is
+ * in it, and what they are, is, and that is still compared exactly.
+ *
+ * This does not move any recorded hash: a world whose insertion order already
+ * matches the manifest — every solo run, including tests/golden — serialises
+ * to the same bytes as before.
  */
 export function hashWorld(world: World): string {
   const snapshot = JSON.stringify(world, (key, value) => {
     if (key === 'events') return undefined;
     if (key === 'config') return undefined;
+    if (key === 'players') {
+      const canonical: Record<string, Player> = {};
+      for (const p of orderedPlayers(world)) canonical[p.id] = p;
+      return canonical;
+    }
     if (key === 'rng') return (value as { save(): number }).save();
     // JSON.stringify collapses NaN, Infinity and -Infinity all to `null`, so
     // an unfiltered replacer gives the same fingerprint to a healthy world

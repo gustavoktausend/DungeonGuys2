@@ -18,9 +18,20 @@ export function step(world: World, inputs: Record<string, InputState>): void {
     world.comboTimer -= DT_MS;
     if (world.comboTimer <= 0) world.combo = 0;
   }
-  for (const id of Object.keys(world.players)) {
-    const input = inputs[id];
-    if (input) updatePlayer(world, world.players[id], input);
+  // THE CANONICAL ORDER, and it is not a style choice — do not "simplify" it
+  // back to walking the Record. Object keys iterate in INSERTION order, so
+  // whoever joined first would be updated first, and since updatePlayer ->
+  // attack -> dealDamage -> killEnemy -> gainXp all draw from the one global
+  // `world.rng`, two rooms that filled in a different order would hand the
+  // same draws to different people and drift apart in silence. The order that
+  // decides this lives in the run manifest, which the authority writes and the
+  // replay already reads (FORM-02/D-13). A slot the manifest lists but nobody
+  // occupies, and a slot with no input this tick, are both skipped.
+  for (const slot of world.config.players) {
+    const p = world.players[slot.id];
+    if (!p) continue;
+    const input = inputs[slot.id];
+    if (input) updatePlayer(world, p, input);
   }
   updateBullets(world);
   updateEnemyBullets(world);
