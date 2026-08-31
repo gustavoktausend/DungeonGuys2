@@ -1589,33 +1589,45 @@ VPS, ou substituir por `better-sqlite3`).
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **D2-12 ainda faz sentido, dado que o Pages do DungeonGuys2 nunca existiu?**
+> Todas as seis foram respondidas em 2026-08-31, depois desta pesquisa e antes do
+> planejamento. Cada item abaixo carrega o marcador `RESOLVED:` com a referência que a
+> respondeu. Nada aqui é pergunta aberta ao entrar na execução.
+>
+> - **1** → `RESOLVED: D2-18` (02-CONTEXT.md) — despedida cortada, D2-12 revogada
+> - **2** → `RESOLVED: D2-19` (02-CONTEXT.md) + checkpoint no plano `02-04` Task 1 — KVM 2 (2 GB)
+> - **3** → `RESOLVED: D2-20` (02-CONTEXT.md) — fontes auto-hospedadas, entram no precache
+> - **4** → `RESOLVED: D2-21` (02-CONTEXT.md) — serviço externo de terceiro, não GitHub Action
+> - **5** → `RESOLVED: plano 02-08` — `SIM_VERSION` fica **fora** do `/api/health` nesta fase
+> - **6** → `RESOLVED: plano 02-08 Task 1` — `apps/server/tsconfig.json` próprio + script
+>   `typecheck:server`; `apps` **não** entra no `ignores` do ESLint
+
+1. **D2-12 ainda faz sentido, dado que o Pages do DungeonGuys2 nunca existiu?** `RESOLVED: D2-18`
    - O que sabemos: verificado — 404 na URL, repo inexistente, nenhum PWA instalado possível.
    - O que não está claro: se o usuário quer a página de despedida mesmo assim (por exemplo,
      porque planeja publicar no Pages antes de migrar), ou se INFRA-01 já está satisfeito.
    - Recomendação: **`checkpoint:human-verify` antes da tarefa**. Se seguir, o `sw.js` de
      despedida **tem** de deletar por prefixo próprio (DM-3).
 
-2. **Qual é o tamanho real da VPS (1 GB ou 2 GB) e em que região?**
+2. **Qual é o tamanho real da VPS (1 GB ou 2 GB) e em que região?** `RESOLVED: D2-19 + plano 02-04 Task 1`
    - O que sabemos: a `CONTEXT.md` diz "1–2 GB" e que a região importa para a fase 3 (TURN
      fora do Brasil = +200 ms).
    - O que não está claro: o plano contratado e a região atual.
    - Recomendação: confirmar **antes** da primeira tarefa de `ops/`. É a última hora barata
      de mover a caixa, e o orçamento de `MemoryMax` (P-10) depende do número.
 
-3. **As fontes do Google entram no precache (auto-hospedadas) ou o offline aceita fallback?**
+3. **As fontes do Google entram no precache (auto-hospedadas) ou o offline aceita fallback?** `RESOLVED: D2-20`
    - O que sabemos: são cross-origin, com fallback `system-ui`/`monospace` declarado.
    - Recomendação: decidir **antes** de escrever `offline.spec.ts` — a asserção do teste muda.
 
-4. **A segunda perna de D2-16 é serviço externo ou GitHub Action agendada?**
+4. **A segunda perna de D2-16 é serviço externo ou GitHub Action agendada?** `RESOLVED: D2-21`
    - O que sabemos: A6 acima; um workflow agendado pode ser desabilitado por inatividade.
    - Recomendação: **serviço externo gratuito** como perna principal (UptimeRobot,
      Healthchecks.io, Better Stack — todos com keyword matching, que casa com
      `"status":"ok"`). Se for GitHub Action, documentar o risco dos 60 dias em `ops/README.md`.
 
-5. **`SIM_VERSION` deve entrar no corpo do `/api/health`?**
+5. **`SIM_VERSION` deve entrar no corpo do `/api/health`?** `RESOLVED: plano 02-08 — fica de fora`
    - O que sabemos: é derivado de um artefato público, então não é segredo. Seria útil para
      depurar o handshake da fase 3.
    - O que não está claro: hoje ele vive só em `packages/sim/dist/sim-version.json` e **não**
@@ -1623,7 +1635,7 @@ VPS, ou substituir por `better-sqlite3`).
    - Recomendação: **deixar de fora nesta fase.** `status`/`db`/`release` bastam para o
      monitor; a fase 3 acrescenta quando tiver consumidor.
 
-6. **`apps/server` entra no `tsconfig.json` e no ESLint da raiz, ou tem os próprios?**
+6. **`apps/server` entra no `tsconfig.json` e no ESLint da raiz, ou tem os próprios?** `RESOLVED: plano 02-08 Task 1`
    - O que sabemos: o `tsconfig.json` da raiz fixa `types: ["vite/client"]` e `lib` com `DOM` —
      ambos errados para código de servidor. `tools/` resolveu isso ficando **fora** de tudo
      (`tools/README.md` §§ 4 e 5).
