@@ -34,8 +34,11 @@ export function createWorld(config: RunConfig): World {
     waveTimer: 0,
     waveHasBoss: false,
     waveMutator: null,
-    nextWaveDelay: 3000,
     pendingAfterLevelUp: null,
+
+    // Born here, empty, on EVERY run — a campaign run has no mission and still
+    // carries the field, so the World has one shape (types.ts, ObjectiveState).
+    objectives: [],
 
     score: 0,
     combo: 0,

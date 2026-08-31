@@ -31,7 +31,7 @@
 //    killEnemy emits `{ t: 'bossKill' }` instead so app/events.ts can do the
 //    persisting (Task 20 fix round 1, see task-20-report.md).
 import { emit } from './world';
-import { DT_MS, TICK_FACTOR, WORLD, SPRITE_SCALE, COMBO_WINDOW } from './constants';
+import { DT_MS, TICK_FACTOR, WORLD, DEFAULT_ENTITY_SCALE, COMBO_WINDOW } from './constants';
 import { ENEMY_DEFS, ELITE_TYPES } from './defs/enemies';
 import { damagePlayer } from './player';
 import { resolveObstacles, trapDangerous, rectCircle } from './arena';
@@ -83,7 +83,7 @@ export function makeEnemy(world: World, type: string, x: number, y: number): Ene
     potionChance: def.potion,
     dmg: def.dmg,
     boss: def.boss || null,
-    scale: def.scale || SPRITE_SCALE,
+    scale: def.scale || DEFAULT_ENTITY_SCALE,
     summons: def.summons || null,
     summonTimer: 0,
     type,

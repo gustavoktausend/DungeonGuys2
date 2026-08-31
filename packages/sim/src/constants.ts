@@ -71,8 +71,22 @@ export const COMBO_WINDOW = 3000;
  */
 export const COIN_MAGNET = 100;
 
-/** ORIG/config.js:5. */
-export const SPRITE_SCALE = 2;
+/**
+ * Size multiplier an enemy gets when its definition does not name one — it is
+ * written straight into `Enemy.scale`, so it is WORLD STATE, versioned by
+ * SIM_VERSION and observable by any replay. That is why the number stays here.
+ *
+ * What left is the NAME. It used to be named after sprites, which made it look
+ * like a drawing concern filed in the wrong package, and D-19 retires that idea
+ * from this package entirely: the new art is 32x48 authored at scale 1, so
+ * `render/entities.ts` keeps its own local constant for how big to draw things
+ * and this one stops pretending to be about pixels. Phase 7 flips the
+ * render-side number to 1 when that art lands, and — because of this rename —
+ * that change will not touch packages/sim and will not close a season.
+ *
+ * ORIG/config.js:5.
+ */
+export const DEFAULT_ENTITY_SCALE = 2;
 
 /** ORIG/entities.js:58. */
 export const WAVES_TOTAL = 16;

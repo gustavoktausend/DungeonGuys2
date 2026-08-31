@@ -14,9 +14,10 @@
 import { dom } from './dom';
 import { mouseOnly } from './events';
 import {
-  EQUIP_SLOTS, canEquip, targetSlot, STAT_LABELS, PCT_STATS,
+  EQUIP_SLOTS, canEquip, targetSlot,
   itemPrice, buyOffer, buyEquipOffer, shopHeal, shopReroll, closeShop, HEAL_PRICE,
 } from '@dg2/sim';
+import { STAT_LABELS, PCT_STATS } from './labels';
 import type { EquipItem, EquipSlot, Equipment, Mods, Player, Stats, Weapon, World } from '@dg2/sim';
 
 const SLOT_LABELS: Record<EquipSlot, string> = {
