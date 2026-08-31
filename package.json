@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "typecheck:sim": "tsc -p packages/sim/tsconfig.json --noEmit",
+    "sim:build": "vite build --config packages/sim/vite.config.ts",
     "golden:rebaseline": "node tools/golden/rebaseline.mjs",
     "lint": "eslint ."
   },
