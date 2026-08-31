@@ -54,3 +54,17 @@ opções, porque estas são decisões de arquitetura e não de execução.
 | [0010](0010-soul-gold-ledger-append-only.md) | Soul gold: ledger append-only | D-26, D-27, D-28, D-29 | FORM-05 | fases 1 e 6 |
 | [0011](0011-formato-de-replay.md) | Formato do artefato de run | D-10, D-11, D-12, D-04 | FORM-06 | fases 4 e 9 |
 | [0012](0012-objetivos-como-campo-do-world.md) | Objetivos como campo do `World` | FORM-08 | FORM-08 | fases 1 e 8 |
+
+## Adiamentos deliberados
+
+O que esta fase **não** constrói e por quê. Registrado aqui para que a ausência seja citável, e
+não confundida com esquecimento:
+
+- **Formato de fio/servidor do `LedgerEvent`** — adiado para a fase 6, com a razão escrita na
+  seção `## Consequência` do [ADR 0010](0010-soul-gold-ledger-append-only.md). O tier secundário
+  em `packages/protocol` não nasce nesta fase; o `LedgerEvent` vive inteiro em
+  `src/app/ledger.ts`.
+- **O número do teto de duração para endless no ranking** — a forma (teto explícito, comunicado
+  na UI) está decidida no [ADR 0005](0005-temporada-por-sim-version.md) e o campo que o carrega
+  nasce no formato pelo [ADR 0011](0011-formato-de-replay.md); o valor depende do bench de CPU da
+  fase 9.
