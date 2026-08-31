@@ -72,9 +72,9 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 01-09-PLAN.md — `sim/math.ts`: port fdlibm com domínio restrito, contra o oráculo `@stdlib`
-- [ ] 01-10-PLAN.md — Codec do log de inputs, quantização na captura e o envelope de run
-- [ ] 01-11-PLAN.md — Spec técnica de assets e o validador de manifesto no CI
+- [x] 01-09-PLAN.md — `sim/math.ts`: port fdlibm com domínio restrito, contra o oráculo `@stdlib`
+- [x] 01-10-PLAN.md — Codec do log de inputs, quantização na captura e o envelope de run
+- [x] 01-11-PLAN.md — Spec técnica de assets e o validador de manifesto no CI
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 8/14 | In Progress|  |
+| 1. Formato e costuras | 11/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
