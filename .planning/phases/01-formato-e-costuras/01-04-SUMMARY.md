@@ -324,6 +324,12 @@ confiança. As duas mitigações do registro do plano foram implementadas:
   (inteiros, esparso, política de buracos, `maxTicks`) já está fixado por teste, e a promoção não
   pode mudar o hash.
 
+## Self-Check: PASSED
+
+Os 9 arquivos declarados existem em disco e os 6 commits existem no histórico.
+`.planning/STATE.md` e `.planning/ROADMAP.md` não foram tocados (`git diff --stat` vazio contra o
+commit base) — a orquestração é dona dessas escritas.
+
 ---
 *Phase: 01-formato-e-costuras*
 *Completed: 2026-08-31*
