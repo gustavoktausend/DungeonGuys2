@@ -33,6 +33,7 @@ export * from './math';
 export * from './player';
 export * from './rng';
 export * from './run';
+export * from './serialize';
 export * from './shop';
 export * from './special';
 export * from './stats';
