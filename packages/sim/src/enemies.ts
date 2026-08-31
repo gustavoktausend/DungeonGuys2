@@ -361,7 +361,11 @@ export function updateEnemies(world: World): void {
     // i-frames would otherwise swallow the explosion
     if (target && !e.exploder && rectCircle(e.x, e.y, e.w, e.h, target.x, target.y, 10)) {
       damagePlayer(world, target, e.bossState === 'charging' ? Math.round(e.dmg * 1.5) : e.dmg);
-      if (world.phase !== 'playing') return;
+      // `break`, not `return`: the sweep below still has to run. Returning here
+      // leaves anything killed earlier this tick (DoT, traps) sitting in
+      // `world.enemies` with `dead: true` for the whole gameover state, and
+      // `saveWorld` serialises that array.
+      if (world.phase !== 'playing') break;
     }
   }
   world.enemies = world.enemies.filter(e => !e.dead);
