@@ -7,12 +7,22 @@
 // Chromium, Firefox and WebKit (vitest.browser.config.ts) and compares each
 // engine's hashWorld against the golden recorded from Node.
 //
-// It is EXPECTED TO BE RED until plan 01-12 replaces Math.sin/cos/atan2 in
-// sim/ with the vendored fdlibm ports. ECMA-262 marks those three as
-// implementation-approximated, and 01-RESEARCH.md § Pitfall 1 measured the
-// disagreement on this very simulation. Do not "fix" this file by loosening
-// the comparison or dropping an engine — the red IS the deliverable, and
-// 01-12 is what turns it green.
+// It was RED BY DESIGN from plan 01-04 until plan 01-12, which pointed sim/'s
+// 27 trigonometry call sites at the vendored fdlibm ports in sim/math.ts. It
+// is GREEN now, and green is the deliverable: all four engines answer
+// 53f86446 on the golden run, and every one of the 50 checkpoints agrees.
+//
+// The measurement it recorded on the way is worth keeping. Before the swap,
+// Node answered d3a93053 and all three browsers answered fa099f16, first
+// disagreeing at tick 960 and still disagreeing at tick 3000. After the swap
+// Node moved to fa099f16 — the browsers' old answer — which is to say the
+// port agrees with what Chromium, Firefox and WebKit had been computing, and
+// Node's built-ins were the outlier. The remaining step to 53f86446 is the
+// World shape change in the same plan, not trigonometry.
+//
+// If this ever goes red again, do NOT "fix" it by loosening the comparison or
+// dropping an engine. It has exactly one meaning: some path in sim/ started
+// depending on arithmetic the spec only approximates.
 //
 // The body below is deliberately a copy of the run in tests/golden.test.ts:
 // the two legs must drive the sim identically or the comparison between them
