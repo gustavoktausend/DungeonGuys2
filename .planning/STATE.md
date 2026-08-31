@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: planning
+stopped_at: Phase 1 context gathered
+last_updated: "2026-08-31T03:51:45.760Z"
+last_activity: 2026-08-29 — Roadmap criado a partir de REQUIREMENTS.md e research/SUMMARY.md
+progress:
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
@@ -20,6 +36,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: —
 - Total execution time: 0.0 hours
@@ -31,6 +48,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: —
 
@@ -44,9 +62,11 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
 
 - [2026-08-29] `TILE` muda como tamanho de tile **de desenho**; `world.play` ganha margem
   própria; `WORLD` continua 2400×1600 — fechado, não reabrir
+
 - [2026-08-29] v1 rankeia **só solo**; ranking co-op fica para v2
 - [2026-08-29] Versionamento do ranking segue o modelo **Factorio**: mudança de `SIM_VERSION`
   fecha a temporada e abre outra; replay de outra versão é recusado
+
 - [2026-08-29] O espelho no GitHub Pages **morre** com a migração para a VPS
 - [Roadmap] Temporadas fundidas ao ranking (fase 9); reconexão subiu para a fase 5;
   progressão durável na queda do host foi para a fase 6
@@ -62,8 +82,10 @@ que as consome — carregadas como perguntas abertas nas fases:
 
 - **Política de queda do host** (fases 5 e 6) — creditar run parcial, checkpoint por wave
   concluída, ou migração de host. É a mais urgente: a fase 5 já depende dela.
+
 - **Quem pode entrar numa missão destravada** (fase 8) — a cadeia de quem criou a sala define,
   com crédito para todos os presentes? "Carregar" um amigo é feature ou não?
+
 - **Teto do forge em runs rankeadas e de evento** (fase 9) — perfil normalizado ou teto?
 - **Teto de duração para endless no ranking** (fase 9) — teto explícito ou amostragem por
   checkpoint?
@@ -80,8 +102,8 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 
 ## Session Continuity
 
-Last session: 2026-08-29
-Stopped at: ROADMAP.md, STATE.md e a tabela de rastreabilidade de REQUIREMENTS.md escritos
-Resume file: None
+Last session: 2026-08-31T03:51:45.747Z
+Stopped at: Phase 1 context gathered
+Resume file: .planning/phases/01-formato-e-costuras/01-CONTEXT.md
 
 Next: `/gsd:plan-phase 1`
