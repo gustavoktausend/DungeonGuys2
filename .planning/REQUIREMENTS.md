@@ -18,31 +18,31 @@ mundo, com o jogo respondendo na hora para cada um.
 Nada aqui tem rede. É a lista "barato agora, migração de dados depois" — 12 dos 18 itens
 que a síntese classificou assim moram nesta categoria.
 
-- [ ] **FORM-01**: Uma run distingue três espaços de identidade — `accountId` durável do
+- [x] **FORM-01**: Uma run distingue três espaços de identidade — `accountId` durável do
       servidor, `playerId` de slot (`p0..p3`) atribuído pela autoridade, e `peerId` que
       morre com a conexão — e o replay depende apenas do `playerId`
-- [ ] **FORM-02**: `RunConfig` descreve todos os jogadores da run (`players[]` com id, nome,
+- [x] **FORM-02**: `RunConfig` descreve todos os jogadores da run (`players[]` com id, nome,
       classe e forge), e `step()` itera nessa ordem canônica em vez da ordem de inserção de
       `Object.keys(world.players)`
-- [ ] **FORM-03**: Todo artefato de run carrega um `SIM_VERSION` derivado de hash de conteúdo
+- [x] **FORM-03**: Todo artefato de run carrega um `SIM_VERSION` derivado de hash de conteúdo
       do artefato buildado, nunca de semver escrito à mão
-- [ ] **FORM-04**: A mesma run produz resultado bit-idêntico no navegador e no Node, com
+- [x] **FORM-04**: A mesma run produz resultado bit-idêntico no navegador e no Node, com
       trigonometria própria em `sim/math.ts` construída só sobre operações exatas por spec
 - [x] **FORM-05**: O jogador ganha soul gold por eventos idempotentes com id próprio, e o
       saldo é derivado desses eventos em vez de ser um contador mutável
-- [ ] **FORM-06**: O log de inputs é quantizado na captura, antes de o `sim/` ver o valor, e
+- [x] **FORM-06**: O log de inputs é quantizado na captura, antes de o `sim/` ver o valor, e
       gravado como a tabela resolvida pela autoridade — incluindo a política de preenchimento
       de buracos — e não como o tráfego que chegou
-- [ ] **FORM-07**: O `World` serializa e desserializa sem perda, incluindo o estado do RNG
-- [ ] **FORM-08**: Objetivos de missão vivem como campo do `World`, não como evento drenável,
+- [x] **FORM-07**: O `World` serializa e desserializa sem perda, incluindo o estado do RNG
+- [x] **FORM-08**: Objetivos de missão vivem como campo do `World`, não como evento drenável,
       para que a conclusão seja verificável por replay
-- [ ] **FORM-09**: A especificação técnica de assets está publicada, com unidades lógicas
+- [x] **FORM-09**: A especificação técnica de assets está publicada, com unidades lógicas
       congeladas, e um validador de manifesto no CI recusa arte fora do formato — **[decidido]**
       `TILE` muda como tamanho de tile de desenho, `world.play` ganha margem própria, e
       `WORLD` continua 2400×1600
 - [x] **FORM-10**: O passo fixo roda separado de `requestAnimationFrame`, de modo que a
       simulação seja dirigível por teste e por servidor sem um relógio de tela
-- [ ] **FORM-11**: As tabelas de enum do protocolo são congeladas e append-only, verificado
+- [x] **FORM-11**: As tabelas de enum do protocolo são congeladas e append-only, verificado
       por teste de snapshot
 - [ ] **FORM-12**: O protocolo não contém a palavra "host": topologia estrela, uma perna por
       mensagem, e o input da autoridade passa pela mesma tabela dos remotos
@@ -188,18 +188,18 @@ Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FORM-01 | Phase 1 | Pending |
-| FORM-02 | Phase 1 | Pending |
-| FORM-03 | Phase 1 | Pending |
-| FORM-04 | Phase 1 | Pending |
+| FORM-01 | Phase 1 | Complete |
+| FORM-02 | Phase 1 | Complete |
+| FORM-03 | Phase 1 | Complete |
+| FORM-04 | Phase 1 | Complete |
 | FORM-05 | Phase 1 | Complete |
-| FORM-06 | Phase 1 | Pending |
-| FORM-07 | Phase 1 | Pending |
-| FORM-08 | Phase 1 | Pending |
-| FORM-09 | Phase 1 | Pending |
+| FORM-06 | Phase 1 | Complete |
+| FORM-07 | Phase 1 | Complete |
+| FORM-08 | Phase 1 | Complete |
+| FORM-09 | Phase 1 | Complete |
 | FORM-10 | Phase 1 | Complete |
-| FORM-11 | Phase 1 | Pending |
-| FORM-12 | Phase 1 | Pending |
+| FORM-11 | Phase 1 | Complete |
+| FORM-12 | Phase 1 | Partial (clausula testavel completa; topologia e tabela de input na Phase 3) |
 | INFRA-01 | Phase 2 | Pending |
 | INFRA-02 | Phase 2 | Pending |
 | INFRA-03 | Phase 2 | Pending |
