@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dungeonguys2:asset-manifest:v1",
+  "title": "Manifesto de assets do DungeonGuys2 — v1",
+  "description": "Contrato executável de docs/ASSET-SPEC.md. O 'v1' do nome do arquivo e do $id é parte do contrato: acrescentar animações ou campos depois é criar manifest.v2.json ao lado deste, nunca editar este. Um manifesto v1 continua válido quando o v2 existir. Este schema é a autoridade — onde ele e o texto da spec discordarem, ele vence.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sheet",
+    "frameWidth",
+    "frameHeight",
+    "pivot",
+    "animations"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "type": "object",
+      "required": ["characters"],
+      "properties": { "characters": { "type": "object" } }
+    },
+    {
+      "type": "object",
+      "required": ["entities"],
+      "properties": { "entities": { "type": "object" } }
+    }
+  ],
+  "if": {
+    "type": "object",
+    "required": ["characters"],
+    "properties": { "characters": { "type": "object" } }
+  },
+  "then": {
+    "type": "object",
+    "required": ["recolorRamp"],
+    "properties": { "recolorRamp": { "type": "object" } }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Caminho ou URI do schema, para o editor completar e validar enquanto se escreve. Ignorado pelo validador."
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "Versão do formato. Na v1 só o valor 1 é aceito."
+    },
+    "sheet": {
+      "type": "object",
+      "description": "O PNG que este manifesto descreve.",
+      "required": ["file", "width", "height", "format", "premultipliedAlpha"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Nome do PNG, no mesmo diretório do manifesto. Tem que bater com o nome do próprio manifesto: character-mage.manifest.json exige character-mage.png.",
+          "pattern": "^(character|enemy|tile|prop)-[a-z0-9]+(-[a-z0-9]+)*\\.png$"
+        },
+        "width": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Largura do PNG em pixels. Declarada, não medida — o validador não abre a imagem."
+        },
+        "height": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Altura do PNG em pixels. Declarada, não medida."
+        },
+        "format": {
+          "const": "png32",
+          "description": "PNG de 32 bits (RGBA, 8 bits por canal). Único valor da v1; o campo existe para que outro formato seja recusado explicitamente, não para dar escolha."
+        },
+        "premultipliedAlpha": {
+          "const": false,
+          "description": "O alfa não pode estar pré-multiplicado nos canais de cor: o canvas do navegador espera alfa reto e o premultiplicado produz halos escuros nas bordas."
+        }
+      }
+    },
+    "frameWidth": {
+      "$ref": "#/$defs/positiveInt",
+      "description": "Largura da célula da grade, em pixels. Todos os assuntos desta folha compartilham a mesma célula; assuntos de tamanho diferente vão em folhas diferentes."
+    },
+    "frameHeight": {
+      "$ref": "#/$defs/positiveInt",
+      "description": "Altura da célula da grade, em pixels."
+    },
+    "pivot": {
+      "$ref": "#/$defs/point",
+      "description": "Ponto da célula que o motor coloca na posição da entidade no mundo, em pixels a partir do canto superior esquerdo. Para uma célula 32x48 o centro geométrico é { x: 16, y: 24 }."
+    },
+    "animations": {
+      "type": "object",
+      "description": "As duas animações da v1. Ambas obrigatórias e nenhuma outra chave é aceita: 'hit', 'death' e 'attack' estão fora da v1 por decisão (acerto é filtro de cor e morte é desvanecimento, ambos feitos pelo motor).",
+      "required": ["idle", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "idle": { "$ref": "#/$defs/animation" },
+        "run": { "$ref": "#/$defs/animation" }
+      }
+    },
+    "recolorRamp": {
+      "type": "object",
+      "description": "A rampa de cores da roupa que o motor substitui em tempo de execução para distinguir jogadores na mesma sala. Obrigatória sempre que a folha declarar 'characters'.",
+      "required": ["region", "colors"],
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "array",
+          "description": "[x, y, w, h] em pixels: o retângulo da folha onde a troca de cor pode acontecer. Todos os quadros dos personagens têm que caber dentro dele.",
+          "items": { "$ref": "#/$defs/nonNegativeInt" },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "colors": {
+          "type": "array",
+          "description": "Duas ou mais cores #RRGGBB maiúsculas, ordenadas do tom mais escuro para o mais claro. Têm que ser cores exatas e literais na arte, e não podem reaparecer fora da roupa dentro da região.",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-F]{6}$"
+          },
+          "minItems": 2,
+          "uniqueItems": true
+        }
+      }
+    },
+    "characters": {
+      "type": "object",
+      "description": "As classes jogáveis desenhadas nesta folha. As chaves são fixadas pelo código do jogo e enumeradas aqui, então um erro de digitação é recusado pelo schema.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "enum": ["mage", "archer", "warrior", "ninja", "priestess", "witch", "coprobo"]
+      },
+      "additionalProperties": { "$ref": "#/$defs/character" }
+    },
+    "entities": {
+      "type": "object",
+      "description": "Os inimigos desenhados nesta folha. As chaves são as da tabela de inimigos da simulação (ENEMY_DEFS) e NÃO são enumeradas aqui de propósito: quem confere é tools/assets/validate.mjs, contra o código do jogo, junto com a cobertura de hitbox. Um schema com a lista copiada envelheceria em silêncio.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/entity" }
+    }
+  },
+  "$defs": {
+    "positiveInt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "nonNegativeInt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "$ref": "#/$defs/nonNegativeInt" },
+        "y": { "$ref": "#/$defs/nonNegativeInt" }
+      }
+    },
+    "animation": {
+      "type": "object",
+      "description": "Uma tira horizontal de quadros. 'row' é relativo à linha do assunto: o assunto declarado em row 2 tem sua tira de idle (row 0) na linha absoluta 2.",
+      "required": ["row", "column", "frameCount", "frameDurationMs"],
+      "additionalProperties": false,
+      "properties": {
+        "row": {
+          "$ref": "#/$defs/nonNegativeInt",
+          "description": "Linha da grade, relativa à linha do assunto."
+        },
+        "column": {
+          "$ref": "#/$defs/nonNegativeInt",
+          "description": "Coluna da grade do primeiro quadro da tira."
+        },
+        "frameCount": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Número de quadros da tira. LIVRE — não é fixo em 4. É o campo que liberta o número escrito à mão no relógio de animação do motor."
+        },
+        "frameDurationMs": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Duração de cada quadro em milissegundos. Referência atual do motor: 140."
+        }
+      }
+    },
+    "character": {
+      "type": "object",
+      "required": ["row"],
+      "additionalProperties": false,
+      "properties": {
+        "row": {
+          "$ref": "#/$defs/nonNegativeInt",
+          "description": "Linha da grade onde começam as tiras deste personagem."
+        }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "required": ["row", "column", "spriteWidth", "spriteHeight", "scale", "hitboxTolerance"],
+      "additionalProperties": false,
+      "properties": {
+        "row": {
+          "$ref": "#/$defs/nonNegativeInt",
+          "description": "Linha da grade onde começam as tiras deste inimigo."
+        },
+        "column": {
+          "$ref": "#/$defs/nonNegativeInt",
+          "description": "Coluna da grade do primeiro quadro."
+        },
+        "spriteWidth": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Largura NATIVA do desenho deste inimigo, em pixels. Pode ser menor que frameWidth: a célula é a grade, isto é a arte dentro dela."
+        },
+        "spriteHeight": {
+          "$ref": "#/$defs/positiveInt",
+          "description": "Altura NATIVA do desenho deste inimigo, em pixels."
+        },
+        "scale": {
+          "type": "number",
+          "description": "Fator de desenho desta entrada. 1 é o padrão da arte nova; chefes que ampliam um quadro menor podem usar mais.",
+          "exclusiveMinimum": 0,
+          "maximum": 4
+        },
+        "hitboxTolerance": {
+          "type": "object",
+          "description": "Razão MÁXIMA admitida entre a hitbox de ENEMY_DEFS e o sprite desenhado (spriteWidth * scale por spriteHeight * scale), por eixo. É por entrada e nunca global porque a razão medida vai de 0,75 (goblin) a 1,06 (necro_lord, cuja hitbox é MAIOR que o sprite). A faixa [0.5, 1.25] existe para que não haja tolerância indefinida: a folga é sempre um número pequeno, explícito e revisável no diff do PR.",
+          "required": ["x", "y"],
+          "additionalProperties": false,
+          "properties": {
+            "x": { "$ref": "#/$defs/tolerance" },
+            "y": { "$ref": "#/$defs/tolerance" }
+          }
+        }
+      }
+    },
+    "tolerance": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 1.25
+    }
+  }
+}

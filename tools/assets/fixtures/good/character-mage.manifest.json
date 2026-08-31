@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schema/manifest.v1.json",
+  "schemaVersion": 1,
+  "sheet": {
+    "file": "character-mage.png",
+    "width": 192,
+    "height": 192,
+    "format": "png32",
+    "premultipliedAlpha": false
+  },
+  "frameWidth": 32,
+  "frameHeight": 48,
+  "pivot": { "x": 16, "y": 24 },
+  "animations": {
+    "idle": { "row": 0, "column": 0, "frameCount": 4, "frameDurationMs": 140 },
+    "run": { "row": 1, "column": 0, "frameCount": 6, "frameDurationMs": 140 }
+  },
+  "recolorRamp": {
+    "region": [0, 0, 192, 96],
+    "colors": ["#3A3A7A", "#5956BD", "#5698CC"]
+  },
+  "characters": {
+    "mage": { "row": 0 }
+  },
+  "entities": {
+    "skeleton": {
+      "row": 2,
+      "column": 0,
+      "spriteWidth": 32,
+      "spriteHeight": 32,
+      "scale": 1,
+      "hitboxTolerance": { "x": 0.82, "y": 0.82 }
+    }
+  }
+}

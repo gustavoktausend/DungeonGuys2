@@ -390,6 +390,25 @@ não vazio. Um manifesto que não descreve nada é recusado.
 
 ## 10. O manifesto, campo a campo
 
+### A grade
+
+Uma folha tem **uma** grade: uma célula de `frameWidth` por `frameHeight`, e todos os assuntos
+da folha usam essa célula e a mesma contagem de quadros. Assuntos com tamanho de célula ou
+contagem de quadros diferentes vão em **folhas diferentes** — e como os lotes são
+independentes, isso não custa nada além de mais um par de arquivos.
+
+Cada assunto (personagem ou inimigo) declara a linha da grade onde ele começa, em `row`. As
+linhas declaradas em `animations` são **relativas** à linha do assunto:
+
+```
+linha absoluta de uma tira  =  <assunto>.row  +  animations.<nome>.row
+```
+
+Com `animations.idle.row = 0` e `animations.run.row = 1`, um assunto em `row: 0` ocupa as
+linhas 0 e 1, e o assunto seguinte começa em `row: 2`.
+
+### Exemplo completo
+
 Este é um manifesto completo e válido. Ele é o mesmo arquivo que o repositório do jogo mantém
 como fixture de aceitação, em `tools/assets/fixtures/good/character-mage.manifest.json` —
 copie-o e apague o que não se aplicar ao seu lote.
@@ -400,8 +419,8 @@ copie-o e apague o que não se aplicar ao seu lote.
   "schemaVersion": 1,
   "sheet": {
     "file": "character-mage.png",
-    "width": 256,
-    "height": 208,
+    "width": 192,
+    "height": 192,
     "format": "png32",
     "premultipliedAlpha": false
   },
@@ -413,7 +432,7 @@ copie-o e apague o que não se aplicar ao seu lote.
     "run":  { "row": 1, "column": 0, "frameCount": 6, "frameDurationMs": 140 }
   },
   "recolorRamp": {
-    "region": [0, 0, 256, 96],
+    "region": [0, 0, 192, 96],
     "colors": ["#3A3A7A", "#5956BD", "#5698CC"]
   },
   "characters": {
@@ -424,20 +443,15 @@ copie-o e apague o que não se aplicar ao seu lote.
       "row": 2, "column": 0,
       "spriteWidth": 32, "spriteHeight": 32, "scale": 1,
       "hitboxTolerance": { "x": 0.82, "y": 0.82 }
-    },
-    "brute": {
-      "row": 3, "column": 0,
-      "spriteWidth": 64, "spriteHeight": 72, "scale": 1,
-      "hitboxTolerance": { "x": 0.82, "y": 0.87 }
-    },
-    "necro_lord": {
-      "row": 4, "column": 0,
-      "spriteWidth": 37, "spriteHeight": 53, "scale": 1,
-      "hitboxTolerance": { "x": 1.03, "y": 1.06 }
     }
   }
 }
 ```
+
+O lote vizinho `tools/assets/fixtures/good/enemy-bosses.manifest.json` é o segundo exemplo, e
+existe por um motivo: ele é uma folha **sem personagens** (logo, sem rampa de recolor) e contém
+`necro_lord`, cuja hitbox é maior que o sprite desenhado. Se o seu lote tiver alguma dessas duas
+características, é dele que você deve partir.
 
 | Campo | Obrigatório | Significado |
 | ----- | ----------- | ----------- |
@@ -448,16 +462,20 @@ copie-o e apague o que não se aplicar ao seu lote.
 | `sheet.format` | **sim** | Só `"png32"`. |
 | `sheet.premultipliedAlpha` | **sim** | Só `false`. |
 | `frameWidth`, `frameHeight` | **sim** | Tamanho da célula da grade, em pixels, inteiros `>= 1`. Para personagens: `32` e `48`. |
-| `pivot.x`, `pivot.y` | **sim** | Ponto de ancoragem dentro do quadro, em pixels a partir do canto superior esquerdo. Números `>= 0`. |
+| `pivot.x`, `pivot.y` | **sim** | Ponto de ancoragem dentro da célula, em pixels a partir do canto superior esquerdo. Inteiros `>= 0`. |
 | `animations.idle`, `animations.run` | **sim** | As duas animações da v1. Ambas obrigatórias, e nenhuma outra chave é aceita. |
-| `animations.*.row` | **sim** | Linha da grade onde a animação começa, inteiro `>= 0`. |
+| `animations.*.row` | **sim** | Linha da grade **relativa à linha do assunto**, inteiro `>= 0`. |
 | `animations.*.column` | **sim** | Coluna da grade do primeiro quadro, inteiro `>= 0`. |
 | `animations.*.frameCount` | **sim** | Número de quadros, inteiro `>= 1`. **Livre** — não é fixo em 4. |
 | `animations.*.frameDurationMs` | **sim** | Duração de cada quadro em milissegundos, inteiro `>= 1`. Referência atual: `140`. |
-| `recolorRamp.region` | **sim** | `[x, y, w, h]` em pixels, o retângulo da folha onde a troca de cor acontece. |
-| `recolorRamp.colors` | **sim** | 2 ou mais cores `#RRGGBB` maiúsculas, do tom mais escuro ao mais claro. |
+| `recolorRamp` | **se houver `characters`** | Obrigatória em toda folha que desenhe personagem; dispensada numa folha só de inimigos, tile ou objeto. |
+| `recolorRamp.region` | **sim**, se houver `recolorRamp` | `[x, y, w, h]` em pixels, o retângulo da folha onde a troca de cor acontece. |
+| `recolorRamp.colors` | **sim**, se houver `recolorRamp` | 2 ou mais cores `#RRGGBB` maiúsculas, do tom mais escuro ao mais claro, sem repetição. |
 | `characters` | ver § 9 | Mapa das classes desenhadas nesta folha. Cada entrada declara ao menos `row`. |
-| `entities` | ver § 9 | Mapa dos inimigos desenhados nesta folha, com as dimensões visuais e a tolerância de hitbox. |
+| `entities` | ver § 9 | Mapa dos inimigos desenhados nesta folha, com `row`, `column`, as dimensões visuais, `scale` e a tolerância de hitbox. |
+
+Pelo menos um entre `characters` e `entities` tem que existir e não pode estar vazio: um
+manifesto que não descreve nada é recusado.
 
 Qualquer chave fora dessa lista é **recusada**, em qualquer nível. Isso é deliberado: um campo
 com nome errado que fosse ignorado em silêncio viraria arte entregue com uma propriedade que
@@ -525,8 +543,12 @@ saída **1**. O ponteiro localiza o campo exato dentro do JSON:
 ```
 character-broken.manifest.json:/: falta a propriedade obrigatória 'recolorRamp'
 character-broken.manifest.json:/spriteScale: propriedade desconhecida 'spriteScale'
-character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) nao cobre a hitbox de 'brute' (52x62): razao x 1.300 > tolerancia 0.82
+character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo x: razão 1.300 > tolerância declarada 0.82
+character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo y: razão 1.409 > tolerância declarada 0.87
 ```
+
+Repare que a cobertura é reportada **por eixo**: saber que o problema é a altura, e não a
+largura, é a diferença entre esticar o sprite e redesenhá-lo.
 
 Cada linha nomeia o arquivo, o campo e o que era esperado. **Nenhuma mensagem diz apenas
 "inválido"** — se você receber uma que diga, é bug do validador e vale reportar.
