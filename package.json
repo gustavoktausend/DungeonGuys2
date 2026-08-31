@@ -8,12 +8,15 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run sim:build && npm run sim:version && tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "typecheck:sim": "tsc -p packages/sim/tsconfig.json --noEmit",
+    "sim:build": "vite build --config packages/sim/vite.config.ts",
+    "sim:version": "node tools/sim-version/emit.mjs",
+    "sim:version:verify": "node tools/sim-version/verify.mjs",
     "golden:rebaseline": "node tools/golden/rebaseline.mjs",
     "lint": "eslint ."
   },

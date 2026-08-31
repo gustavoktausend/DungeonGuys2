@@ -9,3 +9,9 @@ dist/
 # regenerated on every run and must never be committed.
 tests/__screenshots__/
 .vitest-attachments/
+
+# The @dg2/sim lib bundle plus its sibling sim-version.json. Already covered by
+# the bare `dist/` rule above, but spelled out because this artifact is the
+# INPUT of SIM_VERSION (D-07): it is derived from source on every build, and
+# committing it would let a stale hash outlive the code it describes.
+packages/sim/dist

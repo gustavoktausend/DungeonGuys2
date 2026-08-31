@@ -1,7 +1,12 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'public', 'node_modules', 'tools'] },
+  // 'dist' is anchored at the repo root in flat config — it does NOT match a
+  // nested one — so 'packages/*/dist' is needed for the lib bundles (the
+  // @dg2/sim artifact whose sha256 is SIM_VERSION). Linting minified output is
+  // meaningless: it reports ~92 no-unused-expressions on esbuild's comma
+  // operators, none of which is a defect in the source.
+  { ignores: ['dist', 'packages/*/dist', 'public', 'node_modules', 'tools'] },
   ...tseslint.configs.recommended,
   {
     // sim/ must stay pure: no I/O, no DOM, no wall-clock, no unseeded randomness.
