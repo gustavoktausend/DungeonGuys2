@@ -18,7 +18,8 @@
     // relative to this tsconfig. The mapping exists so `tsc` sees the package
     // as source; runtime resolution comes from the npm workspace symlink.
     "paths": {
-      "@dg2/sim": ["./packages/sim/src/index.ts"]
+      "@dg2/sim": ["./packages/sim/src/index.ts"],
+      "@dg2/protocol": ["./packages/protocol/src/index.ts"]
     }
   },
   "include": ["src", "tests", "packages", "vite.config.ts", "eslint.config.js"]
