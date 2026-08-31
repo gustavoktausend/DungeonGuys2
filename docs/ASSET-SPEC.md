@@ -532,19 +532,21 @@ node tools/assets/validate.mjs caminho/do/diretorio
 Uma linha em `stdout`, código de saída **0**:
 
 ```
-assets ok: 3 manifestos, 11 entidades conferidas
+assets ok: 3 manifesto(s) em public/assets, 11 entidade(s) conferida(s) contra ENEMY_DEFS
 ```
 
 ### Recusa
 
-Uma linha por erro em `stderr`, no formato `arquivo<ponteiro JSON>: mensagem`, e código de
-saída **1**. O ponteiro localiza o campo exato dentro do JSON:
+Uma linha por erro em `stderr`, no formato `caminho:<ponteiro JSON>: mensagem`, e código de
+saída **1**. O caminho é relativo à raiz do repositório e o ponteiro localiza o campo exato
+dentro do JSON. Esta é a saída real do manifesto de exemplo quebrado que o repositório mantém
+em `tools/assets/fixtures/bad/`:
 
 ```
-character-broken.manifest.json:/: falta a propriedade obrigatória 'recolorRamp'
-character-broken.manifest.json:/spriteScale: propriedade desconhecida 'spriteScale'
-character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo x: razão 1.300 > tolerância declarada 0.82
-character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo y: razão 1.409 > tolerância declarada 0.87
+tools/assets/fixtures/bad/character-broken.manifest.json:/: falta a propriedade obrigatória 'recolorRamp'
+tools/assets/fixtures/bad/character-broken.manifest.json:/spriteScale: propriedade desconhecida 'spriteScale' — o formato v1 recusa campo com nome errado em vez de ignorá-lo em silêncio
+tools/assets/fixtures/bad/character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo x: razão 1.300 > tolerância declarada 0.82
+tools/assets/fixtures/bad/character-broken.manifest.json:/entities/brute: o sprite desenhado (40x44) não cobre a hitbox de 'brute' (52x62) no eixo y: razão 1.409 > tolerância declarada 0.87
 ```
 
 Repare que a cobertura é reportada **por eixo**: saber que o problema é a altura, e não a

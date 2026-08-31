@@ -11,6 +11,7 @@ uma linha em `stdout` no sucesso.
 ```
 schema/manifest.v1.json   o contrato, versionado no nome do arquivo
 validate.mjs              o validador: schema + cobertura de hitbox
+refusal-check.mjs         o portão que prova que a recusa funciona
 fixtures/good/            manifestos que TÊM que passar
 fixtures/bad/             manifestos que TÊM que ser recusados
 ```
@@ -21,10 +22,18 @@ fixtures/bad/             manifestos que TÊM que ser recusados
 | ------- | --------- |
 | `npm run assets:validate` | Valida `public/assets/` — é o que roda contra a arte de verdade |
 | `npm run assets:selftest` | Valida `fixtures/good/`; tem que sair 0 |
-| `npm run assets:selftest:refusal` | Valida `fixtures/bad/`; tem que sair **1**, e o script inverte o código para o CI |
+| `npm run assets:refusal` | Roda o validador contra `fixtures/bad/` e **exige** que ele recuse, apontando os três defeitos por nome |
 
 Os três dependem de `packages/sim/dist/sim.js`, de onde as hitboxes são lidas. Rode
 `npm run sim:build` antes, ou o validador falha com uma mensagem dizendo exatamente isso.
+
+O `assets:refusal` é um script, e não um `!` invertendo o código de saída no workflow, por dois
+motivos. O primeiro é a convenção de [`tools/README.md`](../README.md) §2: o CI chama
+`npm run <script>`, nunca um caminho de arquivo. O segundo é o que importa: **um "saiu 1?" nu é
+uma armadilha.** O `validate.mjs` também sai 1 quando `packages/sim/dist/sim.js` não existe,
+então uma inversão ingênua ficaria verde numa máquina onde a simulação nunca foi compilada, sem
+provar nada. O `refusal-check.mjs` confere **quais** defeitos foram apontados, um marcador por
+defeito da fixture.
 
 ## Por que `ajv` é a exceção ao `dependencies: {}`
 
