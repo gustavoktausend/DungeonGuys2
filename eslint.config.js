@@ -5,7 +5,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     // sim/ must stay pure: no I/O, no DOM, no wall-clock, no unseeded randomness.
-    files: ['src/sim/**/*.ts'],
+    files: ['packages/sim/src/**/*.ts'],
     rules: {
       'no-restricted-globals': ['error',
         { name: 'window',                 message: 'sim/ is pure — see plan T1-T6' },
