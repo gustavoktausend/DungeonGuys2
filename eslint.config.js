@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'public', 'node_modules'] },
+  { ignores: ['dist', 'public', 'node_modules', 'tools'] },
   ...tseslint.configs.recommended,
   {
     // sim/ must stay pure: no I/O, no DOM, no wall-clock, no unseeded randomness.
