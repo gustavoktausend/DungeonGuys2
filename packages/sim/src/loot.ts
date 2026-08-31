@@ -24,7 +24,7 @@
 //    original's exact condition, `ch.state !== 'looted' || ch.fade > 0`.
 //  - Every `Math.random()` becomes `world.rng.next()`/`.int()` — see
 //    task-16-report.md for the exact draw-by-draw accounting per branch.
-import { emit, slotForge } from './world';
+import { emit, orderedPlayers, slotForge } from './world';
 import { COIN_MAGNET, TICK_FACTOR, DT_MS } from './constants';
 import { makeEnemy, nearestPlayer } from './enemies';
 import { cos, sin } from './math';
@@ -113,7 +113,7 @@ export function updateChests(world: World): void {
     }
 
     // closed: any player standing close enough starts the open animation
-    const near = Object.values(world.players).some(
+    const near = orderedPlayers(world).some(
       p => {
         if (p.hp <= 0) return false;
         const dx = p.x - ch.x, dy = p.y - ch.y;
