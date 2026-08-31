@@ -19,6 +19,7 @@ jobs:
       # segunda guarda de pureza de packages/sim (D-16): lib sem DOM e types vazio,
       # entao o proprio compilador recusa window/document dentro do pacote
       - run: npm run typecheck:sim
+      - run: npm run typecheck:protocol
       - run: npm test
 
       # FORM-03: prova que o SIM_VERSION e reproduzivel (dois builds da mesma

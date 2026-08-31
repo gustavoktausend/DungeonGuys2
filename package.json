@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "typecheck:sim": "tsc -p packages/sim/tsconfig.json --noEmit",
+    "typecheck:protocol": "tsc -p packages/protocol/tsconfig.json --noEmit",
     "sim:build": "vite build --config packages/sim/vite.config.ts",
     "sim:version": "node tools/sim-version/emit.mjs",
     "sim:version:verify": "node tools/sim-version/verify.mjs",
