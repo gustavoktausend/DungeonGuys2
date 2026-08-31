@@ -29,8 +29,19 @@ const VITEST = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 const TICKS = 3000;
 /** 60 * 3600 * 3 — three hours of ticks, the format's hard ceiling (T-1-03). */
 const MAX_TICKS = 60 * 3600 * 3;
-/** Seed of the scripted input log. Literal and versioned; never a clock. */
-const LOG_SEED = 0x0d6b2604;
+/**
+ * Seed of the scripted input log. Literal and versioned; never a clock.
+ *
+ * NOT arbitrary. Most seeds produce a run whose cross-engine divergence is
+ * TRANSIENT — it appears around tick 180, then heals as the entities that
+ * diverged are destroyed, leaving the tick-3000 hash agreeing on all four
+ * engines and the final-hash half of the gate silently useless. This seed was
+ * chosen by sweeping 3000 seeds in Node, taking the 90 with the longest live
+ * stretch, and running all 90 through Chromium, Firefox and WebKit: it is one
+ * of the five whose divergence still survives at tick 3000 in all three, and
+ * the one with the longest live stretch (1800 ticks). See the 01-04 SUMMARY.
+ */
+const LOG_SEED = 0x0d6b0975;
 
 /** Failure: `file:pointer: message` on stderr, exit 1 (tools/README.md §3). */
 function fail(pointer, message) {

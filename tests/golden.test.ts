@@ -26,21 +26,23 @@ const EMIT = Boolean(import.meta.env.VITE_GOLDEN_EMIT);
 const CHECKPOINT_EVERY = 60;
 
 /**
- * Tick at which the run clears wave 1 and the world moves to 'shop'.
+ * Tick at which this run stops evolving.
  *
  * `step()` returns right after `world.tick++` once `phase !== 'playing'`, so
- * ticks 1278..3000 of this fixture only advance the counter. Resolving
- * levelup/shop headlessly means choosing an upgrade, which is app-layer
- * policy and belongs to the replay driver, not to this gate — so the fixture
- * lives with the wall and pins it instead.
+ * every phase other than 'playing' is an absorbing state for a pure tick
+ * driver: ticks 1801..3000 only advance the counter. Measured across 400
+ * scripted seeds, ZERO stayed 'playing' for 3000 ticks — the run always
+ * either clears wave 1 (382/400) or dies (18/400) first. Driving past that
+ * wall means resolving levelup/shop, which means choosing an upgrade, which
+ * is app-layer policy and belongs to the replay driver, not to this gate.
  *
- * It does NOT blunt the gate: the engine divergence this file exists to catch
- * lands around ticks 361-541 (01-RESEARCH.md § Pitfall 1), well inside the
- * live stretch, and a divergence there changes the state that then freezes.
- * If this number moves, the fixture stopped exercising what it was recorded
- * to exercise, and that is worth a red test.
+ * This number is pinned because the fixture's seed was chosen for it: 1800
+ * is the longest live stretch found in a 3000-seed sweep, AND that seed's
+ * cross-engine divergence still survives at tick 3000 in all three browsers
+ * (most seeds heal before then — see tools/golden/rebaseline.mjs). If this
+ * moves, the fixture stopped exercising what it was recorded to exercise.
  */
-const LIVE_UNTIL = 1277;
+const LIVE_UNTIL = 1800;
 
 /** The canonical start-of-run sequence, exactly as main.ts:120-124 does it. */
 function buildWorld(): World {
