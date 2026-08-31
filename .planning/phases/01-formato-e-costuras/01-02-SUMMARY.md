@@ -191,3 +191,49 @@ None - no external service configuration required.
 ---
 *Phase: 01-formato-e-costuras*
 *Completed: 2026-08-31*
+
+## Nota sobre FORM-01
+
+`FORM-01` é reivindicado por **dois** planos desta fase: este (a metade escrita — os ADRs) e o
+`01-13` (a metade de código — `RunConfig` por jogador e o `step()` iterando a ordem canônica).
+O `requirements-completed` deste sumário registra a cobertura da metade escrita; a marcação
+definitiva em `.planning/REQUIREMENTS.md` é do orquestrador, depois do `01-13`.
+
+## Self-Check: PASSED
+
+**Arquivos declarados — todos encontrados:**
+
+- FOUND: `docs/adr/README.md`
+- FOUND: `docs/adr/0001-identidade-em-tres-espacos.md`
+- FOUND: `docs/adr/0002-claim-da-conta-local.md`
+- FOUND: `docs/adr/0003-merge-por-campo-do-save.md`
+- FOUND: `docs/adr/0004-settings-identidade-sincroniza.md`
+- FOUND: `docs/adr/0005-temporada-por-sim-version.md`
+- FOUND: `docs/adr/0006-categorias-do-placar.md`
+- FOUND: `docs/adr/0007-perfil-normalizado-forge-desligado.md`
+- FOUND: `docs/adr/0008-queda-do-host-checkpoint-por-wave.md`
+- FOUND: `docs/adr/0009-missao-destravada-e-credito.md`
+- FOUND: `docs/adr/0010-soul-gold-ledger-append-only.md`
+- FOUND: `docs/adr/0011-formato-de-replay.md`
+- FOUND: `docs/adr/0012-objetivos-como-campo-do-world.md`
+- FOUND: `docs/BACKLOG.md`
+- FOUND: `.planning/phases/01-formato-e-costuras/01-02-SUMMARY.md`
+
+`ls docs/adr/` lista **13** arquivos (12 ADRs + README), como a verificação do plano exige.
+
+**Commits declarados — todos encontrados:**
+
+- FOUND: `5693261`
+- FOUND: `88d3e42`
+- FOUND: `1db1cfc`
+- FOUND: `22565bc` (metadados do plano)
+
+**Verificações automatizadas do plano — as três saem com código 0:**
+
+- Task 1: `adr 0001-0004 ok`
+- Task 2: `adr 0005-0009 ok`
+- Task 3: `adr 0010-0012 + backlog ok`
+- `grep -riE "\b(TBD|a definir|decidir depois)\b" docs/adr/` — sem retorno
+
+**Known Stubs:** nenhum. O plano é documento puro; não há dado mocado, componente sem fonte nem
+placeholder de UI.
