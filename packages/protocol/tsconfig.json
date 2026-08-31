@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // Same shape as packages/sim, for a related but distinct reason. The sim
+    // is pure because determinism demands it; the protocol is runtime-agnostic
+    // because the SAME wire vocabulary has to compile inside a browser tab and
+    // inside a Node process. No browser library in `lib`, no ambient `types`,
+    // so a stray reference to a page-only global fails here even though the
+    // root tsconfig (which does have the browser library) would accept it.
+    "lib": ["ES2022"],
+    "types": [],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
