@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // Third purity guard (D-16): no browser lib and no ambient `types`, so
+    // the compiler itself rejects `window`, `document`, `navigator`,
+    // `localStorage`, `performance`, `requestAnimationFrame`, `setTimeout` and
+    // `setInterval` inside this package. Lint and tests/purity.test.ts cover
+    // the holes a type checker structurally cannot see (and vice versa).
+    "lib": ["ES2022"],
+    "types": [],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
