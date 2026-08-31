@@ -37,7 +37,9 @@ export type SaveData = {
     bossKills: number;
     victories: number;
     unlocked: string[];
-    soulGold: number;
+    // Soul gold does not live here: it is an append-only ledger under its own
+    // key, because last-write-wins on a currency loses or duplicates money.
+    // See app/ledger.ts (D-26 dropped the counter this type used to declare).
     forge: Record<string, number>; // upgrade key -> level
   };
 };
@@ -62,7 +64,6 @@ export const Save = (() => {
     progress: {
       runs: 0, kills: 0, goldEarned: 0, bossKills: 0, victories: 0,
       unlocked: ['mage', 'archer', 'warrior'],
-      soulGold: 0,
       forge: {}, // upgrade key -> level
     },
   });
@@ -73,14 +74,30 @@ export const Save = (() => {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* storage unavailable */ }
   }
 
+  /**
+   * Copies only the keys `defaults()` still declares. `Object.assign` would
+   * carry over whatever else happens to sit in storage, so a field the schema
+   * has dropped would be read back and written out again on every persist —
+   * which is how a discarded currency counter comes back to life two phases
+   * later, next to the ledger that now owns the same money.
+   */
+  function adopt(target: object, source: unknown): void {
+    if (typeof source !== 'object' || source === null) return;
+    const src = source as Record<string, unknown>;
+    const dst = target as Record<string, unknown>;
+    for (const key of Object.keys(dst)) {
+      if (src[key] !== undefined) dst[key] = src[key];
+    }
+  }
+
   function load(): void {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SaveData>;
         data = defaults();
-        Object.assign(data.settings, parsed.settings);
-        Object.assign(data.progress, parsed.progress);
+        adopt(data.settings, parsed.settings);
+        adopt(data.progress, parsed.progress);
         data.records = parsed.records || {};
       }
     } catch { data = defaults(); }
