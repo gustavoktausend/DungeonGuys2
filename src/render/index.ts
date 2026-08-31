@@ -25,10 +25,11 @@ import {
   drawCoins, drawPotions, drawChests,
 } from './entities';
 import type { Camera } from './camera';
-import type { World } from '@dg2/sim';
+import { orderedPlayers } from '@dg2/sim';
+import type { PlayerSlot, World } from '@dg2/sim';
 import type { Fx } from './fx';
 
-export function render(world: World, cam: Camera, alpha: number, ctx: CanvasRenderingContext2D, fx: Fx): void {
+export function render(world: World, cam: Camera, alpha: number, ctx: CanvasRenderingContext2D, fx: Fx, local: PlayerSlot): void {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, cam.w, cam.h);
 
@@ -48,9 +49,9 @@ export function render(world: World, cam: Camera, alpha: number, ctx: CanvasRend
   drawBossTelegraphs(ctx, cam, world);
   drawObstacles(ctx, cam, world);
   drawEnemies(ctx, cam, world);
-  for (const id of Object.keys(world.players)) drawPlayer(ctx, cam, world.players[id]);
+  for (const p of orderedPlayers(world)) drawPlayer(ctx, cam, p);
   fx.drawParticles(ctx, cam);
-  drawFog(ctx, cam, world);
+  drawFog(ctx, cam, world, local);
   fx.drawFloatTexts(ctx, cam);
 
   ctx.restore(); // shake transform

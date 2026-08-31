@@ -85,7 +85,7 @@ function frame(w: World, alpha: number): void {
   updateHud(w, LOCAL_SLOT);
   syncScreens(w, LOCAL_SLOT);
   updateCamera(cam, player, canvas.width, canvas.height);
-  render(w, cam, alpha, ctx, fx);
+  render(w, cam, alpha, ctx, fx, LOCAL_SLOT);
 }
 
 /** Redraws the frozen world while paused — no HUD/screen sync (the pause
@@ -93,7 +93,7 @@ function frame(w: World, alpha: number): void {
  * (screen shake/particles/float texts hold still, matching "paused"). */
 function drawFrozenFrame(): void {
   updateCamera(cam, player, canvas.width, canvas.height);
-  render(world, cam, 1, ctx, fx);
+  render(world, cam, 1, ctx, fx, LOCAL_SLOT);
 }
 
 /**

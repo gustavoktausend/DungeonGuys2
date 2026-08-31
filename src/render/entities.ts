@@ -17,7 +17,7 @@
 // The weapon keeps falling back to the plain facing angle, exactly as the
 // original did whenever no swing was in flight.
 import { CLASS_DEFS, nearestPlayer, trapFrameAt } from '@dg2/sim';
-import type { Player, World } from '@dg2/sim';
+import type { Player, PlayerSlot, World } from '@dg2/sim';
 import { worldToScreen, isVisible, type Camera } from './camera';
 import {
   ANIMS, WEAPON_SPRITES, SHEET, playerSheet,
@@ -114,9 +114,13 @@ function drawHeldWeapon(ctx: CanvasRenderingContext2D, cam: Camera, p: Player): 
 // FOG mutator: darkness closes in, leaving a lit circle around the hero.
 // ORIG/render.js:31-41. Not an entity loop — no culling test (matches the
 // original, which had none here either).
-export function drawFog(ctx: CanvasRenderingContext2D, cam: Camera, world: World): void {
+export function drawFog(ctx: CanvasRenderingContext2D, cam: Camera, world: World, local: PlayerSlot): void {
   if (world.waveMutator !== 'fog') return;
-  const target = Object.values(world.players)[0];
+  // The lit circle follows the VIEWER, not whoever happens to be first in the
+  // Record. With one local player those coincide; with four they do not, and
+  // every other viewer-relative call (updateHud, syncScreens) already takes
+  // the slot explicitly.
+  const target = world.players[local];
   if (!target) return;
   const r = 190;
   const s = worldToScreen(cam, target.x, target.y);
