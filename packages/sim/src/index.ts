@@ -29,6 +29,7 @@ export * from './equipment';
 export * from './equipment-catalog';
 export * from './levelup';
 export * from './loot';
+export * from './math';
 export * from './player';
 export * from './rng';
 export * from './run';
