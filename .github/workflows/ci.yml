@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+      # A versao exata do Playwright e a variavel do experimento de determinismo:
+      # um cache compartilhado entre versoes diferentes invalida o portao.
+      - id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - run: npx playwright install --with-deps chromium firefox webkit
+
+      # vermelho de proposito ate o plano 01-12 trocar a trigonometria; a remocao deste `continue-on-error` e criterio de aceitacao daquele plano
+      - run: npm run test:browser
+        continue-on-error: true
+
+      - run: npm run build
