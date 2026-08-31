@@ -32,11 +32,11 @@ const MANIFEST = import.meta.glob<string>('../packages/sim/package.json', {
  * Exact count, on purpose — this used to be a lower bound, and a lower bound
  * does not notice a file left behind by an extraction, which is precisely the
  * failure mode of the move that created this package. 24 moved modules, plus
- * the index.ts barrel, plus levelup.ts (plan 01-08's cycle cut). Adding a
- * module to the package means changing this number in the same commit,
- * deliberately.
+ * the index.ts barrel, plus levelup.ts (plan 01-08's cycle cut), plus math.ts
+ * (plan 01-09's vendored fdlibm port). Adding a module to the package means
+ * changing this number in the same commit, deliberately.
  */
-const EXPECTED_FILE_COUNT = 26;
+const EXPECTED_FILE_COUNT = 27;
 
 /**
  * Removes comments; also blanks string/template literal bodies when
