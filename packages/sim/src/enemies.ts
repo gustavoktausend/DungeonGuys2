@@ -37,6 +37,7 @@ import { damagePlayer } from './player';
 import { resolveObstacles, trapDangerous, rectCircle } from './arena';
 import { updateBossPattern } from './boss';
 import { gainXp } from './xp';
+import { atan2, cos, sin } from './math';
 import type { EliteType, Enemy, Player, World } from './types';
 
 // Also reused by boss.ts to keep a boss's spawn distance from the nearest
@@ -153,8 +154,8 @@ function spawnPoint(world: World): { x: number; y: number } {
   for (let i = 0; i < 24; i++) {
     const a = world.rng.next() * Math.PI * 2;
     const r = world.rng.range(SPAWN_MIN, SPAWN_MAX);
-    const x = anchor.x + Math.cos(a) * r;
-    const y = anchor.y + Math.sin(a) * r;
+    const x = anchor.x + cos(a) * r;
+    const y = anchor.y + sin(a) * r;
     if (x < world.play.left + 20 || x > world.play.right - 20) continue;
     if (y < world.play.top + 20 || y > world.play.bottom - 20) continue;
     if (world.obstacles.some(o => {
@@ -167,8 +168,8 @@ function spawnPoint(world: World): { x: number; y: number } {
   // fallback: clamp a point on the ring into bounds rather than give up
   const a = world.rng.next() * Math.PI * 2;
   return {
-    x: Math.max(world.play.left + 20, Math.min(world.play.right - 20, anchor.x + Math.cos(a) * SPAWN_MIN)),
-    y: Math.max(world.play.top + 20, Math.min(world.play.bottom - 20, anchor.y + Math.sin(a) * SPAWN_MIN)),
+    x: Math.max(world.play.left + 20, Math.min(world.play.right - 20, anchor.x + cos(a) * SPAWN_MIN)),
+    y: Math.max(world.play.top + 20, Math.min(world.play.bottom - 20, anchor.y + sin(a) * SPAWN_MIN)),
   };
 }
 
@@ -301,11 +302,11 @@ export function updateEnemies(world: World): void {
         e.shootT += dt;
         if (e.shootT >= e.shooter.interval && dist < e.shooter.range * 1.3) {
           e.shootT = 0;
-          const a = Math.atan2(dy, dx);
+          const a = atan2(dy, dx);
           world.enemyBullets.push({
             x: e.x, y: e.y,
-            vx: Math.cos(a) * e.shooter.bulletSpeed,
-            vy: Math.sin(a) * e.shooter.bulletSpeed,
+            vx: cos(a) * e.shooter.bulletSpeed,
+            vy: sin(a) * e.shooter.bulletSpeed,
             dmg: e.shooter.dmg,
             dist: 0,
             dead: false,
@@ -382,10 +383,10 @@ export function killEnemy(world: World, e: Enemy, killer?: Player): void {
     const angle = world.rng.next() * Math.PI * 2;
     const r = world.rng.next() * 20;
     world.coins.push({
-      x: e.x + Math.cos(angle) * r,
-      y: e.y + Math.sin(angle) * r,
-      vx: Math.cos(angle) * 1.5,
-      vy: Math.sin(angle) * 1.5,
+      x: e.x + cos(angle) * r,
+      y: e.y + sin(angle) * r,
+      vx: cos(angle) * 1.5,
+      vy: sin(angle) * 1.5,
       dead: false,
       bob: world.rng.next() * Math.PI * 2,
     });

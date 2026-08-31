@@ -27,6 +27,7 @@
 import { emit } from './world';
 import { COIN_MAGNET, TICK_FACTOR, DT_MS } from './constants';
 import { makeEnemy, nearestPlayer } from './enemies';
+import { cos, sin } from './math';
 import type { Chest, Player, World } from './types';
 
 /** ORIG/entities.js:473-502. */
@@ -150,8 +151,8 @@ export function lootChest(world: World, _p: Player, chest: Chest): void {
       const angle = world.rng.next() * Math.PI * 2;
       world.coins.push({
         x: chest.x, y: chest.y,
-        vx: Math.cos(angle) * 2.5,
-        vy: Math.sin(angle) * 2.5,
+        vx: cos(angle) * 2.5,
+        vy: sin(angle) * 2.5,
         dead: false,
         bob: world.rng.next() * Math.PI * 2,
       });
