@@ -28,7 +28,7 @@ que a síntese classificou assim moram nesta categoria.
       do artefato buildado, nunca de semver escrito à mão
 - [ ] **FORM-04**: A mesma run produz resultado bit-idêntico no navegador e no Node, com
       trigonometria própria em `sim/math.ts` construída só sobre operações exatas por spec
-- [ ] **FORM-05**: O jogador ganha soul gold por eventos idempotentes com id próprio, e o
+- [x] **FORM-05**: O jogador ganha soul gold por eventos idempotentes com id próprio, e o
       saldo é derivado desses eventos em vez de ser um contador mutável
 - [ ] **FORM-06**: O log de inputs é quantizado na captura, antes de o `sim/` ver o valor, e
       gravado como a tabela resolvida pela autoridade — incluindo a política de preenchimento
@@ -192,7 +192,7 @@ Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 | FORM-02 | Phase 1 | Pending |
 | FORM-03 | Phase 1 | Pending |
 | FORM-04 | Phase 1 | Pending |
-| FORM-05 | Phase 1 | Pending |
+| FORM-05 | Phase 1 | Complete |
 | FORM-06 | Phase 1 | Pending |
 | FORM-07 | Phase 1 | Pending |
 | FORM-08 | Phase 1 | Pending |

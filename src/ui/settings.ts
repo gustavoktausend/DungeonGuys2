@@ -20,6 +20,7 @@
 import { dom } from './dom';
 import { showScreen, announce } from './screens';
 import { Save } from '../app/save';
+import { balance, Ledger } from '../app/ledger';
 import { Sfx } from '../app/audio';
 import { ANIMS, OUTFIT_COLORS, recolorPlayerSheet, playerSheet } from '../render/sprites';
 import { CLASS_DEFS } from '../sim/defs/classes';
@@ -300,7 +301,7 @@ function renderStats(): void {
     ['TOTAL KILLS', p.kills || 0],
     ['BOSSES SLAIN', p.bossKills || 0],
     ['GOLD EARNED', p.goldEarned || 0],
-    ['SOUL GOLD', p.soulGold || 0],
+    ['SOUL GOLD', balance(Ledger.events)],
     ['CLASSES', playable + '/' + total],
   ];
   dom.statsLifetime.innerHTML = lifetime

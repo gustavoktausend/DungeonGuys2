@@ -4,6 +4,7 @@
 // (ORIG/engine.js:255-274 / entities.js:570-588, persistence half only —
 // the sim never touches Save, see task-20-brief.md's four debts).
 import { Save } from './save';
+import { balance, Ledger } from './ledger';
 import { Sfx } from './audio';
 import { dom } from '../ui/dom';
 import { showScreen } from '../ui/screens';
@@ -57,12 +58,14 @@ function forgeCost(key: string, base: number): number {
 
 /** ORIG/ui.js:478-480 — kept in sync with the start screen's small counter. */
 function refreshForgeButton(): void {
-  dom.forgeGold.textContent = String(Save.data.progress.soulGold);
+  dom.forgeGold.textContent = String(balance(Ledger.events));
 }
 
 /** ORIG/ui.js:482-503. */
 function renderForge(): void {
-  dom.soulGold.textContent = String(Save.data.progress.soulGold);
+  // Read once: the balance is a sum over the ledger, not a field.
+  const soulGold = balance(Ledger.events);
+  dom.soulGold.textContent = String(soulGold);
   dom.forgeList.innerHTML = FORGE_UPGRADES.map(u => {
     const lvl = forgeLevel(u.key);
     const maxed = lvl >= u.max;
@@ -70,7 +73,7 @@ function renderForge(): void {
     const pips = '◆'.repeat(lvl) + '◇'.repeat(u.max - lvl);
     const buy = maxed
       ? `<button class="f-buy maxed" disabled>MAX</button>`
-      : `<button class="f-buy" data-key="${u.key}" ${Save.data.progress.soulGold < cost ? 'disabled' : ''}>${cost} ⚒</button>`;
+      : `<button class="f-buy" data-key="${u.key}" ${soulGold < cost ? 'disabled' : ''}>${cost} ⚒</button>`;
     return `
       <div class="forge-row">
         <span class="f-icon">${u.icon}</span>
@@ -89,8 +92,12 @@ function buyForge(key: string): void {
   const u = FORGE_UPGRADES.find(x => x.key === key);
   if (!u || forgeLevel(key) >= u.max) return;
   const cost = forgeCost(key, u.base);
-  if (Save.data.progress.soulGold < cost) return;
-  Save.data.progress.soulGold -= cost;
+  if (balance(Ledger.events) < cost) return;
+  // D-28: the spend is an entry of its own in the same ledger, negative and
+  // with its own id — never a subtraction on a field. The forge level is
+  // derived state, written in the same sequence as the spend, so a level can
+  // never exist without the entry that paid for it.
+  Ledger.spend(cost, 'forge');
   Save.data.progress.forge[key] = forgeLevel(key) + 1;
   Save.persist();
   Sfx.play('buy');
@@ -124,7 +131,9 @@ export function finishRun(world: World, localId: string, won: boolean): void {
   if (!p) return;
 
   const forged = Math.round(world.runGoldEarned * FORGE_RATE);
-  Save.data.progress.soulGold += forged;
+  // A run that forged nothing writes no entry: the ledger only accepts
+  // positive amounts, and a zero-value entry is noise in the audit trail.
+  if (forged > 0) Ledger.grant(forged, 'run');
   const newBest = Save.recordRun(p.cls, {
     score: world.score,
     wave: world.wave,
