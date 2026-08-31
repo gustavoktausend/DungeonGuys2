@@ -27,6 +27,7 @@ export * from './defs/mutators';
 export * from './enemies';
 export * from './equipment';
 export * from './equipment-catalog';
+export * from './levelup';
 export * from './loot';
 export * from './player';
 export * from './rng';
