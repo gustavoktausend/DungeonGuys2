@@ -82,7 +82,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 01-13-PLAN.md — `RunConfig.players[]`, ordem canônica em `step()` e os três espaços de identidade
+- [x] 01-13-PLAN.md — `RunConfig.players[]`, ordem canônica em `step()` e os três espaços de identidade
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 12/14 | In Progress|  |
+| 1. Formato e costuras | 13/14 | In Progress|  |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
