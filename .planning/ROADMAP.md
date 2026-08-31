@@ -21,7 +21,7 @@ placar em que estar no topo significa ter jogado.
 - Integer phases (1, 2, 3): trabalho planejado do marco
 - Decimal phases (2.1, 2.2): inserções urgentes (marcadas com INSERTED)
 
-- [ ] **Phase 1: Formato e costuras** - Congela identidade, `RunConfig`, `SIM_VERSION`, log de inputs, serialização e trigonometria — zero linha de rede
+- [x] **Phase 1: Formato e costuras** - Congela identidade, `RunConfig`, `SIM_VERSION`, log de inputs, serialização e trigonometria — zero linha de rede (completed 2026-08-31)
 - [ ] **Phase 2: Migração para a VPS** - Domínio único com TLS, PWA e backup exercitados com o jogo single-player
 - [ ] **Phase 3: Sala, transporte e protocolo** - Quatro amigos se encontram pelo código; o formato do fio e o codec do snapshot ficam decididos aqui
 - [ ] **Phase 4: Partida sincronizada** - Dois a quatro jogadores lutam a mesma run no mesmo mundo, com resposta imediata para cada um
@@ -86,7 +86,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 01-14-PLAN.md — `serialize.ts`, `world.objectives` e o round-trip sem perda
+- [x] 01-14-PLAN.md — `serialize.ts`, `world.objectives` e o round-trip sem perda
 
 **Sequência interna que não pode ser trocada**: o corte do ciclo de `sim/` vem **antes** do
 `sim/math.ts`, porque uma `const` avaliada em tempo de módulo cruzando o ciclo vira `undefined`
@@ -392,7 +392,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Formato e costuras | 13/14 | In Progress|  |
+| 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 0/3 | Not started | - |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
