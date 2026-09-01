@@ -141,8 +141,8 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-07-PLAN.md — O aviso de atualização que só troca de versão fora de partida
-- [ ] 02-08-PLAN.md — `apps/server`: workspace confinado, migração da tabela do ledger e `/api/health` em loopback
+- [x] 02-07-PLAN.md — O aviso de atualização que só troca de versão fora de partida
+- [x] 02-08-PLAN.md — `apps/server`: workspace confinado, migração da tabela do ledger e `/api/health` em loopback
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -439,7 +439,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 4/12 | In Progress|  |
+| 2. Migração para a VPS | 6/12 | In Progress|  |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
