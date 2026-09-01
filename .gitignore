@@ -22,3 +22,11 @@ playwright-report/
 # INPUT of SIM_VERSION (D-07): it is derived from source on every build, and
 # committing it would let a stale hash outlive the code it describes.
 packages/sim/dist
+
+# The esbuild bundle of apps/server, produced by `npm run server:build`. The
+# bare `dist/` rule at the top does NOT cover it: that rule ends in a slash, so
+# it matches a directory of exactly that name and no other. Same reason as the
+# line above — derived from source on every build, and ops/deploy.sh hashes the
+# bundle to decide whether to restart the unit, so a committed copy could
+# disagree with the code it was supposedly built from.
+dist-server

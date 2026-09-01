@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "dev": "vite",
@@ -16,10 +17,12 @@
     "test:pwa": "playwright test",
     "typecheck:sim": "tsc -p packages/sim/tsconfig.json --noEmit",
     "typecheck:protocol": "tsc -p packages/protocol/tsconfig.json --noEmit",
+    "typecheck:server": "tsc -p apps/server/tsconfig.json --noEmit",
     "typecheck:pwa": "tsc -p tests/pwa/tsconfig.json --noEmit",
     "sim:build": "vite build --config packages/sim/vite.config.ts",
     "sim:version": "node tools/sim-version/emit.mjs",
     "sim:version:verify": "node tools/sim-version/verify.mjs",
+    "server:build": "esbuild apps/server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --outfile=dist-server/server.mjs",
     "sw:emit": "node tools/sw/emit.mjs",
     "sw:verify": "node tools/sw/verify.mjs",
     "golden:rebaseline": "node tools/golden/rebaseline.mjs",
@@ -28,6 +31,7 @@
     "assets:refusal": "node tools/assets/refusal-check.mjs",
     "lint": "eslint ."
   },
+  "dependencies": {},
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "@stdlib/math-base-special-atan2": "^0.3.1",
