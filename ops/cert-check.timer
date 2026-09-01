@@ -1,0 +1,22 @@
+# cert-check.timer — the only recurring automation this phase installs.
+#
+# The other candidate, a recurring restore drill, was refused (D2-03): on a box
+# with nobody on call, silent automation is one more thing that breaks without
+# telling you. This one earns the exception because its failure IS its output —
+# a failed unit — and because thirty days of margin means a single missed run
+# costs nothing.
+[Unit]
+Description=Daily check of the served TLS certificate
+
+[Timer]
+OnCalendar=daily
+# Spread the run out over an hour. Nothing here is load-sensitive; the reason is
+# that a fixed midnight is when everything else on a small box also fires.
+RandomizedDelaySec=1h
+# Runs after a reboot that crossed the scheduled time. Without it, a box that
+# happens to be down at the hour simply skips the day — and it is the weeks
+# around an unattended reboot that this check exists to cover.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
