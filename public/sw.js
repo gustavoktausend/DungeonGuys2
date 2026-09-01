@@ -52,6 +52,30 @@ const LEGACY_CACHE = 'dungeonguys2-v1';
 const PRECACHE = __PRECACHE__;
 const PRECACHE_SET = new Set(PRECACHE);
 
+// THE INSTALL IS IN TWO HALVES, AND THAT IS THE POINT.
+//
+// `cache.addAll` rejects the ENTIRE install if a single URL fails — the very
+// incident tools/sw/emit.mjs documents in its own header. Deriving the list
+// from dist/ removed the STALE NAME cause of that failure; it did not remove
+// the failure. A dropped connection, a 503 in the middle of a deploy, or one
+// asset over quota still aborts everything, and nothing retries.
+//
+// The exclusion rule is deliberately total — EVERYTHING under dist/ — and
+// phase-2 constraints say the sprite sheets and animation sets arrive from a
+// separate repository. dist/ is ~350 KB today; at tens of megabytes an install
+// that must complete atomically over a mobile connection is a coin flip, and
+// every failure leaves the player with no offline capability at all and no
+// diagnostic anywhere (WR-11).
+//
+// So: the shell is mandatory, the bulk is best-effort. The shell is the
+// document, the manifest and the two hashed bundles Vite emits — without any
+// one of them there is no game to open offline, so failing the install is the
+// honest outcome. A missing sprite sheet is a worse picture, not a dead game.
+const SHELL = PRECACHE.filter(url =>
+  url === '/index.html' || url === '/manifest.json' || url.startsWith('/assets/index-'));
+const SHELL_SET = new Set(SHELL);
+const REST = PRECACHE.filter(url => !SHELL_SET.has(url));
+
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const cache = await caches.open(CACHE);
@@ -60,7 +84,14 @@ self.addEventListener('install', e => {
     // cache could feed the PREVIOUS build straight into the "new" precache
     // (P-4). The other half of the fix is the `Cache-Control: no-cache` that
     // the @shell matcher of ops/Caddyfile sends for exactly those names.
-    await cache.addAll(PRECACHE.map(url => new Request(url, { cache: 'reload' })));
+    // Mandatory: without these the game cannot boot offline at all, so a
+    // failure here SHOULD reject the install rather than leave a cache that
+    // cannot open the game and reports nothing.
+    await cache.addAll(SHELL.map(url => new Request(url, { cache: 'reload' })));
+    // Best-effort: one sprite that 404s must not cost the whole install.
+    // allSettled and not all — the point is precisely that rejections here are
+    // absorbed, and `cache.add` per URL so one loss costs one file.
+    await Promise.allSettled(REST.map(url => cache.add(new Request(url, { cache: 'reload' }))));
     // Nothing else belongs here on purpose — D2-09, see the header.
   })());
 });

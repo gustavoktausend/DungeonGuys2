@@ -86,6 +86,73 @@ test('instalação limpa: o worker espera, e o precache cobre o dist inteiro', a
     .toEqual(expected);
 });
 
+// WR-11. `cache.addAll` rejects the ENTIRE install if ONE url fails, and
+// nothing retries. The exclusion rule is deliberately total — everything under
+// dist/ — and the art from the assets repository is measured in tens of
+// megabytes, so an install that must complete atomically over a mobile
+// connection is a coin flip. Every loss leaves the player with NO offline
+// capability at all, and no diagnostic.
+//
+// The two cases below pin the split from both sides, and only the pair does.
+// The first alone would pass against a worker with no split at all whenever the
+// broken asset happened to be optional; the second alone would pass against a
+// worker that still fails on everything.
+const SHELL_SAMPLE = '/manifest.json';
+const OPTIONAL_SAMPLE = '/assets/CREDITS.md';
+
+function serve404(server: StaticServer, pathname: string): void {
+  server.route(pathname, (_req, res) => {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('404');
+  });
+}
+
+test('um asset opcional com 404 não custa a instalação inteira', async ({ page }) => {
+  server = await serveDir('dist');
+  serve404(server, OPTIONAL_SAMPLE);
+
+  await page.goto(server.origin);
+  // Red before the split: addAll rejects, install() never resolves, and this
+  // fails naming the cause rather than as a bare test timeout.
+  await waitForActivated(page);
+
+  const entries = await readCacheEntries(page);
+  const names = Object.keys(entries).filter(name => /^dg2-[0-9a-f]{16}$/.test(name));
+  expect(names, 'a origem tem de ter exatamente um cache do build corrente').toHaveLength(1);
+  const cached = entries[names[0]];
+
+  // Anti-vacuity: an empty cache would satisfy "the 404 is not in it".
+  expect(cached.length, 'o precache tem de ter sobrado quase inteiro').toBeGreaterThan(5);
+
+  // The mandatory half landed whole.
+  expect(cached, 'o documento é o mínimo para o jogo abrir offline').toContain('/index.html');
+  expect(cached, 'e o manifesto junto com ele').toContain(SHELL_SAMPLE);
+  expect(
+    cached.filter(pathname => pathname.startsWith('/assets/index-')),
+    'os dois bundles com nome hasheado são o resto do shell',
+  ).toHaveLength(2);
+
+  // And the one thing missing is the one thing that 404ed.
+  expect(cached, 'o asset que falhou é o único ausente').not.toContain(OPTIONAL_SAMPLE);
+});
+
+test('um asset do shell com 404 reprova a instalação inteira', async ({ page }) => {
+  server = await serveDir('dist');
+  serve404(server, SHELL_SAMPLE);
+
+  await page.goto(server.origin);
+
+  // The other direction, and the reason the bulk being best-effort is not the
+  // same as the install being best-effort: without the document, the manifest
+  // and the bundles there is no game to open offline, so refusing to install is
+  // the honest outcome — a worker that "succeeded" here would leave a cache
+  // that cannot boot and would report nothing.
+  await expect(
+    waitForActivated(page, 5_000),
+    'faltando um arquivo do shell, a instalação tem de reprovar',
+  ).rejects.toThrow(/nenhum service worker ativou/);
+});
+
 test('o manifesto é instalável: escopo do registro e do manifesto coincidem', async ({ page }) => {
   server = await serveDir('dist');
   await page.goto(server.origin);
