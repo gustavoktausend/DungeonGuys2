@@ -157,3 +157,51 @@ describe('scripts de ops/', () => {
     expect(bad).toEqual([]);
   });
 });
+
+/** Every key of /etc/dg2/env. The runbook is the only inventory of them. */
+const ENV_KEYS = [
+  'DG2_DOMAIN', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE',
+  'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+];
+
+describe('ops/README.md', () => {
+  it('o runbook nomeia todas as chaves de /etc/dg2/env', () => {
+    // A key that exists on the box and is named nowhere is the one a rebuild
+    // discovers by the service failing to start.
+    const readme = read('README.md');
+    expect(ENV_KEYS.filter((k) => !readme.includes(k))).toEqual([]);
+  });
+
+  it('o runbook registra que reload não relê o EnvironmentFile (P-6)', () => {
+    expect(read('README.md')).toContain('restart caddy');
+  });
+});
+
+describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
+  // NOT comment-stripped: a domain leaked in a comment is leaked all the same.
+  it('o único literal IPv4 permitido é o loopback', () => {
+    const bad: string[] = [];
+    for (const [path, src] of Object.entries(OPS)) {
+      for (const m of src.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) {
+        if (m[0] !== '127.0.0.1') bad.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhuma credencial aparece com valor', () => {
+    // A key may be NAMED anywhere; what it may never be is assigned. An empty
+    // right-hand side or an interpolation is fine — a literal is the leak.
+    const bad: string[] = [];
+    for (const [path, src] of Object.entries(OPS)) {
+      for (const line of src.split('\n')) {
+        const m = /AWS_SECRET_ACCESS_KEY=(.*)$/.exec(line);
+        if (!m) continue;
+        const value = m[1].trim();
+        if (value !== '' && !/^\$\{[^}]*\}$/.test(value)) bad.push(`${path}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});
