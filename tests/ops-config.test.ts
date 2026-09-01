@@ -169,6 +169,26 @@ describe('scripts de ops/', () => {
     expect(bad).toEqual([]);
   });
 
+  it('rollback.sh sem argumento anda a partir da posição do vivo, não do topo', () => {
+    // "The newest release that is NOT the live one" is right exactly once.
+    // Roll back from N and it lands on N-1; roll back again — which is what an
+    // operator does when N-1 is also bad — and the newest non-live release is
+    // N, the one just abandoned. Measured under dash over five releases, the
+    // old form walked E, D, E, D and could never reach C.
+    //
+    // The fix is a flag that records the live entry going past, plus a break on
+    // the first entry after it. Both halves are asserted, because either one
+    // alone reverts to the old behaviour.
+    const src = code('rollback.sh');
+    expect(src).toContain('PASSED_LIVE=yes');
+    expect(src).toMatch(/if \[ -n "\$PASSED_LIVE" \]; then\s*\n\s*SHA=\$base\s*\n\s*break/);
+    // And the fallback must be reachable ONLY when the live release was never
+    // seen in the list at all. Extending it to "the live release is the oldest
+    // one" would hand back the release just abandoned — the oscillation again,
+    // wearing the fallback's clothes.
+    expect(src).toContain('[ -z "$SHA" ] && [ -z "$PASSED_LIVE" ]');
+  });
+
   it('rollback.sh não faz nenhuma chamada de rede (D2-06)', () => {
     // Not comment-stripped on purpose: the requirement is that these words do
     // not appear in the file AT ALL. A revert is needed exactly when the

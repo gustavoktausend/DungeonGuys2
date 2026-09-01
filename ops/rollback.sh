@@ -44,6 +44,36 @@ swap_symlink() {
     mv -T "$1.tmp" "$1"
 }
 
+# Lists the release directories of $1, newest first, one 40-hex name per line
+# and nothing else. Two properties are load-bearing, and neither was true of
+# the `$(ls -1dt ...)` this replaces:
+#
+#   1. It does not parse `ls`. The comment that used to sit here justified
+#      parsing it with "release names are 40 hex characters by construction" —
+#      and nothing on the box enforces the construction. Both release roots are
+#      writable by dg2-deploy, and a manual mkdir or a half-finished rsync is
+#      enough to put a name with a space there.
+#   2. The basename is validated BEFORE it is used as a path, and the path is
+#      rebuilt from the root instead of from the split token. The only paths
+#      this function can ever name are "$1/<40 hexadecimais>".
+#
+# `read -r` with two variables puts the entire rest of the line — spaces and
+# all — into the second one, so a directory whose name has a space arrives
+# intact and is then refused, rather than arriving as two words that happen to
+# parse. The pipeline's exit status is the loop's, so no release at all is an
+# empty answer and not a failure; the caller decides what that means.
+release_names() {
+    stat -c '%Y %n' "$1"/*/ 2>/dev/null | sort -rn | while read -r _mtime path; do
+        base=${path%/}
+        base=${base##*/}
+        case "$base" in
+            *[!0-9a-f]* | '') continue ;;
+        esac
+        [ ${#base} -eq 40 ] || continue
+        printf '%s\n' "$base"
+    done
+}
+
 [ $# -le 1 ] || fail 'argv' 'uso: rollback.sh [sha]'
 
 LIVE=''
@@ -54,19 +84,49 @@ fi
 if [ $# -eq 1 ]; then
     SHA=$1
 else
-    # No argument: the newest release that is NOT the live one, by directory
-    # mtime. Release names are 40 hex characters by construction, so parsing
-    # `ls -1dt` carries none of its usual risk — there is no whitespace and no
-    # metacharacter to split on.
+    # No argument: the release immediately BEFORE the live one, in mtime order.
+    #
+    # It used to be "the newest release that is NOT the live one", which is
+    # right exactly once. Roll back from N and it correctly lands on N-1. Roll
+    # back AGAIN — which is what an operator does when N-1 turns out to be bad
+    # too — and the newest non-live release is N, the one just abandoned. The
+    # script oscillated between two releases and could never reach N-2.
+    # Measured under dash against five releases: E, D, E, D, forever. The first
+    # moment it matters is the second rollback of a bad night, which is the
+    # worst possible moment to find out.
+    #
+    # So: walk the mtime-ordered list, remember when the live entry goes past,
+    # and take the first entry AFTER it. The word splitting below is safe by
+    # construction rather than by assumption — release_names emits nothing but
+    # 40 hex characters per line.
     SHA=''
-    for dir in $(ls -1dt "$RELEASES"/*/ 2>/dev/null || true); do
-        candidate=$(readlink -f "$dir")
-        if [ "$candidate" = "$LIVE" ]; then
+    NEWEST_OTHER=''
+    PASSED_LIVE=''
+    for base in $(release_names "$RELEASES"); do
+        if [ "$(readlink -f "$RELEASES/$base")" = "$LIVE" ]; then
+            PASSED_LIVE=yes
             continue
         fi
-        SHA=$(basename "$candidate")
-        break
+        if [ -n "$PASSED_LIVE" ]; then
+            SHA=$base
+            break
+        fi
+        if [ -z "$NEWEST_OTHER" ]; then
+            NEWEST_OTHER=$base
+        fi
     done
+
+    # The fallback covers ONE case: the live symlink resolves to something that
+    # is not in the list — a hand-made symlink, or a release the prune already
+    # took. There is then no position to walk back from, and the newest release
+    # that is not live is the only defensible answer.
+    #
+    # It deliberately does NOT cover "the live release is the oldest one". That
+    # case genuinely has no predecessor, and saying so is the honest answer;
+    # falling back there would reintroduce the oscillation this replaces.
+    if [ -z "$SHA" ] && [ -z "$PASSED_LIVE" ]; then
+        SHA=$NEWEST_OTHER
+    fi
     [ -n "$SHA" ] || fail "$RELEASES" 'não há release anterior para voltar'
 fi
 
