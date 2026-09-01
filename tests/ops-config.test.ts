@@ -83,3 +83,77 @@ describe('ops/Caddyfile', () => {
     expect(cfg).toContain('{"status":"unavailable"}');
   });
 });
+
+/** The four shell scripts, in the order a deploy touches them. */
+const SCRIPTS = ['deploy-forced.sh', 'deploy.sh', 'rollback.sh', 'prune-releases.sh'];
+
+describe('scripts de ops/', () => {
+  it('o glob encontrou os quatro scripts', () => {
+    const found = Object.keys(OPS).filter((p) => p.endsWith('.sh')).sort();
+    expect(found).toEqual(SCRIPTS.map((n) => `../ops/${n}`).sort());
+  });
+
+  it('todo script abre com set -eu', () => {
+    const bad: string[] = [];
+    for (const name of SCRIPTS) {
+      // The shebang is a `#` line, so it is gone with the comments; the first
+      // line that survives has to be the one that makes an unset variable or a
+      // failed command stop the script instead of continuing into a half-done
+      // deploy.
+      const first = code(name).split('\n').find((line) => line.trim() !== '');
+      if (first?.trim() !== 'set -eu') bad.push(`${name}: ${first ?? '<vazio>'}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('a troca de symlink é atômica: mv -T, nunca ln -sfn direto no alvo vivo', () => {
+    const bad: string[] = [];
+    for (const name of ['deploy.sh', 'rollback.sh']) {
+      const src = code(name);
+      if (!src.includes('mv -T')) bad.push(`${name}: sem mv -T`);
+      // `ln -sfn` over an existing symlink unlinks and recreates it, so every
+      // line that creates one must be writing to a temporary name — the `mv -T`
+      // that follows is what makes the publish atomic.
+      for (const line of src.split('\n')) {
+        if (line.includes('ln -sfn') && !line.includes('.tmp')) bad.push(`${name}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('rollback.sh não faz nenhuma chamada de rede (D2-06)', () => {
+    // Not comment-stripped on purpose: the requirement is that these words do
+    // not appear in the file AT ALL. A revert is needed exactly when the
+    // infrastructure that would serve a download is what failed.
+    const bad: string[] = [];
+    for (const word of ['curl', 'wget', 'git ', 'npm ']) {
+      if (read('rollback.sh').includes(word)) bad.push(word);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('rollback.sh nunca toca no banco (D2-07)', () => {
+    expect(read('rollback.sh')).not.toContain('var/lib/dg2');
+  });
+
+  it('prune-releases.sh resolve o symlink vivo e retém 5', () => {
+    const src = code('prune-releases.sh');
+    expect(src).toContain('readlink');
+    expect(src).toMatch(/^KEEP=5$/m);
+  });
+
+  it('deploy-forced.sh só aceita rsync --server e um sha de 40 hexadecimais', () => {
+    const src = code('deploy-forced.sh');
+    expect(src).toContain('SSH_ORIGINAL_COMMAND');
+    expect(src).toContain('rsync --server ');
+    expect(src).toContain('^[0-9a-f]{40}$');
+  });
+
+  it('nenhum script desliga a verificação de host do SSH', () => {
+    const bad: string[] = [];
+    for (const [path, src] of Object.entries(OPS)) {
+      if (/StrictHostKeyChecking\s*=\s*no\b/.test(src)) bad.push(path);
+    }
+    expect(bad).toEqual([]);
+  });
+});
