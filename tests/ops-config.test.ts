@@ -38,6 +38,22 @@ const TOOLS_OPS = import.meta.glob<string>('../tools/ops/*', {
 function read(name: string): string {
   const src = OPS[`../ops/${name}`];
   expect(src, `o glob não encontrou ops/${name}`).toBeTypeOf('string');
+  // TYPE IS NOT THE GUARD; LENGTH IS. `''` is a string, so a glob that resolves
+  // and reads nothing passes toBeTypeOf and then SATISFIES every not.toContain
+  // and not.toMatch below it. Measured on this file before the floor existed,
+  // with ops/rollback.sh stubbed to '': 44 of 46 tests stayed green, and the
+  // two that survived included both assertions that carry the requirement —
+  // D2-06 (nenhuma chamada de rede) and D2-07 (nunca toca no banco). They
+  // passed over an empty haystack.
+  //
+  // tests/dom-ids.test.ts:50-54 records the same trap from plan 02-02, where a
+  // `?raw` CSS import stubbed to '' shipped a green test that had read nothing.
+  // This file — the one guarding infrastructure that has never executed — was
+  // the one that skipped the lesson.
+  //
+  // The floor is far below the smallest real file (ops/cert-check.timer, 962
+  // bytes) on purpose: it must catch emptiness and never police size.
+  expect((src as string).length, `ops/${name} veio vazio`).toBeGreaterThan(200);
   return src as string;
 }
 
@@ -45,6 +61,7 @@ function read(name: string): string {
 function readTool(name: string): string {
   const src = TOOLS_OPS[`../tools/ops/${name}`];
   expect(src, `o glob não encontrou tools/ops/${name}`).toBeTypeOf('string');
+  expect((src as string).length, `tools/ops/${name} veio vazio`).toBeGreaterThan(200);
   return src as string;
 }
 
@@ -59,10 +76,18 @@ function readTool(name: string): string {
  * "fix" would be to delete the explanation. Strip first, then assert.
  */
 function code(name: string): string {
-  return read(name)
+  const stripped = read(name)
     .split('\n')
     .filter((line) => !/^\s*#/.test(line))
     .join('\n');
+  // The second floor, and it is not redundant with the first: most assertions
+  // in this file read code(), not read(), so a file that passed the length
+  // guard while being nothing but prose would still hand them an empty
+  // haystack. Every ops/ file here is majority comment by design, so this is
+  // the number the vacuity would actually hide behind. Smallest real value is
+  // ops/cert-check.timer, at 167 bytes once stripped.
+  expect(stripped.trim().length, `ops/${name} é só comentário`).toBeGreaterThan(50);
+  return stripped;
 }
 
 describe('ops/Caddyfile', () => {
