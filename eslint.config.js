@@ -17,14 +17,58 @@ export default tseslint.config(
   // THEIR source, not from ours. The bare 'dist' entry does not cover it —
   // measured, 38 errors — because flat-config ignores match by path segment.
   // apps/server/src, the actual input, stays linted; see the block below.
-  { ignores: ['dist', 'dist-server', 'packages/*/dist', 'public', 'node_modules', 'tools', 'tests/pwa/fixtures'] },
+  //
+  // WHAT IS NO LONGER HERE: 'tools' and 'public'. Every entry above is a build
+  // OUTPUT, and those two were inputs — the only two, which is why they never
+  // fit the sentence the rest of this comment is making.
+  //
+  //   tools/ was excused as "build scaffolding that never ships", and two of
+  //   its files contradict that in writing. tools/ops/restore-verify.mjs runs
+  //   ON the VPS: ops/README.md §11 documents it as an operator command, and
+  //   it shells out to litestream and sqlite3 over the live ledger. It is
+  //   product code that runs in front of a real database on a real box, by the
+  //   very definition the block below uses to justify linting apps/server —
+  //   and it was unlinted. tools/sw/emit.mjs writes the precache of the
+  //   published service worker, where a mistake surfaces offline, weeks later,
+  //   with nothing to correlate.
+  //
+  //   'public' was in the list with NO justification at all, and public/sw.js
+  //   is the shipped service worker: the client file this phase spent the most
+  //   effort on, carrying the cache-poisoning and /api/ isolation logic. It is
+  //   also the only script under public/ — the rest is fonts, icons, art and a
+  //   manifest, none of which ESLint would look at anyway — so no carve-out
+  //   pattern is needed to reach it, and the simplest change is the whole
+  //   change.
+  //
+  // COST, MEASURED before making the change and not predicted: nine files come
+  // into scope (eight .mjs of tools/ plus public/sw.js) and they report ZERO
+  // errors and ZERO warnings under this configuration. The review that raised
+  // this expected "a handful of findings on first run"; there are none. Part
+  // of why is worth writing down, because it is a loaded gun rather than good
+  // news: this config extends typescript-eslint's `recommended` and NOT
+  // @eslint/js's, so `no-undef` is not among the enabled rules. That is what
+  // lets public/sw.js name `self`, `caches` and `clients` without a
+  // service-worker globals block. Adding `js.configs.recommended` one day
+  // therefore means adding `languageOptions.globals` for that file in the same
+  // commit — declaring the globals NOW would be configuration for a rule that
+  // is not enabled, which is the kind of thing that outlives its reason.
+  //
+  // tests/lint-coverage.test.ts is the executable half: it asks ESLint itself,
+  // through isPathIgnored, which files this list reaches. An `ignores` entry
+  // is the one part of a lint configuration whose failure mode is silence — a
+  // broken rule turns something red, a widened ignore turns nothing red ever
+  // again.
+  { ignores: ['dist', 'dist-server', 'packages/*/dist', 'node_modules', 'tests/pwa/fixtures'] },
   ...tseslint.configs.recommended,
   {
     // apps/server/src is linted, and its ABSENCE from the `ignores` above is
-    // the decision, not an oversight. tools/ is ignored because it is build
-    // scaffolding that never ships; apps/server is product code that runs in
-    // front of a real database on a real box, so it gets the same recommended
-    // rules as src/ and packages/.
+    // the decision, not an oversight: it is product code that runs in front of
+    // a real database on a real box, so it gets the same recommended rules as
+    // src/ and packages/. This sentence used to draw the contrast against
+    // tools/, "build scaffolding that never ships" — and tools/ops/ met every
+    // word of the description on THIS side of the contrast, which is what
+    // WR-22 found. The distinction the sentence was reaching for is between
+    // source and build output, and that is what the list above now draws.
     //
     // This block therefore adds no rules at all. It exists to record the other
     // half: NONE of the purity restrictions written for packages/sim below
