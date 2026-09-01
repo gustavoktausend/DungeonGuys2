@@ -146,8 +146,8 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 02-09-PLAN.md — As duas specs que provam INFRA-03 e o job `pwa` no CI
-- [ ] 02-10-PLAN.md — `dg2.service`, Litestream, `cert-check` e o ensaio de restauração em código
+- [x] 02-09-PLAN.md — As duas specs que provam INFRA-03 e o job `pwa` no CI
+- [x] 02-10-PLAN.md — `dg2.service`, Litestream, `cert-check` e o ensaio de restauração em código
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -439,7 +439,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 6/12 | In Progress|  |
+| 2. Migração para a VPS | 8/12 | In Progress|  |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
