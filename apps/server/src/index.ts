@@ -12,6 +12,7 @@ import { openDb } from './db/open';
 import { provider } from './db/migrations';
 import { createApp } from './app';
 import { readEnv, type ServerEnv } from './env';
+import { createShutdown, SHUTDOWN_GRACE_MS } from './shutdown';
 
 // All three come from /etc/dg2/env, which is NOT in this repository (ops/
 // README.md §1: the repo never says where the machine lives). The defaults are
@@ -73,3 +74,34 @@ const app = createApp({ sqlite, release: env.release });
  * defence to a firewall nobody has configured (T-2-BIND).
  */
 export const server = serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
+
+// The other end of the process's life, and it is a DEPLOY path rather than a
+// crash path: ops/deploy.sh runs `systemctl restart dg2` every time the server
+// bundle changed, systemd stops a unit with SIGTERM, and Node's default action
+// for SIGTERM is to terminate at once. Every deploy therefore used to sever
+// whatever was mid-response — Caddy turns those into 502s — and skip
+// sqlite.close() entirely, so nothing checkpointed on the way out. open.ts
+// accepts that risk for a power cut under `synchronous = NORMAL`; it should not
+// also be the price of shipping.
+//
+// The sequence itself lives in shutdown.ts, tested; what stays here is the
+// wiring, which is the half that cannot be tested in-process (see
+// tests/server-shutdown.test.ts for how it is audited instead).
+const shutdown = createShutdown({
+  server,
+  sqlite,
+  exit: code => process.exit(code),
+  startWatchdog: fire => {
+    // .unref(): a pending timer is a reason for Node to stay alive, and a
+    // deadline for stopping must not itself be something keeping the process
+    // up. Nothing here waits for it — it only ever fires if the drain does not
+    // finish first.
+    setTimeout(fire, SHUTDOWN_GRACE_MS).unref();
+  },
+});
+
+// SIGTERM is the one systemd sends. SIGINT is not symmetry: it makes Ctrl+C in
+// development take the same path production takes, so the sequence is exercised
+// by hand daily instead of being run for the first time on the box.
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
