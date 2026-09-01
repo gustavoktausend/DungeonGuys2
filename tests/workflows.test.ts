@@ -144,6 +144,46 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
     const bad = found.filter((a) => !/^actions\/[A-Za-z0-9._-]+@\S+$/.test(a));
     expect(bad).toEqual([]);
   });
+
+  it('o teto do GITHUB_TOKEN é do WORKFLOW, não de um job só (WR-19)', () => {
+    const src = ci();
+    // COLUMN ZERO IS THE WHOLE ASSERTION, and the reason this is a regex
+    // rather than the hasLine() above. `contents: read` was ALREADY in the
+    // file before this test existed — the deploy job carries its own block —
+    // so `toContain('contents: read')`, and hasLine() too, since it ignores
+    // indentation by design, would have been green against the very state
+    // this is here to refuse. Proof by removal, run: deleting the top-level
+    // block turns this red and nothing else in the suite moves.
+    //
+    // What the indentation buys: `permissions:` nested under a job governs
+    // that job alone, and `test` and `pwa` declared none. A job with no block
+    // inherits the REPOSITORY default, which for anything created before the
+    // 2023 change is write-all — and those two are the jobs that run the whole
+    // toolchain and download three browser engines. The wide token was on the
+    // large surface and the narrow one on the small.
+    const top = /^permissions:[ \t]*\r?\n((?:[ \t]+\S[^\n]*\r?\n)+)/m.exec(src);
+    expect(top, 'não há bloco `permissions:` na coluna zero do ci.yml').not.toBeNull();
+    const entries = top![1]!.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+    // Exactly one, and it is the read. A floor that also granted something
+    // else would not be a floor.
+    expect(entries, 'o teto do workflow concede mais que `contents: read`')
+      .toEqual(['contents: read']);
+  });
+
+  it('nenhum escopo de permissão é concedido para escrita', () => {
+    const src = ci();
+    // The other direction, and it is not the same assertion: the block above
+    // pins what the floor IS, this one pins that nothing anywhere raises it.
+    // `write-all` and a per-scope `: write` are the two spellings, and a job
+    // block sits below the workflow block rather than under it — a nested
+    // `permissions:` REPLACES the outer one, it does not intersect with it.
+    expect(src).not.toContain('write-all');
+    const raised = src
+      .split('\n')
+      .filter((l) => /^\s+[a-z-]+:\s*write\s*\r?$/.test(l))
+      .map((l) => l.trim());
+    expect(raised).toEqual([]);
+  });
 });
 
 // The shape of the one job that holds an SSH key with write access to the box.

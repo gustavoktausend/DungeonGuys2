@@ -4,6 +4,31 @@ on:
   pull_request:
   push:
 
+# O PISO, e ele e do workflow inteiro (WR-19). Um `permissions:` dentro de um
+# job governa aquele job e mais nada, entao `test` e `pwa` -- que nao
+# declaravam nenhum -- herdavam o padrao do REPOSITORIO. Esse padrao concede
+# ESCRITA em todos os escopos em qualquer repositorio ou organizacao criado
+# antes da mudanca de 2023, e o repositorio deste projeto ainda nem existe: e
+# desconhecido por construcao, o que e o mesmo que amplo. (A grafia literal
+# desse valor nao aparece aqui de proposito: tests/workflows.test.ts a recusa
+# como substring, sem isentar comentario, pelo mesmo motivo pelo qual recusa a
+# descoberta de chave de host mais abaixo -- a hora em que alguem escreveria a
+# linha e a hora em que um job esta vermelho e o caminho curto parece
+# razoavel.) O resultado era o token largo justamente nos dois jobs que rodam a
+# toolchain inteira e baixam tres motores de browser, e o token estreito no
+# unico que nao faz checkout.
+#
+# `contents: read` e o que o CI de fato precisa: `actions/checkout` le a
+# arvore, e nenhum passo escreve no repositorio. Os artefatos entre jobs sao do
+# `actions/upload-artifact`, que usa um token proprio do runner e nao este.
+#
+# O bloco do job `deploy` fica onde esta de proposito. Ele nao e redundante com
+# este: um `permissions:` de job SUBSTITUI o do workflow, entao mante-lo e o
+# que garante que subir o piso daqui um dia nao suba junto o teto do unico job
+# que carrega uma chave privada de escrita na VPS.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
