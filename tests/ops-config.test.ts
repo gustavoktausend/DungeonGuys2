@@ -782,6 +782,39 @@ describe('tools/ops/restore-verify.mjs', () => {
     expect(src).toContain('rmSync');
   });
 
+  it('compara uma janela fixa, não o total de um banco que se mexe', () => {
+    // `litestream restore` answers with whatever has already reached the
+    // bucket, and replication is asynchronous by construction. Comparing that
+    // against the live TOTAL means any write in the seconds before the drill
+    // prints NÃO CONFERE. Measured against the real script with three rows
+    // appended after the copy: exactly that, red over a healthy backup — and
+    // the operator so trained is the operator who stops believing the one check
+    // whose entire value is being believed.
+    //
+    // The ledger is append-only and litestream replicates pages, so the restore
+    // is a prefix of the live table in rowid order. Asking the live database
+    // for that same prefix is exact no matter how many rows arrive meanwhile.
+    const src = readTool('restore-verify.mjs');
+    expect(src).toContain('max(rowid)');
+    expect(src).toContain('where rowid <=');
+    // The rowid watermark is interpolated into SQL and arrives from a restored
+    // file, so it is validated as an integer first.
+    expect(src).toMatch(/\/\^-\?\\d\+\$\//);
+    // Measured after the fix, same six scenarios: replica three rows behind now
+    // passes; empty replica, a row missing from the prefix, a tampered amount,
+    // and "behind AND holed" all still fail. The lag is reported on the pass,
+    // because "identical" and "identical as of 3s ago" are different facts and
+    // D2-03 asks for the second one.
+    expect(src).toContain('defasagem');
+    // An empty restore has no prefix, so it agrees with the empty prefix of
+    // anything: the prefix comparison alone cannot see it, and this guard is
+    // what does.
+    expect(src).toContain('back.count === 0 && before.count > 0');
+    // No inequality on the sum, ever: amounts are SIGNED (a spend is a negative
+    // entry), so "restaurado <= vivo" would be a false invariant.
+    expect(src).not.toMatch(/sum\s*<=|<=\s*.*\.sum/);
+  });
+
   it('abre os dois bancos em somente-leitura (D2-03)', () => {
     // The sqlite3 CLI opens READ-WRITE by default, and against a WAL database
     // that creates the -shm file if absent and checkpoints on close. The drill
@@ -827,12 +860,12 @@ const NOT_A_TLD = new Set([
 ]);
 
 /**
- * Objects whose member access has exactly the shape of a two-label hostname:
- * `process.env`, `console.error`, `cache.addAll`, `{env.VAR}`. Only the
- * TWO-label form is excused — `error.code` is a property and `error.com.br` is
- * a domain, and the length check is what tells them apart.
+ * The two tokens in ops/ that are member access wearing a hostname's shape:
+ * `cache.addAll` and `{env.VAR}`, both of them prose in ops/Caddyfile. Only the
+ * TWO-label form is excused — `env.VAR` is a placeholder and `env.exemplo.com`
+ * is a domain, and the label count is what tells them apart.
  */
-const MEMBER_ACCESS = new Set(['console', 'process', 'error', 'Date', 'cache', 'env']);
+const MEMBER_ACCESS = new Set(['cache', 'env']);
 
 describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-15)', () => {
   /**
@@ -885,8 +918,18 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
     // The rule: any dot-separated token whose LAST label is letters-only and is
     // not a file extension this repository writes. That is what a public name
     // looks like and what a filename does not.
+    //
+    // ops/ ONLY, and the exclusion of tools/ops/ is reasoned rather than
+    // convenient. This assertion rests on "a dot between two words is
+    // suspicious", which holds for config and shell and is simply false for
+    // JavaScript: `back.count`, `process.env` and `error.stdout` are all
+    // member access and all have the shape. Excusing them would mean an
+    // allowlist that grows with every local variable, and an allowlist that
+    // grows is not a gate. tools/ops/ is still covered by the IP, env-key and
+    // credential assertions in this block — what it loses is only the bare
+    // hostname sitting in a comment.
     const bad: string[] = [];
-    for (const [path, src] of scanned()) {
+    for (const [path, src] of scanned().filter(([p]) => p.startsWith('../ops/'))) {
       for (const m of src.matchAll(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+\b/gi)) {
         const labels = m[0].split('.');
         const tail = labels[labels.length - 1]!;
