@@ -1,0 +1,36 @@
+# cert-check.service — the thing cert-check.timer runs. It is a oneshot on
+# purpose, and there is no Restart= here on purpose either.
+#
+# A oneshot that exits non-zero leaves the unit in `failed`, and THAT is the
+# alarm: `systemctl list-units --failed` shows it, journald keeps the message,
+# and it stays failed until somebody looks. Restart= would retry the check
+# against a certificate that is not going to renew itself in the next two
+# seconds, and — worse — would clear the failed state that is the entire signal.
+[Unit]
+Description=Checks the expiry of the TLS certificate actually being served
+# The check talks to the public address over the network, so it is pointless
+# before the network is up. It deliberately does NOT depend on caddy.service:
+# the interesting failure is "Caddy is up and serving a stale certificate".
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# DG2_DOMAIN. Same file, same reason as every other unit here (D2-15): the
+# repository never says where the machine lives.
+EnvironmentFile=/etc/dg2/env
+ExecStart=/srv/dg2/bin/cert-check.sh
+
+# The check reads one public certificate and writes one line to the journal. It
+# needs no user, no state and no filesystem, so it gets none of them.
+User=dg2
+Group=dg2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

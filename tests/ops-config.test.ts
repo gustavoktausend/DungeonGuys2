@@ -84,11 +84,19 @@ describe('ops/Caddyfile', () => {
   });
 });
 
-/** The four shell scripts, in the order a deploy touches them. */
-const SCRIPTS = ['deploy-forced.sh', 'deploy.sh', 'rollback.sh', 'prune-releases.sh'];
+/**
+ * Every shell script of ops/: the four a deploy touches, in the order it
+ * touches them, plus the one the certificate timer runs. The list is exact and
+ * the test below compares it to the glob, so adding a script without deciding
+ * where it belongs in this file is a red test rather than an omission.
+ */
+const SCRIPTS = [
+  'deploy-forced.sh', 'deploy.sh', 'rollback.sh', 'prune-releases.sh',
+  'cert-check.sh',
+];
 
 describe('scripts de ops/', () => {
-  it('o glob encontrou os quatro scripts', () => {
+  it('o glob encontrou exatamente os scripts esperados', () => {
     const found = Object.keys(OPS).filter((p) => p.endsWith('.sh')).sort();
     expect(found).toEqual(SCRIPTS.map((n) => `../ops/${n}`).sort());
   });
@@ -294,6 +302,57 @@ describe('ops/litestream.service', () => {
     const unit = code('litestream.service');
     expect(unit).toContain('EnvironmentFile=/etc/dg2/env');
     expect(unit).toContain('-config /etc/litestream.yml');
+  });
+});
+
+describe('cert-check — a perna local de D2-16', () => {
+  it('confere o certificado servido na 443, não o arquivo em disco', () => {
+    // The distinction IS the feature. The classic failure of automatic renewal
+    // is a fresh file on disk and a stale certificate on the wire, and a check
+    // that opened the file would report green through all of it (T-2-TLS).
+    const src = code('cert-check.sh');
+    expect(src).toContain('openssl s_client');
+    expect(src).toContain(':443');
+    expect(src).toContain('checkend');
+    expect(src).toContain('DAYS=30');
+    // The domain never appears in the repository; it arrives from the
+    // EnvironmentFile, and the script refuses to run without it.
+    expect(src).toContain('DG2_DOMAIN');
+    expect(src).toMatch(/:\s*"\$\{DG2_DOMAIN:\?/);
+  });
+
+  it('não tenta notificar ninguém por conta própria — o alarme é o exit code', () => {
+    // NOT comment-stripped, and that is the point: the whole file, prose
+    // included, must be free of these. This assertion exists because "improving"
+    // the script by making it notify is the obvious next thought for anyone
+    // reading it, and doing that would duplicate — badly, from inside the box
+    // that may be the thing that is down — the external monitor of D2-21.
+    const src = read('cert-check.sh');
+    for (const word of ['mail', 'curl', 'wget', 'webhook', 'slack']) {
+      expect(src.toLowerCase(), `cert-check.sh menciona ${word}`).not.toContain(word);
+    }
+  });
+
+  it('o serviço é oneshot sem Restart, para a unit poder FICAR failed', () => {
+    // Restart= would retry a certificate that is not going to renew itself in
+    // two seconds and, worse, would clear the failed state that is the signal.
+    const unit = code('cert-check.service');
+    expect(unit).toContain('Type=oneshot');
+    expect(unit).toContain('ExecStart=/srv/dg2/bin/cert-check.sh');
+    expect(unit).toContain('EnvironmentFile=/etc/dg2/env');
+    expect(unit).not.toMatch(/^Restart=/m);
+  });
+
+  it('o timer roda todo dia e recupera o dia perdido num reboot', () => {
+    const unit = code('cert-check.timer');
+    expect(unit).toContain('OnCalendar=daily');
+    expect(unit).toContain('RandomizedDelaySec=1h');
+    // Without Persistent, a box that happens to be down at the scheduled hour
+    // silently skips the day — and unattended weeks are what this covers.
+    expect(unit).toContain('Persistent=true');
+    // The TIMER is what gets enabled; the service is pulled by it.
+    expect(unit).toContain('WantedBy=timers.target');
+    expect(code('cert-check.service')).not.toContain('WantedBy=');
   });
 });
 
