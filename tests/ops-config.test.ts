@@ -210,6 +210,55 @@ describe('scripts de ops/', () => {
     expect(src).toMatch(/^KEEP=5$/m);
   });
 
+  it('nenhum script monta uma lista de caminhos parseando ls', () => {
+    // `for dir in $(ls -1dt "$root"/*/)` is the shape, and in
+    // prune-releases.sh that loop ends in `rm -rf`. Measured under dash against
+    // the real script, with a directory named `a keep-me` in the release root
+    // and the process's working directory somewhere else — which is what an
+    // SSH forced command leaves behind: the split second word was
+    // canonicalised against the WORKING DIRECTORY, `rm -rf` deleted a
+    // directory outside the release tree entirely, and the run pruned 6
+    // releases where the retention policy says 2.
+    //
+    // The justification that used to sit next to it — "release names are 40 hex
+    // characters by construction" — was true of the names the CI writes and of
+    // nothing else: both release roots are writable by dg2-deploy, and a manual
+    // mkdir or a half-finished `rsync --partial` is enough.
+    const bad: string[] = [];
+    for (const name of SCRIPTS) {
+      for (const line of code(name).split('\n')) {
+        if (/\$\(\s*ls\b/.test(line)) bad.push(`${name}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('todo nome de release é validado antes de virar caminho', () => {
+    // The two scripts that enumerate a release root do it through the same
+    // validation, duplicated rather than shared for the reason swap_symlink()
+    // already records. Both halves are asserted: the character class alone
+    // accepts a 3-character name, and the length alone accepts `../../etc`.
+    const bad: string[] = [];
+    for (const name of ['rollback.sh', 'prune-releases.sh']) {
+      const src = code(name);
+      if (!/\*\[!0-9a-f\]\*/.test(src)) bad.push(`${name}: sem a classe [!0-9a-f]`);
+      if (!src.includes('[ ${#base} -eq 40 ]')) bad.push(`${name}: sem o comprimento 40`);
+      if (!src.includes('stat -c')) bad.push(`${name}: não ordena por mtime com stat`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('prune-releases.sh apaga pelo caminho que ele mesmo monta', () => {
+    // `rm -rf "$path"` on the canonicalised target and `rm -rf "$root/$base"`
+    // differ exactly when the entry is a symlink — and there the first follows
+    // the link out of the release tree, which is the only place this script is
+    // allowed to touch.
+    const src = code('prune-releases.sh');
+    const removals = src.split('\n').filter((l) => l.includes('rm -rf'));
+    expect(removals.length).toBe(1);
+    expect(removals[0]).toContain('"$root/$base"');
+  });
+
   it('deploy-forced.sh só aceita rsync --server e um sha de 40 hexadecimais', () => {
     const src = code('deploy-forced.sh');
     expect(src).toContain('SSH_ORIGINAL_COMMAND');
