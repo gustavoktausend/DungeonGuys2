@@ -160,6 +160,64 @@ test('atualização a partir da instalação antiga: um clique, e sobra um cache
   await expect(startScreen, 'clicar em START tem de tirar a tela do ar').not.toHaveClass(/\bactive\b/);
 });
 
+test('numa página sem controller a oferta não aparece (WR-12)', async ({ context }) => {
+  // A hard reload (Ctrl+Shift+R) loads the document BYPASSING the worker, so
+  // the page comes up uncontrolled while the registration keeps its waiting
+  // worker. Offering the swap there is offering something that cannot happen:
+  // the click posts the message, the worker activates, and the event that
+  // drives the reload never fires because there is no controller to swap. The
+  // button stays on screen absorbing clicks with no effect.
+  server = await serveDir('tests/pwa/fixtures/old-build');
+
+  // A tab that stays controlled, and it is not scenery: with no controlled
+  // client left, the browser activates the waiting worker at once and the state
+  // under test stops existing. Measured — without this tab the hard reload
+  // below lands on `waiting: false`, and the case would pass by vacuity.
+  const keeper = await context.newPage();
+  await keeper.goto(server.origin);
+  await waitForActivated(keeper);
+
+  server.setRoot('dist');
+  await clearHttpCache(keeper);
+  await keeper.reload();
+  await expect
+    .poll(async () => (await controlState(keeper)).hasWaiting,
+      { message: 'o build novo tem de instalar e FICAR esperando' })
+    .toBe(true);
+
+  // ── A aba do hard reload ───────────────────────────────────────────────
+  const hard = await context.newPage();
+  await hard.goto(server.origin);
+
+  const session = await hard.context().newCDPSession(hard);
+  await session.send('Page.enable');
+  // ignoreCache is Chrome's hard reload, and bypassing the worker for the
+  // document is exactly the part that matters here.
+  await Promise.all([
+    hard.waitForEvent('load'),
+    session.send('Page.reload', { ignoreCache: true }),
+  ]);
+  await session.detach();
+
+  // The two halves of the premise, asserted before the conclusion: without both
+  // of them this case would be measuring some other situation entirely.
+  const uncontrolled = await hard.evaluate(() => !navigator.serviceWorker.controller);
+  expect(uncontrolled, 'o hard reload tem de deixar esta aba SEM controller').toBe(true);
+  expect((await controlState(hard)).hasWaiting, 'e o worker novo tem de continuar esperando')
+    .toBe(true);
+
+  await expect(hard.locator('#btn-update'),
+    'sem controller não há troca a oferecer, e um botão inerte é pior que nenhum')
+    .toBeHidden();
+
+  // And the offer is still correct where it IS honest — the controlled tab.
+  // Without this the case would also pass against a build that simply never
+  // offered the update to anybody.
+  await expect(keeper.locator('#btn-update'),
+    'a aba controlada continua recebendo a oferta')
+    .toBeVisible();
+});
+
 test('aceitar a atualização numa aba não recarrega a run de outra aba (CR-03)', async ({ context }) => {
   // The blind spot of the test above, by construction: it drives a single
   // `page`, so the second client never exists — and the second client is the

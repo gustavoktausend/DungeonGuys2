@@ -239,6 +239,24 @@ describe('template do service worker', () => {
     expect(code).toContain('if (res.ok)');
   });
 
+  it('a gravação no cache é sustentada pelo evento', () => {
+    // WR-08. `respondWith` settles the instant the response is returned, and the
+    // browser is free to terminate the worker right then — killing a `cache.put`
+    // nobody is holding. The result is a non-deterministic hole in the precache
+    // that only ever shows itself offline, to a player with no network. Calling
+    // `e.waitUntil` from inside the async function is legal precisely because
+    // `respondWith` was already invoked synchronously with this promise, so the
+    // event is still active when the write is registered.
+    //
+    // Whole line, not `toContain`: a bare `toContain('waitUntil')` is already
+    // satisfied by the two waitUntils in install/activate, so it could never
+    // fail for the reason this case exists.
+    const writes = code.split('\n').map(line => line.trim()).filter(line => line.includes('cache.put('));
+    expect(writes, 'há exatamente um ponto de gravação no cache').toHaveLength(1);
+    expect(writes[0], 'a gravação tem de estar dentro de e.waitUntil(), ou o worker pode morrer no meio dela')
+      .toMatch(/^if \(res\.ok\) e\.waitUntil\(cache\.put\(.+\);$/);
+  });
+
   it('o activate só apaga cache com o prefixo do próprio jogo', () => {
     // DM-3/P-11: Cache Storage is per origin. One delete site, and it is behind
     // the prefix filter — a second, unfiltered one would reach the sibling game.
@@ -265,6 +283,51 @@ describe('template do service worker', () => {
     // And the redundant early return that documents the intent for a reviewer.
     expect(code).toContain("url.pathname.startsWith('/api/')");
     expect(code).toContain("url.pathname === '/ws'");
+  });
+});
+
+// WR-21. `src/ui/screens.ts` is the file that paints every world-backed screen,
+// and every DOM write in it goes through `textContent` — except the level-up
+// cards, which were concatenated into `innerHTML`. `b.icon`, `b.name` and the
+// stat labels are sim constants today, so there was no live hole; what makes it
+// worth an assertion rather than a note is that there is no CSP (WR-20) and
+// phase 3 makes `World` contents arrive over WebRTC from a peer. The moment a
+// `Blessing` can be authored remotely, that line is a stored-XSS sink on the
+// origin that will be holding the session cookie from phase 6 on.
+//
+// Asserted over CODE and not over the raw file: the header of screens.ts
+// discusses "the `innerHTML` half of rollLevelChoices" in prose, so a grep on
+// the text would be measuring the documentation of the rule and could never go
+// green.
+describe('as telas escrevem no DOM sem montar HTML', () => {
+  const code = scan(screensTs, true);
+
+  it('o glob e o filtro de comentários deixaram código para ler', () => {
+    // Anti-vacuity by LENGTH, never by type: '' is a string, and it would make
+    // the sweep below pass by having nothing to sweep.
+    expect(screensTs.length, 'src/ui/screens.ts veio vazio ou sumiu').toBeGreaterThan(1000);
+    expect(code.length, 'o filtro de comentários não pode consumir o arquivo inteiro')
+      .toBeGreaterThan(1000);
+  });
+
+  it('nenhuma atribuição a innerHTML', () => {
+    // Whole trimmed lines, collected: a failure names every offender instead of
+    // only the first, and the empty-array form prints the offending line itself.
+    const writes = code
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => /\.innerHTML\s*=/.test(line));
+    expect(writes, 'toda escrita de conteúdo nesta tela passa por textContent ou por nós')
+      .toEqual([]);
+  });
+
+  it('as escolhas de level-up continuam sendo montadas', () => {
+    // The other direction. Without this, deleting renderLevelupChoices outright
+    // would satisfy the sweep above — the shape of vacuity this repository has
+    // already been bitten by twice.
+    expect(code, 'os cartões são montados como nós').toContain('createElement');
+    expect(code, 'e trocados de uma vez, sem passar por string').toContain('replaceChildren');
+    expect(code, 'o texto do cartão é escrito como texto').toContain('textContent');
   });
 });
 

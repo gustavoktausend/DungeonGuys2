@@ -61,7 +61,25 @@ let swSwapped = false;
 /** Asks the waiting worker to take over. The page asks, the worker decides --
  *  nothing here forces a swap. Only reachable with `gameStarted === false`. */
 function applyUpdate(): void {
-  swWaiting?.postMessage({ type: 'SKIP_WAITING' });
+  const waiting = swWaiting;
+  // A stored worker that has since gone 'redundant' -- two deploys while this
+  // tab stayed open -- accepts the message and does nothing with it. The button
+  // is then inert, and the player has no way to tell that from a slow reload;
+  // they just click it again. There is nothing left to swap TO in that state,
+  // so take the reload directly rather than offer a swap that cannot happen:
+  // it adopts whatever worker is actually active now, which is the honest
+  // answer to the click (WR-12).
+  //
+  // Guarded by the same flag the controller-swap handler below uses, so the two
+  // paths can never reload twice over each other.
+  if (!waiting || waiting.state !== 'installed') {
+    if (!swReloading) {
+      swReloading = true;
+      location.reload();
+    }
+    return;
+  }
+  waiting.postMessage({ type: 'SKIP_WAITING' });
 }
 
 /** Offers the swap when it is safe to take, and merely says so when it is not. */
@@ -80,7 +98,16 @@ function offer(w: ServiceWorker | null): void {
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').then(reg => {
-    offer(reg.waiting); // one was already waiting when this page loaded
+    // One was already waiting when this page loaded -- but only offer it if
+    // this page HAS a controller. A hard reload (Ctrl+Shift+R) loads the
+    // document bypassing the worker, so the page comes up uncontrolled while
+    // the registration keeps its waiting worker. The offer would be a lie
+    // there: the click posts the message, the worker activates, and the event
+    // that drives the reload never fires because this page has no controller
+    // to swap -- so the reload never runs and the button just absorbs clicks.
+    // The updatefound path below already makes this exact check; this is the
+    // other way in, and it was missing it (WR-12).
+    if (navigator.serviceWorker.controller) offer(reg.waiting);
     reg.addEventListener('updatefound', () => {
       const installing = reg.installing;
       if (!installing) return;

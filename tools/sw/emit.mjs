@@ -69,24 +69,55 @@ function fail(file, pointer, message) {
 }
 
 /**
- * Every file under `dir`, as ROOT-ABSOLUTE pathnames built with forward
- * slashes — these become URLs, so node:path's separator must not leak in on
- * Windows. Directory order from the filesystem is not stable across platforms;
- * the caller sorts.
+ * A directory entry's name as a URL PATH SEGMENT.
+ *
+ * The precache list is a list of URLs, not of filenames. public/sw.js matches
+ * an incoming request with `PRECACHE_SET.has(url.pathname)`, and `url.pathname`
+ * is percent-encoded by the URL parser — so a name concatenated raw can never
+ * match it. `hero walk.png` would be precached as `/assets/hero walk.png` and
+ * requested as `/assets/hero%20walk.png`: the file occupies Cache Storage, is
+ * never served from it, and offline is quietly broken for that asset with no
+ * error anywhere (WR-10).
+ *
+ * `encodeURI` and NOT `encodeURIComponent`. The latter also escapes
+ * `$ & + , : ; = @`, every one of which the URL path parser leaves LITERAL —
+ * encoding them would manufacture the exact mismatch this function exists to
+ * remove. `?` and `#` are the two characters the parser treats as delimiters
+ * rather than as path content, so those are escaped by hand on top.
+ */
+function segment(name) {
+  return encodeURI(name).replace(/[?#]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * Every file under `dir` as `{ pathname, file }`: the ROOT-ABSOLUTE URL built
+ * with forward slashes (node:path's separator must not leak into a URL on
+ * Windows), and the real filesystem path it came from.
+ *
+ * The two travel together so that nothing downstream ever has to turn a key
+ * back into a filename — decoding is lossy at the edges (a stray `%` throws),
+ * and the caller already has the exact path in hand here. Directory order from
+ * the filesystem is not stable across platforms; the caller sorts.
  */
 function walk(dir, prefix, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const pathname = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) walk(join(dir, entry.name), pathname, out);
-    else out.push(pathname);
+    const pathname = `${prefix}/${segment(entry.name)}`;
+    const file = join(dir, entry.name);
+    if (entry.isDirectory()) walk(file, pathname, out);
+    else out.push({ pathname, file });
   }
   return out;
+}
+
+/** By URL, so the emitted list has a stable order on every platform. */
+function byPathname(a, b) {
+  return a.pathname < b.pathname ? -1 : a.pathname > b.pathname ? 1 : 0;
 }
 
 function main() {
   let all;
   try {
-    all = walk(DIST, '', []).sort();
+    all = walk(DIST, '', []).sort(byPathname);
   } catch (error) {
     return fail(
       DIST_REL,
@@ -95,7 +126,7 @@ function main() {
     );
   }
 
-  if (!all.includes(SELF)) {
+  if (!all.some(entry => entry.pathname === SELF)) {
     return fail(
       SW_REL,
       '/',
@@ -103,7 +134,7 @@ function main() {
     );
   }
 
-  const precache = all.filter(pathname => pathname !== SELF);
+  const precache = all.filter(entry => entry.pathname !== SELF);
   if (precache.length === 0) {
     return fail(DIST_REL, '/', 'o dist/ só tem o sw.js — não há nada para precachear');
   }
@@ -111,8 +142,7 @@ function main() {
   // Path AND bytes, in sorted order: hashing only the bytes would leave a pure
   // rename invisible, and a renamed asset is a precache entry that 404s.
   const hash = createHash('sha256');
-  for (const pathname of precache) {
-    const file = join(DIST, pathname.slice(1));
+  for (const { pathname, file } of precache) {
     let bytes;
     try {
       bytes = readFileSync(file);
@@ -147,7 +177,7 @@ function main() {
   // someone adds an asset with a dollar sign in its name.
   const emitted = source
     .split(HASH_SENTINEL).join(digest)
-    .split(PRECACHE_SENTINEL).join(JSON.stringify(precache));
+    .split(PRECACHE_SENTINEL).join(JSON.stringify(precache.map(entry => entry.pathname)));
 
   try {
     writeFileSync(SW, emitted, 'utf8');

@@ -1,6 +1,6 @@
 // verify.mjs — the gate that fails the build when the emit step is skipped.
 //
-// Four properties of dist/, and none of them implies another:
+// Five properties of dist/, and none of them implies another:
 //
 //   1. NO SENTINEL SURVIVED. This is the "somebody ran `vite build` on its
 //      own" case. Vite copies public/ verbatim, so a bare build produces a
@@ -9,18 +9,33 @@
 //      shows up offline, weeks later, to a player with no network. Without
 //      this gate, forgetting one link in the build chain is silent.
 //
-//   2. THE PRECACHE MATCHES THE REAL dist/. A list that drifts from the
+//   2. EVERY PRECACHE KEY IS A URL, NOT A FILESYSTEM PATH. The worker matches
+//      on `url.pathname`, which the URL parser percent-encodes, so a key
+//      concatenated raw out of a directory entry can never match: an asset
+//      named `hero walk.png` is precached and then fetched from the network
+//      forever, with no error anywhere (WR-10).
+//
+//      AND THIS IS THE ONE CHECK THE DUPLICATED SCAN BELOW CANNOT MAKE. Both
+//      scans build their keys the same way, so they agree with each other
+//      whether or not the rule is right — an axis where "two independent
+//      implementations" buys exactly nothing, and the axis this gate was blind
+//      to. So this property is not a comparison between the two: it holds each
+//      emitted key up against the URL parser itself, which is the very thing
+//      the worker will use. It fails even when both scans are wrong in the
+//      same direction.
+//
+//   3. THE PRECACHE MATCHES THE REAL dist/. A list that drifts from the
 //      artifact fails in both directions: an entry with no file makes
 //      cache.addAll reject the WHOLE install (the incident the old
 //      public/sw.js documented in its own header), and a file with no entry is
 //      a hole in the offline build that nothing else would report.
 //
-//   3. THE CACHE NAME HAS THE EXPECTED SHAPE. `dg2-` plus 16 hex characters:
+//   4. THE CACHE NAME HAS THE EXPECTED SHAPE. `dg2-` plus 16 hex characters:
 //      the prefix is what keeps activate() from deleting the original
 //      DungeonGuys' cache on a shared origin (DM-3), and the digest is what
 //      makes a new deploy leave no old cache behind (P-3).
 //
-//   4. NO EMITTED FILE CARRIES THE GITHUB PAGES SUBPATH. This is the artifact
+//   5. NO EMITTED FILE CARRIES THE GITHUB PAGES SUBPATH. This is the artifact
 //      half of INFRA-01, and it lives HERE rather than in tests/build-base.
 //      test.ts for a reason worth writing down: in .github/workflows/ci.yml,
 //      `npm test` runs BEFORE `npm run build`, so a Vitest case globbing dist/
@@ -64,17 +79,37 @@ function fail(file, pointer, message) {
 }
 
 /**
- * Every file under `dir`, as root-absolute pathnames with forward slashes.
+ * A directory entry's name as a URL path segment — `encodeURI` plus the two
+ * delimiters it leaves alone. Mirrors emit.mjs, and for the same reason: the
+ * precache is a list of URLs, and `encodeURIComponent` would over-escape
+ * `$ & + , : ; = @`, which the URL path parser keeps literal.
+ */
+function segment(name) {
+  return encodeURI(name).replace(/[?#]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * Every file under `dir` as `{ pathname, file }` — the root-absolute URL and
+ * the filesystem path it came from, so no key ever has to be decoded back.
  *
  * Deliberately a private copy and not an import from emit.mjs — see the header.
+ * Note that property 2 does NOT lean on this copy: two scans that encode the
+ * same way agree by construction, which is precisely why that check measures
+ * against the URL parser instead of against this function.
  */
 function walk(dir, prefix, out) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const pathname = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) walk(join(dir, entry.name), pathname, out);
-    else out.push(pathname);
+    const pathname = `${prefix}/${segment(entry.name)}`;
+    const file = join(dir, entry.name);
+    if (entry.isDirectory()) walk(file, pathname, out);
+    else out.push({ pathname, file });
   }
   return out;
+}
+
+/** By URL, so the comparison order is stable on every platform. */
+function byPathname(a, b) {
+  return a.pathname < b.pathname ? -1 : a.pathname > b.pathname ? 1 : 0;
 }
 
 /** The value of a single-quoted top-level constant, or throws naming it. */
@@ -111,7 +146,7 @@ function readPrecache(source) {
 function main() {
   let files;
   try {
-    files = walk(DIST, '', []).sort();
+    files = walk(DIST, '', []).sort(byPathname);
   } catch (error) {
     return fail(
       DIST_REL,
@@ -140,9 +175,40 @@ function main() {
     }
   }
 
-  // 2. The precache against the directory it claims to describe.
-  const expected = files.filter(pathname => pathname !== SELF);
   const listed = readPrecache(source);
+
+  // 2. Every key is a URL. Measured against the URL parser — the same one the
+  //    worker's `new URL(e.request.url).pathname` goes through — and never
+  //    against the scan above, which would agree with the emitter by
+  //    construction and is what left this axis unguarded.
+  //
+  //    Two ways to fail, because they catch different shapes. Reparsing catches
+  //    a key that is not a fixed point of the parser: a raw space, a `?` or a
+  //    `#` that would be read as a delimiter. The encodeURI/decodeURI round
+  //    trip catches a stray `%` — `50%off.png` survives reparsing untouched but
+  //    is an ambiguous escape that neither side handles, and it throws here, so
+  //    it fails the build instead of shipping.
+  const malformed = [];
+  for (const pathname of listed) {
+    let ok;
+    try {
+      ok = new URL(pathname, 'http://sw.invalid').pathname === pathname
+        && encodeURI(decodeURI(pathname)) === pathname;
+    } catch {
+      ok = false;
+    }
+    if (!ok) malformed.push(pathname);
+  }
+  if (malformed.length > 0) {
+    return fail(
+      SW_REL,
+      '/PRECACHE',
+      `chave de precache que não é URL: ${malformed.join(', ')} — o worker casa com \`url.pathname\`, que vem percent-encoded, então esta entrada ocuparia o Cache Storage sem nunca ser servida dele (WR-10)`,
+    );
+  }
+
+  // 3. The precache against the directory it claims to describe.
+  const expected = files.filter(entry => entry.pathname !== SELF).map(entry => entry.pathname);
 
   const listedSet = new Set(listed);
   const expectedSet = new Set(expected);
@@ -166,7 +232,7 @@ function main() {
     return fail(SW_REL, '/PRECACHE', `${SELF} não pode estar no próprio precache — ver a fronteira do hash em tools/sw/emit.mjs`);
   }
 
-  // 3. The cache name.
+  // 4. The cache name.
   const cache = readConstant(source, 'CACHE');
   if (!CACHE_SHAPE.test(cache)) {
     return fail(
@@ -176,12 +242,12 @@ function main() {
     );
   }
 
-  // 4. The Pages subpath, over the BYTES of every emitted file — Buffer so the
+  // 5. The Pages subpath, over the BYTES of every emitted file — Buffer so the
   //    sweep covers the PNGs and the woff2 without a decoding step that could
   //    throw or mangle them.
   const tainted = [];
-  for (const pathname of files) {
-    const bytes = readFileSync(join(DIST, pathname.slice(1)));
+  for (const { pathname, file } of files) {
+    const bytes = readFileSync(file);
     if (bytes.includes(PAGES_SUBPATH)) tainted.push(pathname);
   }
   if (tainted.length > 0) {

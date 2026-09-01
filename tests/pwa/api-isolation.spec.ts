@@ -35,6 +35,13 @@ const CACHE_SHAPE = /^dg2-[0-9a-f]{16}$/;
  *  build, and half 2 has to name the same path twice across two responses. */
 const STABLE_PATH = '/manifest.json';
 
+/**
+ * The ordering witness of direction 1, and the reason that direction no longer
+ * sleeps. Also stable-named, also precached, and NOT routed to the 502 — the
+ * worker answers it from the network and writes it, which is the whole point.
+ */
+const WITNESS_PATH = '/index.html';
+
 /** The only cache the current build owns, failing loudly if that is not one. */
 async function currentCache(page: Page): Promise<string> {
   const names = Object.keys(await readCacheEntries(page)).filter(name => CACHE_SHAPE.test(name));
@@ -136,10 +143,16 @@ test('resposta não-ok nunca é gravada, e a 200 seguinte é', async ({ page }) 
   // consulted and neither direction of this test could happen. Deleting it is
   // the setup, and the throw is the anti-vacuity guard — if the entry was not
   // there, the precache is broken and this test must say so rather than sail on.
-  await page.evaluate(async ([name, path]) => {
+  //
+  // Both paths, for the same reason: the witness has to be ABSENT before the
+  // fetch that puts it back, or waiting for it to appear would be waiting for
+  // something that was already there.
+  await page.evaluate(async ([name, ...paths]) => {
     const store = await caches.open(name);
-    if (!await store.delete(path)) throw new Error(`${path} não estava no precache ${name}`);
-  }, [cache, STABLE_PATH] as const);
+    for (const path of paths) {
+      if (!await store.delete(path)) throw new Error(`${path} não estava no precache ${name}`);
+    }
+  }, [cache, STABLE_PATH, WITNESS_PATH] as const);
 
   const body = await readFile(resolve('dist', STABLE_PATH.slice(1)));
   let broken = true;
@@ -168,11 +181,34 @@ test('resposta não-ok nunca é gravada, e a 200 seguinte é', async ({ page }) 
   const failed = await page.evaluate(path => fetch(path).then(r => r.status), STABLE_PATH);
   expect(failed, 'o 502 tem de chegar até a página — senão nada foi à rede').toBe(502);
 
-  // The worker does NOT await cache.put, so "was not stored" has to be measured
-  // after giving a write time to land. Without this pause the assertion would
-  // also pass against a worker that stored the 502 a millisecond later, which
-  // is the bug it exists to catch.
-  await page.waitForTimeout(250);
+  // "Was not stored" is an absence, and an absence is exactly what a fixed
+  // sleep cannot measure: it cannot tell "never written" from "written 300 ms
+  // later", and on a loaded CI runner the second case reports green having
+  // measured the opposite of what it claims (WR-09).
+  //
+  // NOT `expect.poll(...).toBe(false)` either. poll retries until the assertion
+  // PASSES, so against a value that starts false it passes on the FIRST read —
+  // measured at 3 ms, which is weaker than the sleep it would replace, not
+  // stronger. Polling only measures a value ARRIVING.
+  //
+  // So the absence is anchored to something that does arrive. This second
+  // request is dispatched only after the 502 has already reached the page, so
+  // the 502's handler is past its `if (res.ok)` decision, and a write it made
+  // would have been invoked BEFORE this one's; Cache Storage serialises
+  // operations against the same cache, so the witness appearing means any 502
+  // write has already landed. The wait is positive, the signal is the worker's
+  // own, and no number was chosen.
+  const witness = await page.evaluate(path => fetch(path).then(r => r.status), WITNESS_PATH);
+  expect(witness, 'a testemunha tem de vir da rede — ela é o marcador de ordem').toBe(200);
+
+  await expect
+    .poll(() => page.evaluate(async ([name, path]) => {
+      const store = await caches.open(name);
+      return !!await store.match(path);
+    }, [cache, WITNESS_PATH] as const),
+    { timeout: 15_000, message: 'a testemunha tem de ser gravada — sem isso não se provou que o worker estava gravando nesta janela' })
+    .toBe(true);
+
   const afterFailure = await page.evaluate(async ([name, path]) => {
     const store = await caches.open(name);
     return !!await store.match(path);
