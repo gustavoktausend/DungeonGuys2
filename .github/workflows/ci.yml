@@ -215,6 +215,15 @@ jobs:
     # capaz de por bytes na caixa e desalinhar os dois.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # WR-18. O limite padrao de um job sao SEIS HORAS, e com o
+    # cancel-in-progress: false logo abaixo esse limite deixa de ser so
+    # desperdicio: um rsync ou um ssh pendurado segura o grupo `deploy-vps` por
+    # todo esse tempo, e todo deploy seguinte fica na fila atras dele --
+    # inclusive o que corrigiria aquilo que travou. Os passos deste job sao
+    # dois downloads de artefato e tres comandos de rede; 15 minutos e folga
+    # larga para eles e curto o suficiente para que travar seja um incidente de
+    # quinze minutos e nao de um turno inteiro.
+    timeout-minutes: 15
     # T-2-RACE: dois deploys nunca podem correr sobre o mesmo symlink. O
     # cancelamento fica desligado de proposito -- interromper um deploy no meio
     # deixaria um release parcial em disco, e o meio de uma transferencia e o
@@ -268,9 +277,29 @@ jobs:
 
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+
+          # O umask vem ANTES da escrita, e a ordem e a correcao inteira
+          # (WR-18). Um `>` cria o arquivo com o umask do processo, 0022 na
+          # imagem do runner, entao a chave privada nasce 0644 e so o `chmod`
+          # seguinte a fecha: existe uma janela, curta, em que ela esta
+          # legivel para todos os usuarios da maquina. Numa maquina efemera da
+          # propria GitHub isso e pequeno; num runner auto-hospedado, que e
+          # para onde este job iria se o CI crescer, nao e. E o raciocinio que
+          # justificou fixar a chave de host ("fixar custa uma linha") vale
+          # aqui igual, pelo mesmo preco.
+          #
+          # O subshell existe para que o umask nao vaze para os passos
+          # seguintes -- `umask` e propriedade do shell, e o `run:` inteiro e
+          # um shell so.
+          ( umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519" )
+          ( umask 077; printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts" )
+
+          # Os chmod ficam, e nao sao redundantes com o umask acima: o umask so
+          # age na CRIACAO, e `>` sobre um arquivo que ja existe trunca sem
+          # tocar no modo. Num runner efemero nada existe antes; num
+          # auto-hospedado, um $HOME/.ssh/id_ed25519 deixado por outra coisa
+          # manteria o proprio modo. Duas linhas para cobrir os dois casos.
           chmod 600 "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
       # --link-dest com caminho ABSOLUTO. O rsync resolve um --link-dest
@@ -286,17 +315,25 @@ jobs:
       # commit publicado: 40 hexadecimais minusculos, que e a unica forma de
       # argumento que o command= da chave aceita. A forma e fronteira de
       # seguranca, nao estilo -- o argumento vira caminho na caixa.
+      # IdentitiesOnly=yes acompanha o -i em toda invocacao (WR-18). Sem ele o
+      # ssh oferece PRIMEIRO tudo o que houver num agente e so depois a chave
+      # do -i, e um agente com meia duzia de identidades esgota o MaxAuthTries
+      # do servidor antes de chegar nela. O sintoma e `Permission denied
+      # (publickey)` com a chave certa parada no diretorio, que e exatamente a
+      # confusao que o passo acima diz existir para evitar, entrando por outra
+      # porta. Hoje nao ha agente nenhum no runner hospedado; este e o pipeline
+      # errado para deixar dependendo disso.
       - name: Enviar o release do cliente
         run: |
           rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=yes -i $HOME/.ssh/id_ed25519" \
+            -e "ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519" \
             --link-dest=/srv/dg2/current/ \
             dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/releases/$GITHUB_SHA/"
 
       - name: Enviar o release do servidor
         run: |
           rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=yes -i $HOME/.ssh/id_ed25519" \
+            -e "ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519" \
             --link-dest=/srv/dg2/current-server/ \
             dist-server/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/server-releases/$GITHUB_SHA/"
 
@@ -306,5 +343,19 @@ jobs:
       # parte do deploy capaz de falhar -- e a poda dos releases antigos.
       - name: Ativar o release
         run: |
-          ssh -o StrictHostKeyChecking=yes -i "$HOME/.ssh/id_ed25519" \
+          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519" \
             "$DEPLOY_USER@$DEPLOY_HOST" "/srv/dg2/bin/deploy.sh $GITHUB_SHA"
+
+      # `if: always()` e nao um ultimo passo qualquer: um passo sem condicao e
+      # PULADO assim que algum anterior falha, ou seja, a limpeza rodaria
+      # justamente nas execucoes em que nada deu errado e seria pulada nas
+      # outras -- e a execucao que falhou no meio de um `ssh` e a que tem mais
+      # chance de deixar a maquina em estado inesperado.
+      #
+      # Num runner hospedado a maquina inteira e destruida depois do job e isto
+      # nao muda nada. O passo existe para o dia em que este job rodar num
+      # runner auto-hospedado, quando $HOME sobrevive ao job e a chave ficaria
+      # em disco esperando o proximo processo que resolvesse ler.
+      - name: Apagar a chave de deploy
+        if: always()
+        run: rm -f "$HOME/.ssh/id_ed25519"

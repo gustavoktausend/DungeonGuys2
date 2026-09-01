@@ -78,6 +78,36 @@ function hasLine(src: string, literal: string): boolean {
   return new RegExp(`^[ \\t]*${escaped}[ \\t]*\\r?$`, 'm').test(src);
 }
 
+/**
+ * Just the `deploy` job's lines, sliced out of the workflow by indentation.
+ *
+ * Job-scoped assertions need the slice and not the file. `timeout-minutes:`
+ * and `if: always()` are both things another job could legitimately carry one
+ * day, and a whole-file match would then be green while the one job that holds
+ * a private key carried neither — which is the failure this helper exists to
+ * make impossible rather than unlikely.
+ *
+ * The end of the slice is the next line at TWO spaces that is not a comment:
+ * job keys sit at two, everything inside a job sits at four or more. `deploy`
+ * is currently last, so the slice usually runs to the end of file; the search
+ * is there so that stops being load-bearing the moment a job is appended.
+ */
+function deployJob(src: string): string {
+  const lines = src.split('\n');
+  const start = lines.findIndex((l) => /^ {2}deploy:[ \t]*\r?$/.test(l));
+  expect(start, 'não há job `deploy:` no ci.yml').toBeGreaterThanOrEqual(0);
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^ {2}[^\s#]/.test(lines[i]!)) { end = i; break; }
+  }
+  const slice = lines.slice(start, end).join('\n');
+  // Anti-vacuity, and the number is a real floor rather than `> 0`: a slice
+  // that found the heading and stopped at the next line is a slice every
+  // "nothing is missing" assertion below would pass over.
+  expect(slice.length, 'a fatia do job `deploy` veio vazia ou truncada').toBeGreaterThan(1500);
+  return slice;
+}
+
 describe('alvo único de deploy (INFRA-01)', () => {
   // Exact count, and checked BEFORE any assertion about content: an empty glob
   // would pass every "nothing matches" test in silence, and a resurrected
@@ -214,6 +244,63 @@ describe('o caminho que carrega a chave de deploy', () => {
     expect(spawnsSsh.length, 'nenhuma invocação de ssh encontrada — o job mudou de forma?')
       .toBeGreaterThanOrEqual(3);
     expect(spawnsSsh.filter((l) => !l.includes('StrictHostKeyChecking=yes'))).toEqual([]);
+
+    // WR-18, and it rides the same loop for the same reason: per command, so
+    // that one invocation carrying the option twice cannot cover for another
+    // carrying none. Without IdentitiesOnly=yes, an ssh-agent holding other
+    // identities gets them offered FIRST and can exhaust MaxAuthTries before
+    // the deploy key is ever reached. The symptom is `Permission denied
+    // (publickey)` with the right key sitting right there in $HOME/.ssh —
+    // which is precisely the confusing failure the step above says it exists
+    // to prevent, arriving by a second door. No agent runs on a hosted runner
+    // today; the pipeline that carries a private key is the wrong one to leave
+    // depending on that.
+    expect(spawnsSsh.filter((l) => !l.includes('IdentitiesOnly=yes'))).toEqual([]);
+  });
+
+  it('a chave privada nunca existe legível para todos (WR-18)', () => {
+    const job = deployJob(ci());
+    // `printf ... > file` creates with the process umask, which is 0022 on the
+    // runner image — so the key spends the gap between the redirect and the
+    // chmod at 0644. Small on an ephemeral hosted runner and not small on a
+    // self-hosted one, and the fix is the same size as the reasoning that
+    // justified pinning the host key: one line.
+    //
+    // Matching the redirect and requiring umask on the SAME line is what makes
+    // this structural instead of hopeful: a `umask 077` sitting anywhere in
+    // the step would satisfy a whole-step search while a later redirect ran
+    // outside the subshell that carries it.
+    const writes = job.split('\n').filter((l) => /> *"\$HOME\/\.ssh\//.test(l));
+    expect(writes.length, 'nenhuma escrita em $HOME/.ssh — o job mudou de forma?')
+      .toBeGreaterThanOrEqual(2);
+    expect(writes.filter((l) => !l.includes('umask 077')).map((l) => l.trim())).toEqual([]);
+  });
+
+  it('a chave privada é apagada ao fim, tenha o deploy passado ou não (WR-18)', () => {
+    const job = deployJob(ci());
+    const folded = job.replace(/\\\r?\n\s*/g, ' ');
+    const removal = folded.split('\n').filter((l) => /\brm -f\b.*id_ed25519/.test(l));
+    expect(removal.length, 'nada apaga a chave privada ao fim do job').toBe(1);
+    // `if: always()` and not a bare last step: a step with no condition is
+    // SKIPPED once an earlier one fails, so the cleanup would run in exactly
+    // the runs where nothing went wrong and skip the ones where something did.
+    expect(hasLine(job, 'if: always()'), 'a limpeza da chave não roda quando o deploy falha')
+      .toBe(true);
+  });
+
+  it('o job que carrega a chave tem prazo próprio (WR-18)', () => {
+    const job = deployJob(ci());
+    // With cancel-in-progress: false — which is itself a decision, since a
+    // deploy killed mid-transfer leaves a partial release on disk — a hung
+    // rsync or ssh holds the `deploy-vps` group for the full six-hour job
+    // limit. Every subsequent deploy queues behind it, including the one that
+    // would fix whatever is hung.
+    const m = /^ {4}timeout-minutes:[ \t]*(\d+)[ \t]*\r?$/m.exec(job);
+    expect(m, 'o job `deploy` não declara timeout-minutes').not.toBeNull();
+    // A ceiling, because a `timeout-minutes: 360` would satisfy "it has one"
+    // and would be the six-hour default wearing a hat.
+    expect(Number(m![1]), 'o prazo é largo demais para significar algo')
+      .toBeLessThanOrEqual(30);
   });
 
   it('dois deploys nunca correm sobre o mesmo symlink (T-2-RACE)', () => {
