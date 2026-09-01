@@ -77,6 +77,41 @@ jobs:
 
       - run: npm run build
 
+      # O portao do worker roda AQUI tambem, e nao so no job `pwa`, porque quem
+      # sobe o artefato publicavel e este job: sem ele, o dist/ que viaja para a
+      # caixa poderia ser um dist/ cujo sw.js ficou com as sentinelas de pe --
+      # alguem rodou `vite build` solto -- e o service worker publicado
+      # precacharia nada. E um defeito que so aparece offline, semanas depois,
+      # e sem nada para correlacionar. O job `pwa` mantem o dele porque protege
+      # outra coisa: o dist/ que as specs de Playwright servem.
+      - run: npm run sw:verify
+
+      # O bundle do servidor entra no mesmo par de artefatos para que cliente e
+      # servidor publicados venham do MESMO commit e do MESMO job. O script de
+      # release na caixa compara o sha256 deste arquivo para decidir se
+      # reinicia a unit, entao os dois lados do release chegam juntos.
+      - run: npm run server:build
+
+      # D2-05 escrito como bytes. O job de publicacao baixa EXATAMENTE estes
+      # dois artefatos, entao o que chega na caixa e o que passou pelo portao
+      # cross-engine (test:browser) e pelo portao do worker acima -- nunca um
+      # segundo build que por acaso deu no mesmo. Reconstruir no outro job seria
+      # mais barato de escrever e erraria justamente no dia em que o build
+      # deixasse de ser reproduzivel, que e o dia em que ninguem esta olhando.
+      # retention-days: 7 porque o artefato so precisa sobreviver ao job
+      # seguinte, e reter menos e menos superficie.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server
+          path: dist-server
+          retention-days: 7
+
   # A prova executavel de INFRA-02 e INFRA-03. Se este job ficar vermelho, uma
   # de tres coisas aconteceu: o precache deixou de cobrir o dist/, uma resposta
   # de /api/ passou a ser guardada em Cache Storage, ou a atualizacao a partir
