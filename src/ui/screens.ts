@@ -177,7 +177,10 @@ export function hurtFlash(): void {
 // Fed by the same `boundWorld`/`boundLocalId` pair `syncScreens` keeps
 // current — the share buttons only ever appear on the gameover/victory
 // screens this file already paints.
-const GAME_URL = 'https://gustavoktausend.github.io/DungeonGuys2/';
+// Derived, not hardcoded: the shared link points at whatever origin the
+// player actually opened the game from, and the domain name never has to
+// enter the repository (D2-15).
+const GAME_URL = location.origin + import.meta.env.BASE_URL;
 
 function shareMessage(won: boolean, world: World, p: Player): string {
   return won

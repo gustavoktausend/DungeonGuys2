@@ -31,10 +31,11 @@ resize();
 addEventListener('resize', resize);
 
 // ─── PWA (Step 6, task-20-brief.md) ───────────────────────────────────────
-// `import.meta.env.BASE_URL` is Vite's `base` (vite.config.ts: '/DungeonGuys2/'
-// in production, '/' in dev) — registering a relative 'sw.js' would resolve
-// against the current page instead and 404 once the app is nested under a
-// repo subpath. ORIG/ui.js:282-284.
+// `import.meta.env.BASE_URL` is Vite's `base`, now '/' everywhere since the
+// game is served from the root of its own domain. Kept instead of a literal
+// '/sw.js' because it tracks `base` on its own: registering a relative
+// 'sw.js' would resolve against the current page and land the worker on the
+// wrong scope at any deep URL. ORIG/ui.js:282-284.
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').catch(() => {});
 }
