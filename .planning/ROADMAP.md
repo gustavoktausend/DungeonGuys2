@@ -137,7 +137,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-06-PLAN.md — O service worker derivado do build: template com sentinelas, `sw:emit` e `sw:verify`
+- [x] 02-06-PLAN.md — O service worker derivado do build: template com sentinelas, `sw:emit` e `sw:verify`
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -439,7 +439,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 3/12 | In Progress|  |
+| 2. Migração para a VPS | 4/12 | In Progress|  |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
