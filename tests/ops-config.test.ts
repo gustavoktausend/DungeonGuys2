@@ -575,13 +575,120 @@ describe('tools/ops/restore-verify.mjs', () => {
   });
 });
 
-describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
-  // NOT comment-stripped: a domain leaked in a comment is leaked all the same.
-  it('o único literal IPv4 permitido é o loopback', () => {
+/**
+ * Suffixes that make a dotted token a FILE or a systemd unit and not a host.
+ * Every entry is one this subsystem actually writes today, and the list is
+ * meant to STAY short: it is the escape hatch of the hostname assertion below,
+ * and a long escape hatch is not a gate.
+ */
+const NOT_A_TLD = new Set([
+  'md', 'sh', 'yml', 'json', 'js', 'ts', 'mjs', 'html', 'db', 'tmp',
+  'service', 'timer', 'target',
+]);
+
+/**
+ * Objects whose member access has exactly the shape of a two-label hostname:
+ * `process.env`, `console.error`, `cache.addAll`, `{env.VAR}`. Only the
+ * TWO-label form is excused — `error.code` is a property and `error.com.br` is
+ * a domain, and the length check is what tells them apart.
+ */
+const MEMBER_ACCESS = new Set(['console', 'process', 'error', 'Date', 'cache', 'env']);
+
+describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-15)', () => {
+  /**
+   * The files this block rules over, with the WR-14 floor applied to each.
+   *
+   * These assertions iterate the globs DIRECTLY instead of going through
+   * read(), so they do not inherit that guard — and every one of them is a
+   * `bad` list expected to be empty, which is precisely the shape that a glob
+   * returning nothing satisfies in full. The block that enforces D2-15 is the
+   * last one that can afford to pass over an empty haystack.
+   */
+  function scanned(): [string, string][] {
+    const entries = Object.entries({ ...OPS, ...TOOLS_OPS }) as [string, string][];
+    expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
+      .toBeGreaterThanOrEqual(13);
+    for (const [path, src] of entries) {
+      expect(src, `${path} não é string`).toBeTypeOf('string');
+      expect(src.length, `${path} veio vazio`).toBeGreaterThan(200);
+    }
+    return entries;
+  }
+
+  // NOTHING here is comment-stripped: a domain leaked in a comment is leaked
+  // all the same.
+  it('o único literal de IP permitido é o loopback', () => {
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const m of src.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) {
         if (m[0] !== '127.0.0.1') bad.push(`${path}: ${m[0]}`);
+      }
+      // IPv6 was uncovered until now, and the box is Brazilian residential
+      // infrastructure where IPv6 is past half of all traffic — an address
+      // leaked in that spelling is exactly as leaked. Both forms: full groups,
+      // and the `::`-compressed one. A time of day shares the shape; there is
+      // none in ops/ today, and in a leak gate a false positive is a nuisance
+      // where a false negative is the leak.
+      for (const m of src.matchAll(/\b(?:[0-9a-f]{1,4}:){2,}(?:[0-9a-f]{1,4})?\b|::[0-9a-f]{1,4}\b/gi)) {
+        bad.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhum literal com cara de host público', () => {
+    // D2-15 covers "segredo, domínio, host ou IP" and this block used to check
+    // only the IP. Nothing caught `DG2_DOMAIN=<um domínio>` in the Caddyfile,
+    // `LITESTREAM_BUCKET=<um bucket>` in litestream.yml, or a hostname sitting
+    // in a comment in the runbook.
+    //
+    // The rule: any dot-separated token whose LAST label is letters-only and is
+    // not a file extension this repository writes. That is what a public name
+    // looks like and what a filename does not.
+    const bad: string[] = [];
+    for (const [path, src] of scanned()) {
+      for (const m of src.matchAll(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+\b/gi)) {
+        const labels = m[0].split('.');
+        const tail = labels[labels.length - 1]!;
+        // A version number, a port, an IPv4: the last label is not a word, so
+        // it is not a TLD. The IPv4 assertion above owns those.
+        if (!/^[a-z]{2,}$/i.test(tail)) continue;
+        if (NOT_A_TLD.has(tail.toLowerCase())) continue;
+        if (labels.length === 2 && MEMBER_ACCESS.has(labels[0]!)) continue;
+        bad.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhuma chave de /etc/dg2/env aparece com valor literal', () => {
+    // The generalisation of the credential assertion below to all eight keys,
+    // and to the two syntaxes that carry them. A key may be NAMED anywhere;
+    // what it may never be is ASSIGNED.
+    const bad: string[] = [];
+    for (const [path, src] of scanned()) {
+      for (const line of src.split('\n')) {
+        // Every way of REFERENCING a variable is erased first, so that what
+        // survives is an assignment and nothing else. Three spellings, and all
+        // three are in ops/ today:
+        //
+        //   ${VAR}          shell and YAML
+        //   {$VAR:default}  Caddy — the form that legitimately carries the
+        //                   loopback default the IP assertion above rules on
+        //   $VAR            bare shell, as in cert-check.sh's "$DG2_DOMAIN:443",
+        //                   where the `:443` after the name is a port and not
+        //                   a value. Erased LAST, so it cannot eat the `$` of
+        //                   the two brace forms.
+        //
+        // `DG2_DOMAIN=$OUTRA` therefore reads as an empty right-hand side,
+        // which is correct: assigning from another variable is not a literal.
+        const clean = line
+          .replace(/\$\{[^}]*\}/g, '')
+          .replace(/\{\$[^}]*\}/g, '')
+          .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
+        for (const key of ENV_KEYS) {
+          if (new RegExp(`${key}\\s*[=:]\\s*\\S`).test(clean)) bad.push(`${path}: ${line.trim()}`);
+        }
       }
     }
     expect(bad).toEqual([]);
@@ -591,7 +698,7 @@ describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
     // A key may be NAMED anywhere; what it may never be is assigned. An empty
     // right-hand side or an interpolation is fine — a literal is the leak.
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const line of src.split('\n')) {
         const m = /AWS_SECRET_ACCESS_KEY=(.*)$/.exec(line);
         if (!m) continue;
@@ -613,7 +720,7 @@ describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
     // The `=` regex above cannot see a YAML mapping, a JSON value or a here-doc,
     // and a credential does not care which syntax leaked it.
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const line of src.split('\n')) {
         for (const key of ['AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID']) {
           if (line.includes(key) && !line.includes('${')) bad.push(`${path}: ${line.trim()}`);
