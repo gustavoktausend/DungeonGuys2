@@ -587,6 +587,12 @@ html, body {
 }
 .btn-pixel.secondary:hover { filter: brightness(1.25); }
 
+/* D2-09: the PWA update offer starts hidden. There is no global `.hidden`
+   rule in this file -- every use is scoped to its own element (#hud,
+   #boss-bar, #wave-announce, #combo-display, .new-record), so #btn-update
+   needs its own or screens.ts would toggle a class that styles nothing. */
+#btn-update.hidden { display: none; }
+
 .share-row {
   display: flex;
   gap: 12px;

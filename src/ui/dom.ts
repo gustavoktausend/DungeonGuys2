@@ -86,6 +86,9 @@ export const dom = {
   btnPauseRestart: document.getElementById('btn-pause-restart')!,
   btnQuit: document.getElementById('btn-quit')!,
   btnStart: document.getElementById('btn-start')!,
+  // The PWA update offer (D2-09): a service worker stuck in `waiting` has no
+  // way to announce itself, so main.ts offers this button instead.
+  btnUpdate: document.getElementById('btn-update')!,
   btnRestart: document.getElementById('btn-restart')!,
   btnVictoryRestart: document.getElementById('btn-victory-restart')!,
 
