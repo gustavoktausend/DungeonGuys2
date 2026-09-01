@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 2 context gathered
-last_updated: "2026-08-31T22:52:37.160Z"
-last_activity: 2026-08-31 -- Phase 02 planning complete
+last_updated: "2026-09-01T01:41:07.432Z"
+last_activity: 2026-09-01 -- Phase 02 execution started
 progress:
   total_phases: 9
   completed_phases: 1
@@ -22,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-08-28)
 
 **Core value:** Quatro amigos entram numa sala pelo código e lutam as mesmas waves no mesmo
 mundo, com o jogo respondendo na hora para cada um.
-**Current focus:** Phase 2 — migração para a vps
+**Current focus:** Phase 02 — migra-o-para-a-vps
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-31 -- Phase 02 planning complete
+Phase: 02 (migra-o-para-a-vps) — EXECUTING
+Plan: 1 of 12
+Status: Executing Phase 02
+Last activity: 2026-09-01 -- Phase 02 execution started
 
 Progress: [░░░░░░░░░░] 0%
 

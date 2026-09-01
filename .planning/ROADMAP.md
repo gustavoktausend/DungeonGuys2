@@ -127,8 +127,8 @@ Plans:
 **Wave 1**
 
 - [ ] 02-01-PLAN.md — Repositório publicado sem levar o Pages junto: `deploy.yml` apagado, INFRA-01 virando teste, e o `ci.yml` verde num runner pela primeira vez
-- [ ] 02-02-PLAN.md — `base: '/'`, caminhos absolutos de raiz e as duas fontes trazidas para a própria origem
-- [ ] 02-03-PLAN.md — `ops/`: Caddyfile, release por sha com symlink atômico, reversão sem rede, e o runbook
+- [x] 02-02-PLAN.md — `base: '/'`, caminhos absolutos de raiz e as duas fontes trazidas para a própria origem
+- [x] 02-03-PLAN.md — `ops/`: Caddyfile, release por sha com symlink atômico, reversão sem rede, e o runbook
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -439,7 +439,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 0/3 | Not started | - |
+| 2. Migração para a VPS | 2/12 | In Progress|  |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
