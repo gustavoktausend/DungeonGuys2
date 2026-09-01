@@ -22,6 +22,14 @@ const OPS = import.meta.glob<string>('../ops/*', {
   query: '?raw', import: 'default', eager: true,
 });
 
+// tools/ops/ is the Node half of the same subsystem: restore-verify.mjs is the
+// only executable of this phase that does NOT live in ops/, because it follows
+// tools/README.md rather than the shell conventions of §1. It is asserted here,
+// next to the units it exercises, instead of in a file of its own.
+const TOOLS_OPS = import.meta.glob<string>('../tools/ops/*', {
+  query: '?raw', import: 'default', eager: true,
+});
+
 /**
  * Reads one file of ops/ with the anti-vacuity guard attached. Every assertion
  * below goes through here, so a renamed or deleted file fails loudly instead of
@@ -30,6 +38,13 @@ const OPS = import.meta.glob<string>('../ops/*', {
 function read(name: string): string {
   const src = OPS[`../ops/${name}`];
   expect(src, `o glob não encontrou ops/${name}`).toBeTypeOf('string');
+  return src as string;
+}
+
+/** The same guard, for the Node half. */
+function readTool(name: string): string {
+  const src = TOOLS_OPS[`../tools/ops/${name}`];
+  expect(src, `o glob não encontrou tools/ops/${name}`).toBeTypeOf('string');
   return src as string;
 }
 
@@ -373,6 +388,80 @@ describe('ops/README.md', () => {
 
   it('o runbook registra que reload não relê o EnvironmentFile (P-6)', () => {
     expect(read('README.md')).toContain('restart caddy');
+  });
+
+  it('o runbook registra o node_modules de produção e o CLI que a restauração usa', () => {
+    // The gap 02-08 found and could not close: `server:build` leaves
+    // better-sqlite3 as a BARE SPECIFIER on purpose, because esbuild cannot
+    // bundle a native .node. Undocumented, the first `systemctl start dg2` dies
+    // with ERR_MODULE_NOT_FOUND — before the migration, before the first
+    // request, with nothing in the runbook to explain it.
+    const readme = read('README.md');
+    expect(readme).toContain('better-sqlite3');
+    expect(readme).toContain('/srv/dg2/node_modules');
+    expect(readme).toContain('ERR_MODULE_NOT_FOUND');
+    // The restore drill shells out to the sqlite3 CLI, which is not the same
+    // thing as the library above and is not installed by it.
+    expect(readme.split('\n').filter((l) => l.includes('sqlite3')).length)
+      .toBeGreaterThanOrEqual(2);
+  });
+
+  it('o runbook diz como instalar as units, e em que ordem', () => {
+    const readme = read('README.md');
+    for (const unit of ['dg2.service', 'litestream.service',
+                        'cert-check.service', 'cert-check.timer']) {
+      expect(readme, `o runbook não menciona ${unit}`).toContain(unit);
+    }
+    // litestream replicates the database dg2.service creates, so it is enabled
+    // after it; the ordered list in §10 is the only place that is written down.
+    expect(readme).toContain('systemctl enable --now dg2');
+    expect(readme).toContain('daemon-reload');
+  });
+
+  it('o runbook registra que o ensaio de restauração NÃO vira timer (D2-03)', () => {
+    const readme = read('README.md');
+    expect(readme).toContain('node tools/ops/restore-verify.mjs');
+    expect(readme).toContain('D2-03');
+  });
+});
+
+describe('tools/ops/restore-verify.mjs', () => {
+  it('consulta a coluna que a tabela realmente tem', () => {
+    // 02-RESEARCH.md:1243 says `delta`. The canonical name is `amount`, from
+    // LedgerEvent in src/app/ledger.ts by way of docs/adr/0010, and that is what
+    // apps/server/src/db/migrations.ts creates. A probe naming a column that
+    // does not exist fails with "no such column" — during the outage, which is
+    // the one moment nobody has to spend reading SQL.
+    const src = readTool('restore-verify.mjs');
+    expect(src).toContain('sum(amount)');
+    expect(src).not.toContain('sum(delta)');
+    expect(src).toContain('gold_entry');
+    // count(*) alone survives a restore that lost every value; the sum alone
+    // survives one that merged two rows. The probe is both.
+    expect(src).toContain('count(*)');
+    // An empty ledger has to compare 0 against 0. Without coalesce the sum is
+    // NULL, the concatenation collapses, and the check passes by comparing
+    // nothing to nothing.
+    expect(src).toContain('coalesce');
+  });
+
+  it('restaura para fora do vivo e limpa atrás de si', () => {
+    const src = readTool('restore-verify.mjs');
+    // `-o` writes elsewhere; the live database is never touched, which is the
+    // literal requirement of D2-03 and not a nicety.
+    expect(src).toMatch(/'restore'.*'-o'|'-o'.*restored/s);
+    expect(src).toContain('mkdtempSync');
+    expect(src).toContain('finally');
+    expect(src).toContain('rmSync');
+  });
+
+  it('segue o contrato de falha e não deixa exceção escapar', () => {
+    const src = readTool('restore-verify.mjs');
+    // tools/README.md §3: `file:pointer: message` on stderr, exit 1, and no
+    // bare throw — a stack trace is exit 1 with no actionable message.
+    expect(src).toContain('console.error');
+    expect(src).toContain('process.exit(1)');
+    expect(src).toMatch(/catch\s*\(\s*error\s*\)\s*\{\s*\n?\s*fail\(/);
   });
 });
 
