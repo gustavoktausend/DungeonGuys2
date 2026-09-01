@@ -63,6 +63,21 @@ function ci(): string {
   return src!;
 }
 
+/** True when the workflow has a line that IS this literal, indentation aside.
+ *
+ *  A bare `includes` is not enough for anything that also gets talked about in
+ *  prose, and this file is full of prose: `needs: [test, pwa]` appears inside a
+ *  comment in the `pwa` job, left there by plan 02-09 as a note to plan 02-11.
+ *  A substring check therefore stayed green while the deploy job's own `needs:`
+ *  had been cut down to a single gate — measured, not imagined: the
+ *  proof-by-removal for that assertion failed to go red, which is how the hole
+ *  was found. Anchoring the whole line is the fix, and the trailing \r is there
+ *  because this repository is checked out CRLF on Windows and LF on the runner. */
+function hasLine(src: string, literal: string): boolean {
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^[ \\t]*${escaped}[ \\t]*\\r?$`, 'm').test(src);
+}
+
 describe('alvo único de deploy (INFRA-01)', () => {
   // Exact count, and checked BEFORE any assertion about content: an empty glob
   // would pass every "nothing matches" test in silence, and a resurrected
@@ -98,8 +113,8 @@ describe('o artefato publicado é o artefato testado (D2-05)', () => {
     // Two uploads, never one: the client dist/ and the bundled server travel
     // together, or the box ends up serving halves of two different commits.
     expect((src.match(/upload-artifact/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(src).toContain('name: dist');
-    expect(src).toContain('name: server');
+    expect(hasLine(src, 'name: dist'), 'nenhum artefato chamado `dist`').toBe(true);
+    expect(hasLine(src, 'name: server'), 'nenhum artefato chamado `server`').toBe(true);
     // The gates the uploaded bytes must have cleared, asserted here because
     // they have to run in the SAME job that uploads. A sw:verify somewhere else
     // in the file proves something about somebody else's dist/.
@@ -128,5 +143,68 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
       .toBeGreaterThanOrEqual(5);
     const bad = found.filter((a) => !/^actions\/[A-Za-z0-9._-]+@\S+$/.test(a));
     expect(bad).toEqual([]);
+  });
+});
+
+// The shape of the one job that holds an SSH key with write access to the box.
+// Nothing below is style. Each assertion is a mitigation from this plan's threat
+// register turned into something a command refuses, which is the only form in
+// which a mitigation survives the six months after the person who wrote it has
+// stopped thinking about it. None of this has ever run against the real box —
+// that is plan 02-12 — so the gate is all the assurance there is today.
+describe('o caminho que carrega a chave de deploy', () => {
+  it('não descobre a chave de host — ela vem fixada de um secret (T-2-SSH)', () => {
+    const src = ci();
+    // Plain substrings, and prose is not exempt here either: a commented-out
+    // host-key scan is precisely the line somebody uncomments while a deploy is
+    // red and the short path looks reasonable. That is also why the workflow's
+    // own comment spells the danger out without ever naming the command.
+    expect(src).not.toContain('ssh-keyscan');
+    expect(src).not.toContain('StrictHostKeyChecking=no');
+    expect(src).not.toContain('StrictHostKeyChecking=accept-new');
+
+    // And every command that actually spawns ssh must pin it. Counting
+    // occurrences would be brittle and, worse, would stay green if one command
+    // carried the option twice while another carried none — so the check is per
+    // command, with shell line continuations folded first so that a multi-line
+    // rsync counts as the single command it is. The \r is not decoration: this
+    // repository is checked out with CRLF on Windows and LF on the runner.
+    const folded = src.replace(/\\\r?\n\s*/g, ' ');
+    const spawnsSsh = folded.split('\n').filter((l) => /\bssh -/.test(l));
+    expect(spawnsSsh.length, 'nenhuma invocação de ssh encontrada — o job mudou de forma?')
+      .toBeGreaterThanOrEqual(3);
+    expect(spawnsSsh.filter((l) => !l.includes('StrictHostKeyChecking=yes'))).toEqual([]);
+  });
+
+  it('dois deploys nunca correm sobre o mesmo symlink (T-2-RACE)', () => {
+    const src = ci();
+    expect(hasLine(src, 'group: deploy-vps'), 'o grupo de concorrência sumiu').toBe(true);
+    // Turning cancellation back on would look like a tidy-up and would mean a
+    // release killed halfway through a transfer, left on disk under its sha.
+    expect(hasLine(src, 'cancel-in-progress: false'), 'o cancelamento foi religado').toBe(true);
+  });
+
+  it('o deploy só sai depois dos dois portões, e só de um push na main (D2-08)', () => {
+    const src = ci();
+    // Both gates, not one: `test` proves the artifact, `pwa` proves the service
+    // worker that will serve it offline. Whole line, not substring — see hasLine.
+    expect(hasLine(src, 'needs: [test, pwa]'), 'o deploy não depende dos dois portões').toBe(true);
+    expect(
+      hasLine(src, "if: github.ref == 'refs/heads/main' && github.event_name == 'push'"),
+      'o gate de branch e de evento mudou de forma',
+    ).toBe(true);
+  });
+
+  it('todo --link-dest é caminho absoluto (P-12)', () => {
+    const src = ci();
+    // rsync resolves a relative --link-dest against the DESTINATION, so a
+    // relative one works by accident in some layouts and fails in others with
+    // no error at all — just no hardlink. The symptom is a full disk months
+    // later with nothing pointing back here, which is why this is a gate and
+    // not a comment.
+    const dests = [...src.matchAll(/--link-dest=(\S+)/g)].map((m) => m[1]!);
+    expect(dests.length, 'nenhum --link-dest encontrado — o job mudou de forma?')
+      .toBeGreaterThanOrEqual(2);
+    expect(dests.filter((p) => !p.startsWith('/'))).toEqual([]);
   });
 });

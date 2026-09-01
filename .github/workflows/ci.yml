@@ -165,3 +165,121 @@ jobs:
       - run: npm run build
       - run: npm run sw:verify
       - run: npm run test:pwa
+
+  # Publicar e `git push` na main, e este job e todo o caminho.
+  #
+  # Ele vive AQUI, no mesmo arquivo, porque `needs:` so referencia jobs do
+  # MESMO workflow: encadear um segundo arquivo exigiria `on: workflow_run:`,
+  # que e outro gatilho, outro checkout, e le o arquivo de workflow da branch
+  # padrao em vez do commit (DM-4). Foi por isso que o deploy.yml antigo foi
+  # apagado no plano 02-01 em vez de encadeado -- ele ainda por cima duplicava
+  # lint/test/build em Node 20, contra os 24 daqui, e nao rodava nenhum dos
+  # portoes caros.
+  #
+  # Os dois artefatos sao BAIXADOS, nunca reconstruidos: e a traducao literal de
+  # D2-05 -- o que chega na caixa e byte a byte o que passou pelo portao
+  # cross-engine, que custou a fase 1 inteira.
+  #
+  # NADA aqui ja rodou contra a caixa. Os quatro secrets sao criados no plano
+  # 02-04 e a primeira execucao real e o plano 02-12.
+  deploy:
+    needs: [test, pwa]
+    # D2-08: todo push na main que passar no CI publica, e nada mais publica.
+    # E isso que torna a reversao compreensivel, porque o symlink anterior
+    # corresponde exatamente ao commit anterior -- nao ha um segundo caminho
+    # capaz de por bytes na caixa e desalinhar os dois.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # T-2-RACE: dois deploys nunca podem correr sobre o mesmo symlink. O
+    # cancelamento fica desligado de proposito -- interromper um deploy no meio
+    # deixaria um release parcial em disco, e o meio de uma transferencia e o
+    # unico ponto do processo que nao da para repetir por cima sem pensar.
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    # O token da propria GitHub nao tem o que fazer neste job: ele nao faz
+    # checkout e nao escreve no repositorio. Reduzi-lo e reduzir o alcance da
+    # unica esteira do projeto que carrega uma chave privada de escrita na VPS.
+    permissions:
+      contents: read
+    env:
+      # Nome de maquina e de usuario NUNCA entram no repositorio (D2-15) -- o
+      # repositorio publico nao diz onde a maquina mora. Eles chegam por `env:`,
+      # e nao interpolados dentro do `run:`, que e tambem o que mantem um valor
+      # multilinha (a chave privada, abaixo) longe das aspas do shell.
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: server
+          path: dist-server
+
+      # A chave de host vem FIXADA de um secret, capturada uma vez de maquina
+      # confiavel no plano 02-04. Descobri-la aqui dentro seria confiar no
+      # primeiro que responder, dentro do unico pipeline que carrega a chave
+      # privada de deploy -- e fixar custa uma linha. O teste em
+      # tests/workflows.test.ts recusa a alternativa pelo nome, inclusive em
+      # comentario, porque a hora em que alguem a escreveria e a hora em que um
+      # deploy esta vermelho e o caminho curto parece razoavel.
+      - name: Chave de deploy e known_hosts
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          # Um secret ausente chega como string vazia, e o sintoma seria um
+          # "Permission denied (publickey)" trinta segundos depois, no meio de
+          # uma transferencia. Falhar aqui, com o nome do secret, custa quatro
+          # linhas e e a diferenca entre um erro e uma investigacao.
+          : "${DEPLOY_SSH_KEY:?secret DEPLOY_SSH_KEY vazio ou ausente}"
+          : "${DEPLOY_KNOWN_HOSTS:?secret DEPLOY_KNOWN_HOSTS vazio ou ausente}"
+          : "${DEPLOY_USER:?secret DEPLOY_USER vazio ou ausente}"
+          : "${DEPLOY_HOST:?secret DEPLOY_HOST vazio ou ausente}"
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      # --link-dest com caminho ABSOLUTO. O rsync resolve um --link-dest
+      # relativo a partir do DESTINO, entao um `../current` funciona por
+      # acidente em alguns layouts e falha em outros sem dizer nada -- so sem
+      # hardlink, e o sintoma e disco cheio meses depois, sem nada que aponte
+      # para aqui (P-12).
+      #
+      # $HOME e nao `~`: dentro de aspas duplas o shell NAO expande o til, e o
+      # -e do rsync e entregue ao exec sem passar por shell nenhum.
+      #
+      # $GITHUB_SHA e o mesmo valor de github.sha e, num evento de push, e o
+      # commit publicado: 40 hexadecimais minusculos, que e a unica forma de
+      # argumento que o command= da chave aceita. A forma e fronteira de
+      # seguranca, nao estilo -- o argumento vira caminho na caixa.
+      - name: Enviar o release do cliente
+        run: |
+          rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=yes -i $HOME/.ssh/id_ed25519" \
+            --link-dest=/srv/dg2/current/ \
+            dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/releases/$GITHUB_SHA/"
+
+      - name: Enviar o release do servidor
+        run: |
+          rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=yes -i $HOME/.ssh/id_ed25519" \
+            --link-dest=/srv/dg2/current-server/ \
+            dist-server/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/server-releases/$GITHUB_SHA/"
+
+      # A partir daqui quem decide e a caixa: a troca atomica dos dois symlinks
+      # por rename(2), o restart condicional da unit -- so quando o sha256 do
+      # bundle mudou, porque o restart re-executa a migracao e essa e a unica
+      # parte do deploy capaz de falhar -- e a poda dos releases antigos.
+      - name: Ativar o release
+        run: |
+          ssh -o StrictHostKeyChecking=yes -i "$HOME/.ssh/id_ed25519" \
+            "$DEPLOY_USER@$DEPLOY_HOST" "/srv/dg2/bin/deploy.sh $GITHUB_SHA"
