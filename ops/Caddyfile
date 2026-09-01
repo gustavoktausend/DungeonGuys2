@@ -1,0 +1,96 @@
+# ops/Caddyfile — the entire public surface of the box.
+#
+# {$VAR} is substituted BEFORE the Caddyfile is parsed, and that is the only
+# form that works in a site address: the docs are explicit that placeholders
+# cannot be used in addresses, only Caddyfile-style environment variables. The
+# runtime form ({env.VAR}) is resolved too late, so a site written that way
+# comes up bound to a literal string instead of a domain, and ACME then fails
+# on a name nobody owns (P-6).
+#
+# The values live in /etc/dg2/env, read through a `systemctl edit caddy`
+# drop-in carrying EnvironmentFile=/etc/dg2/env. Nothing in this file names the
+# domain: the repository is not supposed to say where the machine lives (D2-15).
+#
+# THE HALF THAT BITES: `systemctl reload caddy` does NOT re-read
+# EnvironmentFile — a reload runs inside the environment of the process that is
+# already up, so it re-reads the config and keeps the OLD variable values.
+# Changing the domain requires `systemctl restart caddy`. The Caddy docs push
+# reload to avoid downtime; both statements are true at once, and
+# ops/README.md repeats the warning for whoever only reads the runbook.
+#
+# No default value is given on purpose. An unset variable substitutes to an
+# empty site address, which Caddy refuses at parse time: a loud failure at boot
+# beats a box quietly serving the game under the wrong name.
+#
+# SCHEDULED FOR PHASE 3: port 443 will be contested — TURN over TLS wants
+# 443/tcp to cross corporate firewalls, and so does this server. This file does
+# not solve that. The note is here so whoever comes back knows the collision is
+# on the calendar, not an oversight.
+{$DG2_DOMAIN} {
+    encode zstd gzip
+
+    # The `handle` blocks below are MUTUALLY EXCLUSIVE and Caddy sorts them by
+    # matcher specificity, so the order written here is for the reader, not for
+    # correctness. Rewriting any of them as `route` would make file order
+    # load-bearing, and the static block would start swallowing the API the
+    # first time somebody moved a paragraph (P-5).
+    handle /api/* {
+        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
+    }
+
+    # Reserved for phase 3 signalling. It exists now so the shape is visible in
+    # review; no code in this phase talks to it. Caddy upgrades a WebSocket
+    # through reverse_proxy without an extra module, so the block will not need
+    # to change when the signalling server arrives.
+    handle /ws {
+        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
+    }
+
+    handle {
+        # This is the release symlink that ops/deploy.sh swaps atomically. Caddy
+        # resolves it per request, so a swap is picked up with no reload.
+        root * /srv/dg2/current
+
+        # Vite emits content-hashed names under /assets: the name changes
+        # whenever the bytes change, so pinning them forever is safe, and it is
+        # what makes a repeat visit cost nothing.
+        @assets path /assets/index-*.js /assets/index-*.css
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+
+        # The shell has stable names, so it must NEVER be pinned: a stale
+        # index.html or sw.js freezes the PWA on an older build and no later
+        # deploy can dislodge it. This is the server half of the
+        # {cache:'reload'} passed to cache.addAll (P-4) — one half without the
+        # other still ships a stale precache.
+        @shell path / /index.html /sw.js /manifest.json
+        header @shell Cache-Control "no-cache"
+
+        # Deliberately NO `try_files {path} /index.html`. This game has no
+        # client-side routing, so a URL that does not exist is a mistake and not
+        # a route. Answering it with 200 and HTML would hand the service worker
+        # a wrong page to persist in a store that ignores Cache-Control, and the
+        # hand-written relative hrefs of index.html would then resolve against
+        # the wrong directory (DM-5). A 404 is the honest answer.
+        file_server
+    }
+
+    # With dg2.service down the static game keeps serving; what was missing was
+    # a machine-readable signal. The external monitor of D2-16 uses this to tell
+    # "Caddy up, Node down" from "box down" — a plain-text "Bad Gateway" looks
+    # the same as a timeout to a keyword matcher.
+    #
+    # There is no HTML maintenance page in this phase, by decision: the game is
+    # static and stays online with the API gone, so a full-page takeover would
+    # hide a working game behind a broken one.
+    handle_errors {
+        # The body is generic on purpose: no stack trace, no filesystem path and
+        # no upstream name reaches the client (T-2-LEAKERR).
+        @gateway expression {err.status_code} == 502 || {err.status_code} == 503
+        handle @gateway {
+            header Content-Type application/json
+            header Cache-Control no-store
+            respond `{"status":"unavailable"}` 503
+        }
+        respond "{err.status_code} {err.status_text}" {err.status_code}
+    }
+}
