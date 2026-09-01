@@ -170,9 +170,17 @@ describe('o artefato publicado é o artefato testado (D2-05)', () => {
 
 // T-2-SC. The pipeline that holds the deploy key is the worst place in the
 // project to take a dependency on a stranger: an action is code, it runs in the
-// same job, and `@v4` is a moving tag. Keeping every `uses:` inside actions/
+// same job, and every `uses:` here names a MAJOR tag, which moves —
+// `actions/checkout@v7` today is not the commit it pointed at last month, and no
+// diff in this repository records that. Keeping every `uses:` inside actions/
 // does not make the CI safe, but it makes the set of people who can change what
 // runs next to the key exactly one.
+//
+// That sentence used to read "`@v4` is a moving tag", back when every step in
+// the file carried that number. The number is gone — the Node 20 deprecation
+// took the whole set past it, and the five actions no longer share one major —
+// so the example above is an example and nothing depends on it. What the digits
+// have to satisfy is the describe further down, which pins the property instead.
 describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
   it('todo `uses:` é uma ação da própria GitHub', () => {
     const src = ci();
@@ -228,6 +236,75 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
       .filter((l) => /^\s+[a-z-]+:\s*write\s*\r?$/.test(l))
       .map((l) => l.trim());
     expect(raised).toEqual([]);
+  });
+});
+
+
+// Node 20 is gone from the runners, and "gone" does not mean refused. An action
+// whose own action.yml still says `runs.using: node20` is FORCED onto Node 24,
+// and every job that touches one is annotated. Forced is not supported: the
+// people who ship the action never exercised its vendored dependencies against
+// 24, so the annotation is the runner announcing that it is guessing on our
+// behalf — inside the pipeline that holds the deploy key, among other places.
+//
+// The TABLE is the property, and it is why this is not a list of version
+// strings. `toContain('actions/cache@v6')` would go stale the day v7 ships and
+// would never have said anything about a runtime in the first place. What has to
+// hold is "no major known to be node20", and majors are frozen history: every
+// number below was read from `runs.using` in that action's own action.yml at
+// that tag, and a published tag cannot change what it says retroactively. That
+// is also what makes this checkable with no network at test time.
+//
+// The trap is written down because it is not guessable. Bumping everything to v5
+// LOOKS like the fix and leaves the annotation exactly where it stood:
+// upload-artifact reaches node24 only at v6, and download-artifact only at v7.
+// Their v5 is node20 wearing a newer number — and those two are precisely the
+// pair this workflow uses to carry the published bytes from `test` to `deploy`.
+const MIN_NODE24_MAJOR: Readonly<Record<string, number | undefined>> = {
+  'checkout': 5,
+  'setup-node': 5,
+  'cache': 5,
+  'upload-artifact': 6,
+  'download-artifact': 7,
+};
+
+describe('nenhuma ação roda no runtime depreciado (Node 20)', () => {
+  it('todo `uses:` está num major que declara node24', () => {
+    const src = ci();
+    // The same extraction as the T-2-SC test above, on purpose rather than by
+    // accident: that one proves who owns the action, this one proves what it
+    // runs on, and a second regex would be a second thing to keep in step.
+    const found = [...src.matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)].map((m) => m[1]!);
+    // Anti-vacuity, for the same reason as everywhere else in this file: a regex
+    // that stopped matching would leave the loop below inspecting nothing at all
+    // and the assertion green, which is how a guard rots with the suite intact.
+    expect(found.length, 'o regex de `uses:` não encontrou ações — o formato mudou?')
+      .toBeGreaterThanOrEqual(5);
+    const bad: string[] = [];
+    for (const use of found) {
+      // An unrecognised shape is a FAILURE, never a skip. A commit-SHA pin, a
+      // `@main`, a `docker://` image — each would sail past a filter written the
+      // other way round, and the point of this loop is that a runtime nobody
+      // looked up cannot get in. Pinning by SHA is a defensible hardening one
+      // day; the day somebody does it, they should have to come here and say so.
+      const m = /^actions\/([A-Za-z0-9._-]+)@v(\d+)(?:\.\d+)*$/.exec(use);
+      if (m === null) {
+        bad.push(`${use}: não é actions/<nome>@v<major> — não dá para conferir o runtime`);
+        continue;
+      }
+      const floor = MIN_NODE24_MAJOR[m[1]!];
+      // An action missing from the table fails too. Adding one means opening its
+      // action.yml, reading `runs.using` and writing the number down here, which
+      // is exactly the step that would otherwise get skipped.
+      if (floor === undefined) {
+        bad.push(`${use}: ação fora da tabela — leia o runs.using dela e acrescente`);
+        continue;
+      }
+      if (Number(m[2]!) < floor) {
+        bad.push(`${use}: node20; o primeiro major em node24 é v${floor}`);
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });
 

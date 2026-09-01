@@ -29,12 +29,74 @@ on:
 permissions:
   contents: read
 
+# As cinco acoes NAO estao todas no mesmo major, e isso e a correcao, nao
+# desleixo. Ate aqui o arquivo inteiro dizia @v4 e o runner anotava toda
+# execucao: "Node.js 20 is deprecated. The following actions target Node.js 20
+# but are being forced to run on Node.js 24". Forcado nao e suportado -- quem
+# publica a acao nunca exercitou as dependencias vendorizadas dela contra o 24
+# -- entao a anotacao e o runner avisando que esta chutando por nos, dentro da
+# esteira que carrega a chave de deploy.
+#
+# Cada acao atravessa para node24 num major diferente. O primeiro numero e
+# aquele em que o `runs.using` do action.yml dela deixa de dizer node20; o
+# segundo e onde este arquivo esta, que e o ultimo major publicado:
+#
+#   checkout           node24 a partir da v5    -> aqui na v7
+#   setup-node         node24 a partir da v5    -> aqui na v7
+#   cache              node24 a partir da v5    -> aqui na v6
+#   upload-artifact    node24 a partir da v6    -> aqui na v7
+#   download-artifact  node24 a partir da v7    -> aqui na v8
+#
+# A ARMADILHA, escrita porque nao da para adivinhar: subir tudo para a v5
+# PARECE a correcao e deixa a anotacao exatamente onde estava. A v5 do
+# upload-artifact e a v5 e a v6 do download-artifact ainda declaram node20 --
+# sao node20 usando um numero mais novo. E esses dois sao justamente o par que
+# leva os bytes publicaveis do job `test` ao job `deploy`, que e D2-05.
+#
+# Por que o ultimo major de cada, e nao o minimo que cala o aviso: em CI uma
+# quebra e vermelha e imediata, ao contrario de um defeito de producao, e parar
+# dois majors atras so reagenda este mesmo trabalho para daqui a pouco.
+# tests/workflows.test.ts recusa qualquer major sabidamente node20, por tabela
+# e sem rede -- entao o proximo a mexer aqui nao precisa confiar nesta lista.
+#
+# O que foi conferido nas notas de cada major atravessado, e nao presumido:
+#
+#   setup-node   a v5 ligou cache automatico e a v6 o limitou a npm. Nada disso
+#                nos alcanca: ele so liga quando ha `packageManager` ou
+#                `devEngines.packageManager` no package.json, e nao ha nenhum
+#                dos dois. O `cache: npm` explicito abaixo continua sendo um
+#                valor suportado na v7 (npm, yarn, pnpm), que e do que este
+#                workflow depende.
+#   cache        a semantica de chave e a MESMA na v6: chave ja existente nao e
+#                regravada, so restaurada. E exatamente dela que depende o
+#                sufixo `-chromium` da chave do job `pwa`, mais abaixo. A v6
+#                acrescentou uma melhora que nao nos custa nada: quando o token
+#                de cache e so de leitura, o passo de gravacao avisa em vez de
+#                falhar o job.
+#   checkout     a v6 passou a guardar a credencial num arquivo separado, e a
+#                v7 passou a recusar checkout de PR de fork em
+#                `pull_request_target` e `workflow_run`. Nenhum passo daqui usa
+#                o token do checkout depois dele, e os gatilhos deste arquivo
+#                sao `pull_request` e `push` -- os dois eventos citados nao
+#                existem aqui.
+#   artefatos    o par v7/v8 saiu no mesmo dia e e um par de proposito. A v7 do
+#                upload ganhou envio de arquivo solto (`archive: false`), que
+#                NAO usamos -- o padrao segue zipando, que e o que o job
+#                `deploy` espera. A v8 do download deixou de tentar
+#                descompactar tudo e passou a olhar o Content-Type antes, o que
+#                casa com o zip que a v7 produz. A v8 tambem passou a ERRAR
+#                quando o digest baixado nao bate com o do servidor, onde antes
+#                so avisava: e o padrao certo para o unico job que copia bytes
+#                para a caixa. Baixar por `name:`, que e o que fazemos, nao foi
+#                tocado pela quebra da v5 do download -- ela mudou o caminho de
+#                saida de quem baixa por `artifact-ids:`.
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -83,7 +145,7 @@ jobs:
       - id: playwright-version
         run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ steps.playwright-version.outputs.version }}
@@ -125,13 +187,13 @@ jobs:
       # deixasse de ser reproduzivel, que e o dia em que ninguem esta olhando.
       # retention-days: 7 porque o artefato so precisa sobreviver ao job
       # seguinte, e reter menos e menos superficie.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist
           retention-days: 7
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: server
           path: dist-server
@@ -151,8 +213,8 @@ jobs:
   pwa:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -170,7 +232,7 @@ jobs:
       # terminasse primeiro gravaria a entrada, e se fosse este job o `test`
       # restauraria um cache so com Chromium e baixaria Firefox e WebKit em toda
       # execucao dali em diante, sem nunca poder regravar a chave ja ocupada.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-ms-playwright-${{ steps.playwright-version.outputs.version }}-chromium
@@ -277,12 +339,12 @@ jobs:
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: server
           path: dist-server
