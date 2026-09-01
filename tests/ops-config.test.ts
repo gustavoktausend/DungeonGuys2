@@ -782,6 +782,26 @@ describe('tools/ops/restore-verify.mjs', () => {
     expect(src).toContain('rmSync');
   });
 
+  it('abre os dois bancos em somente-leitura (D2-03)', () => {
+    // The sqlite3 CLI opens READ-WRITE by default, and against a WAL database
+    // that creates the -shm file if absent and checkpoints on close. The drill
+    // is run by hand, as root or as the operator, so a -wal or -shm created
+    // under that identity leaves the dg2 user unable to write to its own
+    // database — the verification of the backup becoming the outage. And
+    // litestream has to be the only checkpointer.
+    //
+    // Measured by running the real script with a fake sqlite3 that logs its
+    // argv: before the flag, not one of the calls carried it.
+    const src = readTool('restore-verify.mjs');
+    expect(src).toContain("'-readonly'");
+    // Every call, not just the one against the live file: a stray read-write
+    // open of the restored copy is harmless but the asymmetry is how the flag
+    // gets dropped from the one that matters.
+    const calls = [...src.matchAll(/run\('sqlite3',\s*\[([^\]]*)\]/g)];
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c[1]).toContain("'-readonly'");
+  });
+
   it('segue o contrato de falha e não deixa exceção escapar', () => {
     const src = readTool('restore-verify.mjs');
     // tools/README.md §3: `file:pointer: message` on stderr, exit 1, and no

@@ -108,7 +108,32 @@ function main() {
     run('litestream', ['restore', '-config', CONFIG, '-o', restored, LIVE],
         'litestream restore');
 
-    const probe = (db) => run('sqlite3', [db, PROBE], `sqlite3 ${db}`).trim();
+    // `-readonly` IS THE REQUIREMENT, not a nicety. The sqlite3 CLI opens a
+    // database READ-WRITE by default, and against a WAL database that means it
+    // creates the -shm file if it is absent and performs a passive checkpoint
+    // on close. Two consequences, both of which turn the verification of the
+    // backup into the outage it was meant to prevent:
+    //
+    //   1. ops/README.md §11 documents this as an operator-run command, and an
+    //      operator runs it as root or as themselves. Any -wal or -shm created
+    //      under that identity is owned by the wrong user, and the dg2 user can
+    //      no longer write to its own database.
+    //   2. Litestream has to be the only checkpointer. An external checkpoint
+    //      is the standard way to make it start a new generation or lose
+    //      frames — this script exists to prove the backup works and could
+    //      perturb it in the act.
+    //
+    // The header of this file has claimed in capitals since it was written that
+    // it does not touch the live database. This is the line that makes the
+    // claim true.
+    //
+    // Known cost, written down rather than discovered: opening a WAL database
+    // read-only needs the -shm file to already exist, which it does while
+    // dg2.service holds the database open. Run against a stopped service with a
+    // leftover -wal, sqlite3 will refuse — an honest exit 1 with a message,
+    // which is the right way for it to fail. `file:${db}?mode=ro` with `-uri`
+    // is the portable spelling if a box ever ships a CLI without the flag.
+    const probe = (db) => run('sqlite3', ['-readonly', db, PROBE], `sqlite3 ${db}`).trim();
     const live = probe(LIVE);
     const back = probe(restored);
 
