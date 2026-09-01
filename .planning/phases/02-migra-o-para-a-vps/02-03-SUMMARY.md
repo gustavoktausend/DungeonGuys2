@@ -171,6 +171,13 @@ None nesta fase — nada aqui tocou a máquina. O plano 02-12 executa estes arqu
 - **Pronto para 02-12 (execução na caixa):** `ops/README.md` é o runbook de cima a baixo.
 - **Ressalva registrada:** nenhum destes arquivos foi executado contra um sistema de arquivos real. `sh -n` prova sintaxe, não comportamento. O primeiro exercício de verdade — inclusive do `mv -T`, do `sudo -n` e da regra de sudoers — é o plano 02-12, e ele deve incluir um `rollback.sh` de ensaio logo depois do primeiro deploy, enquanto ainda não há nada a perder.
 
+## Self-Check: PASSED
+
+Sete arquivos criados, todos presentes em disco; os quatro `.sh` com modo `100755`. Três commits
+de tarefa presentes em `git log` (`44f350b`, `85c4211`, `f2d2a08`), mais o commit de metadados.
+`npm test` (414 testes, 36 arquivos), `npm run lint` e `npx tsc --noEmit` verdes; `sh -n` limpo
+nos quatro scripts; os treze `grep` dos critérios de aceitação das três tarefas conferidos um a um.
+
 ---
 *Phase: 02-migra-o-para-a-vps*
 *Completed: 2026-09-01*
