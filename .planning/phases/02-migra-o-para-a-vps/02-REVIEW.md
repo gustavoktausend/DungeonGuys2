@@ -58,11 +58,12 @@ files_reviewed_list:
   - vitest.config.ts
 findings:
   critical: 0
-  warning: 21
+  warning: 0
   info: 0
-  total: 21
+  total: 0
 critical_resolved: 4
-status: issues_found
+warning_resolved: 22
+status: clean
 ---
 
 ## Resolucao dos blockers (2026-09-01)
@@ -78,7 +79,33 @@ do que era o defeito, nao do estado atual do codigo.
 | CR-03 | `bd18ba2` | caso Playwright de duas abas: a aba B voltava com documento novo apos a aba A aceitar |
 | CR-01 | `1ade03a` | script real sob `dash` com `rsync` falso: destino em `~/.ssh/`, `--sender` e `--partial-dir` aceitos; `set -f` provado load-bearing por remocao |
 
-Os 21 WARNING seguem abertos por decisao explicita — nao foram tocados nesta passagem.
+Os 22 WARNING (o frontmatter original contava 21) foram fechados em seguida, em quatro
+agentes: um por camada de acoplamento de arquivo (`ops/` + `ops-config.test.ts`;
+`apps/server/`; service worker + UI; CI + lint), o ultimo rodando sozinho porque WR-22
+mexe na isencao de lint dos arquivos que os outros tres acabaram de reescrever.
+
+Dois achados da propria revisao estavam errados, e foram refutados com medicao em vez de
+seguidos:
+
+- **WR-09** propunha `expect.poll(...).toBe(false)`, que repete ate a assercao **passar** —
+  contra um valor que ja comeca `false`, passa na primeira leitura, medido em 3 ms. Seria
+  mais fraco que o sleep de 250 ms que iria substituir.
+- **WR-19** propunha `hasLine(src, 'contents: read')`, que **passaria antes da correcao**:
+  o literal ja existia no job de deploy e `hasLine` ignora indentacao por desenho.
+
+E a previsao do WR-22 ("espere um punhado de achados") nao se confirmou: tirar `tools/` da
+isencao rendeu **0 erros e 0 avisos** em 134 arquivos, porque esta configuracao estende o
+`recommended` do typescript-eslint e nao o do `@eslint/js`, entao `no-undef` nao esta ligado.
+
+Quatro residuos que os agentes reportaram sem poder alcancar do proprio escopo tambem
+foram fechados: `TimeoutStopSec` no `dg2.service` (a outra metade de WR-07), o comentario
+de `env.ts` que afirmava algo que o compilador nao impoe, a concatenacao crua sobrevivente
+em `tests/pwa/`, e o `.gitattributes` fixando LF — sem ele o `core.autocrlf=true` deixava
+o `dash` recusar os cinco scripts de `ops/`.
+
+Portao final: build ok, **578/578** vitest em 45 arquivos (era 497 antes das correcoes),
+lint 0 em 134 arquivos, `tsc` 0 nos quatro programas, `sw:verify` ok, `server:build` ok,
+**Playwright 10/10**, `sh -n` e `dash -n` ok nos cinco scripts inclusive em clone novo.
 
 Portao apos as correcoes: build ok, 534/534 vitest (era 497), lint 0, `tsc` 0 nos quatro
 programas, `sw:verify` ok, `server:build` ok, Playwright 7/7 (era 6).
