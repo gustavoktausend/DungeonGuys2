@@ -117,6 +117,56 @@ describe('ops/Caddyfile', () => {
     expect(code('Caddyfile')).not.toContain('try_files');
   });
 
+  it('manda os quatro cabeçalhos de segurança, e do lado do site', () => {
+    // Caddy sends none of these by default, HSTS included — automatic TLS and
+    // HSTS are different things and only the first one is automatic.
+    const cfg = code('Caddyfile');
+    for (const h of [
+      'X-Content-Type-Options nosniff',
+      'Referrer-Policy strict-origin-when-cross-origin',
+      'Strict-Transport-Security',
+      'Content-Security-Policy',
+    ]) {
+      expect(cfg, `o Caddyfile não manda ${h}`).toContain(h);
+    }
+    // `preload` is a one-way door: getting off the list takes months, and this
+    // is one box whose domain may still move. Its ABSENCE is the decision.
+    expect(cfg).not.toContain('preload');
+    // No 'unsafe-inline' anywhere: index.html carries one module script and no
+    // style element, and el.style.foo from JavaScript is CSSOM, which style-src
+    // does not govern.
+    expect(cfg).not.toContain("'unsafe-inline'");
+    expect(cfg).not.toContain("'unsafe-eval'");
+    expect(cfg).toContain("frame-ancestors 'none'");
+    // Before the static `handle`, so /api and /ws answers carry them too. The
+    // index comparison is the assertion: inside the handle they would cover the
+    // game and nothing else.
+    const header = cfg.indexOf('X-Content-Type-Options');
+    const handle = cfg.indexOf('handle /api/*');
+    expect(header).toBeGreaterThan(-1);
+    expect(header, 'o bloco de header tem de vir antes dos handle').toBeLessThan(handle);
+  });
+
+  it('nenhuma classe de arquivo servido fica sem Cache-Control', () => {
+    // /assets/dungeon_tileset.png, /fonts/*.woff2 and /icons/*.png are copied
+    // from public/ verbatim: STABLE NAMES, MUTABLE BYTES. They used to match no
+    // matcher at all, so the browser applied heuristic freshness and a redeploy
+    // of changed art under the same filename served stale bytes to anyone not
+    // yet controlled by a new service worker.
+    const cfg = code('Caddyfile');
+    expect(cfg).toContain('@stable');
+    expect(cfg).toContain('must-revalidate');
+    // The `not` is load-bearing rather than decorative: @assets and @stable
+    // both match /assets/index-<hash>.js, both are `header` directives, and
+    // whichever ran second would overwrite the other — silently unpinning
+    // exactly the two files whose whole point is being pinned.
+    expect(cfg).toMatch(/@stable\s*\{[^}]*not path \/assets\/index-\*\.js/);
+    // And the immutable pin survives, because dropping it is the other way to
+    // make this test pass.
+    expect(cfg).toContain('public, max-age=31536000, immutable');
+    expect(cfg).toContain('@shell');
+  });
+
   it('responde 503 legível por máquina quando o upstream cai', () => {
     const cfg = code('Caddyfile');
     expect(cfg).toContain('handle_errors');
@@ -749,7 +799,10 @@ describe('tools/ops/restore-verify.mjs', () => {
  * and a long escape hatch is not a gate.
  */
 const NOT_A_TLD = new Set([
-  'md', 'sh', 'yml', 'json', 'js', 'ts', 'mjs', 'html', 'db', 'tmp',
+  // Files this subsystem names, or that the webroot serves.
+  'md', 'sh', 'yml', 'json', 'js', 'ts', 'mjs', 'html', 'css', 'png', 'txt',
+  'db', 'tmp',
+  // systemd.
   'service', 'timer', 'target',
 ]);
 
