@@ -70,10 +70,28 @@ SERVER_REL="$SERVER_RELEASES/$SHA"
 # Restart is CONDITIONAL, and that is the point: a restart re-runs the migration,
 # which is the only operation of a deploy capable of failing. Paying that risk
 # for a CSS change would be trading the safe half of the deploy for nothing.
-NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs" | cut -d' ' -f1)
+#
+# NO PIPELINE HERE, and that is the point rather than a style preference.
+# `set -eu` does not include pipefail, so `sha256sum X | cut -d' ' -f1` reports
+# the exit status of `cut`: sha256sum can fail, cut succeeds over empty input,
+# the command substitution succeeds, and the hash comes out ''. The decision
+# below is then taken on an empty string — and measured under dash it takes the
+# WRONG branch, because '' equals the empty OLD_HASH: the script decides not to
+# restart and reports a successful deploy.
+#
+# `set -o pipefail` is deliberately NOT the answer. It reached dash only in
+# 0.5.12, and on a dash without it the line does not degrade gracefully — it
+# kills the shell on the spot, which would make every script in this directory
+# die at line one on an older box. `${VAR%% *}` is plain POSIX parameter
+# expansion, needs no `cut`, and inherits `set -e` correctly.
+NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs") \
+    || fail "$SERVER_REL/server.mjs" 'sha256sum falhou no bundle novo'
+NEW_HASH=${NEW_HASH%% *}
 OLD_HASH=''
 if [ -f "$CURRENT_SERVER/server.mjs" ]; then
-    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs" | cut -d' ' -f1)
+    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs") \
+        || fail "$CURRENT_SERVER/server.mjs" 'sha256sum falhou no bundle no ar'
+    OLD_HASH=${OLD_HASH%% *}
 fi
 
 swap_symlink "$CURRENT" "$REL"

@@ -139,10 +139,20 @@ SERVER_REL="$SERVER_RELEASES/$SHA"
 [ -d "$REL" ] || fail "$REL" 'release do cliente não existe — a poda já levou esse sha?'
 [ -f "$SERVER_REL/server.mjs" ] || fail "$SERVER_REL/server.mjs" 'bundle do servidor não existe para esse sha'
 
-NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs" | cut -d' ' -f1)
+# No pipeline, for the reason deploy.sh's twin spells out: `set -eu` carries no
+# pipefail, so `sha256sum X | cut` reports cut's status and hands back '' when
+# sha256sum fails — and '' equals the empty OLD_HASH, so the conditional below
+# silently takes the "do not restart" branch. `set -o pipefail` is not the
+# answer either: on a dash older than 0.5.12 it does not degrade, it kills the
+# shell at that line.
+NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs") \
+    || fail "$SERVER_REL/server.mjs" 'sha256sum falhou no bundle de destino'
+NEW_HASH=${NEW_HASH%% *}
 OLD_HASH=''
 if [ -f "$CURRENT_SERVER/server.mjs" ]; then
-    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs" | cut -d' ' -f1)
+    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs") \
+        || fail "$CURRENT_SERVER/server.mjs" 'sha256sum falhou no bundle no ar'
+    OLD_HASH=${OLD_HASH%% *}
 fi
 
 swap_symlink "$CURRENT" "$REL"

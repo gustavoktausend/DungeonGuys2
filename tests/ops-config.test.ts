@@ -169,6 +169,34 @@ describe('scripts de ops/', () => {
     expect(bad).toEqual([]);
   });
 
+  it('a decisão de restart não sai de um pipeline sem pipefail', () => {
+    // `NEW_HASH=$(sha256sum X | cut -d' ' -f1)` reports CUT's status, not
+    // sha256sum's, and `set -eu` carries no pipefail. Measured under dash: with
+    // sha256sum failing, the script survives, NEW_HASH is '', and because ''
+    // equals the empty OLD_HASH the conditional takes the "do not restart"
+    // branch and the deploy reports success. The safe/unsafe split of the whole
+    // deploy, decided on an empty string.
+    //
+    // `set -o pipefail` is NOT the fix and is not asserted here: it reached
+    // dash only in 0.5.12, and on an older dash the line does not degrade — it
+    // kills the shell, so every script here would die at line one.
+    const bad: string[] = [];
+    for (const name of ['deploy.sh', 'rollback.sh']) {
+      const src = code(name);
+      for (const line of src.split('\n')) {
+        if (/sha256sum.*\|/.test(line)) bad.push(`${name}: ${line.trim()}`);
+      }
+      // And the replacement has to be the whole shape: the substitution guarded
+      // by a `fail`, then the pure-shell cut. Either half alone is the bug.
+      // `[^|]*` is what carries the assertion: between `sha256sum` and the
+      // `|| fail` there may be no single `|` at all, so this one regex rejects
+      // the pipeline AND requires the guard.
+      if (!/sha256sum[^|]*\|\| fail /.test(src)) bad.push(`${name}: sha256sum sem || fail`);
+      if (!src.includes('%% *}')) bad.push(`${name}: sem o corte por expansão de parâmetro`);
+    }
+    expect(bad).toEqual([]);
+  });
+
   it('rollback.sh sem argumento anda a partir da posição do vivo, não do topo', () => {
     // "The newest release that is NOT the live one" is right exactly once.
     // Roll back from N and it lands on N-1; roll back again — which is what an
