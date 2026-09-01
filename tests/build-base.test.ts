@@ -37,6 +37,13 @@ const SW = import.meta.glob<string>('../public/sw.js', {
   query: '?raw', import: 'default', eager: true,
 });
 
+// A document, not a source — and the only one this file reads. It is here
+// because the thing being asserted is a CHECKBOX, and a checkbox is the one
+// piece of prose in the repository that a command can meaningfully refuse.
+const PARIDADE = import.meta.glob<string>('../docs/PARIDADE.md', {
+  query: '?raw', import: 'default', eager: true,
+});
+
 // Deliberately NOT merged into the globs above: the fixture is a build
 // artifact, and the "no Pages subpath in any source" sweep below is about
 // sources. These two are read for the opposite reason — to prove the fixture
@@ -258,5 +265,46 @@ describe('template do service worker', () => {
     // And the redundant early return that documents the intent for a reviewer.
     expect(code).toContain("url.pathname.startsWith('/api/')");
     expect(code).toContain("url.pathname === '/ws'");
+  });
+});
+
+// T-2-FALSECOVER. The one assertion in this repository whose subject is a
+// checkbox, and it exists because the failure it guards is silent: four
+// Playwright specs now cover install, update, offline and /api/ isolation, so
+// the natural next move is to tick the box — and ticking it would turn a
+// recorded decision into imaginary coverage. Playwright supports service
+// workers in Chromium ONLY, so Firefox, WebKit and a physical iOS device are
+// uncovered no matter how many specs get written under tests/pwa/. Phase 2
+// chose that gap on purpose (D2-11); it is not a pending item of the phase, and
+// the phase verifier is told as much in 02-VALIDATION.md.
+//
+// Closing this line means installing the game on a real iPhone, not adding a
+// spec. When somebody does that, they delete this block in the same commit.
+describe('lacuna aceita de PWA (D2-11)', () => {
+  const doc = only(PARIDADE);
+  const LABEL = 'PWA instalável e funcional offline';
+
+  it('o glob leu docs/PARIDADE.md por inteiro', () => {
+    // Anti-vacuity by LENGTH, never by type: '' would make the regex below find
+    // nothing and the assertion pass by never running.
+    expect(doc.length, 'docs/PARIDADE.md veio vazio ou sumiu').toBeGreaterThan(1000);
+  });
+
+  it('a caixa do PWA continua desmarcada', () => {
+    const lines = doc.split('\n').filter(line => line.includes(LABEL));
+    // Exactly one, checked first: two lines with the label and the assertion
+    // below could pass on the wrong one.
+    expect(lines, `docs/PARIDADE.md tem de ter uma linha com "${LABEL}"`).toHaveLength(1);
+    expect(lines[0].startsWith('- [ ] '), 'marcar esta caixa contradiz D2-11 — a cobertura é só Chromium')
+      .toBe(true);
+    expect(lines[0]).not.toContain('- [x]');
+  });
+
+  it('o texto registra o alcance real da lacuna', () => {
+    // Not decoration. The old text said only "install it on a device"; the
+    // research widened the measured gap to every engine that is not Chromium,
+    // and a reader who does not find that here will assume desktop is covered.
+    expect(doc, 'o alcance medido da lacuna tem de estar escrito').toContain('Chromium');
+    expect(doc).toContain('D2-11');
   });
 });

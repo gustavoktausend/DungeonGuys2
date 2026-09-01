@@ -231,10 +231,22 @@ Consequência prática para quem for mexer aqui:
 - [ ] Controles touch num viewport de celular — *aguardando o humano*.
       `src/ui/touch.ts` existe e alimenta `app/input.ts` com o vetor
       analógico, mas só um dedo num celular fecha isso.
-- [ ] PWA instalável e funcional offline — *aguardando o humano*. O
-      `public/sw.js` foi reescrito na Task 20 (o do original pré-cacheava
-      arquivos que não existem neste build); instalar de verdade num
-      dispositivo é o único teste que vale.
+- [ ] PWA instalável e funcional offline — *aguardando o humano*. A caixa
+      continua aberta **por decisão registrada (D2-11)**, e não por falta de
+      trabalho. O que já existe: o `public/sw.js` deixou de ser escrito à mão
+      e passou a ser derivado do build por `tools/sw/emit.mjs`, com precache
+      do `dist/` inteiro, allowlist de caminhos que o build emitiu e nome de
+      cache por hash do build; e quatro specs de Playwright cobrem instalação
+      limpa, atualização a partir de uma instalação antiga, abertura offline
+      sem nunca ter jogado, e isolação de `/api/` — em `tests/pwa/`, nos
+      arquivos `install.spec.ts`, `update.spec.ts`, `offline.spec.ts` e
+      `api-isolation.spec.ts`, rodando no job `pwa` do CI a cada push.
+      O que **não** existe: essas quatro rodam **só em Chromium**, porque o
+      Playwright suporta service worker apenas nesse motor. Então
+      **iOS/Safari físico, Firefox e WebKit
+      continuam sem cobertura de service worker** — nem em aparelho, nem em
+      desktop, nem no CI. Instalar de verdade num iPhone segue sendo o único
+      teste que fecha esta linha, e a fase 2 escolheu não fazê-lo.
 - [ ] 60 FPS com o mundo cheio (wave 12+) — *aguardando o humano*. O mundo
       é 4,17x maior e a arena tem 4,17x mais colunas/caixas/armadilhas; o
       tilemap é pré-renderizado uma vez por run (`src/render/tilemap.ts`) e
