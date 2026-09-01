@@ -15,6 +15,21 @@ export default tseslint.config(
   { ignores: ['dist', 'packages/*/dist', 'public', 'node_modules', 'tools', 'tests/pwa/fixtures'] },
   ...tseslint.configs.recommended,
   {
+    // apps/server/src is linted, and its ABSENCE from the `ignores` above is
+    // the decision, not an oversight. tools/ is ignored because it is build
+    // scaffolding that never ships; apps/server is product code that runs in
+    // front of a real database on a real box, so it gets the same recommended
+    // rules as src/ and packages/.
+    //
+    // This block therefore adds no rules at all. It exists to record the other
+    // half: NONE of the purity restrictions written for packages/sim below
+    // apply here, and none of them should. The server is supposed to read the
+    // wall clock, open files, listen on a socket and reach for `process` — a
+    // rule forbidding those would be forbidding the entire reason the process
+    // exists. Determinism is a property of the simulation, not of the host.
+    files: ['apps/server/src/**/*.ts'],
+  },
+  {
     // sim/ must stay pure: no I/O, no DOM, no wall-clock, no unseeded randomness.
     files: ['packages/sim/src/**/*.ts'],
     rules: {

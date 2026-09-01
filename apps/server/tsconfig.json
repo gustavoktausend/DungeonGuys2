@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // The mirror image of packages/protocol, and the inversion is the point.
+    // sim and protocol strip the browser library and leave `types` empty
+    // because their code must not be able to reach for a page-only global.
+    // This is the ONE tsconfig in the repository that asks for Node types, for
+    // the exact opposite reason: here the code opens a file and listens on a
+    // port, so `process`, `Buffer` and `node:*` have to resolve — while `DOM`
+    // stays out, so a stray `document` or `localStorage` fails at the compiler
+    // instead of at 3am on the VPS.
+    "lib": ["ES2023"],
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+
+  // The two server test files live in the repository-wide tests/ directory
+  // (that is where the vitest `include` looks) but they need Node types, so the
+  // root tsconfig excludes them and they are typechecked HERE instead. Without
+  // naming them the pair would compile nowhere — `npm run typecheck:server`
+  // would pass while the tests that exercise the server went unchecked.
+  "include": ["src", "../../tests/server-migrate.test.ts", "../../tests/server-health.test.ts"]
+}

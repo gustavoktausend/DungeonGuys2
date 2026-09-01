@@ -20,6 +20,12 @@ jobs:
       # entao o proprio compilador recusa window/document dentro do pacote
       - run: npm run typecheck:sim
       - run: npm run typecheck:protocol
+      # apps/ NAO esta no include do tsconfig da raiz, entao o `tsc --noEmit` do
+      # build nao ve uma linha de apps/server: sem este passo o servidor viajaria
+      # ate a VPS sem nenhuma checagem de tipos. Ele tambem e o unico lugar onde
+      # tests/server-migrate.test.ts e tests/server-health.test.ts sao compilados,
+      # porque a raiz os exclui por precisarem de tipos de Node.
+      - run: npm run typecheck:server
       - run: npm test
 
       # FORM-03: prova que o SIM_VERSION e reproduzivel (dois builds da mesma

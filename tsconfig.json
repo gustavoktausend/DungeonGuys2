@@ -29,5 +29,13 @@
   // excluded here so that `types` above STAYS `["vite/client"]` — the client
   // is DOM-only and tools/README.md §4 says not to touch that. Those files are
   // covered by tests/pwa/tsconfig.json, run as `npm run typecheck:pwa`.
-  "exclude": ["tests/pwa"]
+  //
+  // The two server test files are here for the same reason and no other: they
+  // drive apps/server, which opens a database and reads process.env, so they
+  // need Node types too. They are covered by apps/server/tsconfig.json, run as
+  // `npm run typecheck:server`, whose `include` names them one by one. Note
+  // that `apps` was never in the `include` above, so the server SOURCE was
+  // already outside this program — only its tests had to be carved out, since
+  // `tests` is included wholesale.
+  "exclude": ["tests/pwa", "tests/server-migrate.test.ts", "tests/server-health.test.ts"]
 }

@@ -1,0 +1,17 @@
+{
+  "name": "@dg2/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "better-sqlite3": "13.0.3",
+    "hono": "4.13.5",
+    "kysely": "0.29.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.12"
+  }
+}
