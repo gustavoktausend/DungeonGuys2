@@ -318,6 +318,20 @@ declara (`npm ci` → `npm run build` → portão do worker → as quatro specs)
 - **Para a fase 6:** a varredura de `/api/` sobre **todos** os caches é o que segura T-2-CACHE
   quando as respostas passarem a carregar sessão.
 
+## Self-Check: PASSED
+
+Arquivos declarados, conferidos em disco: `tests/pwa/update.spec.ts`,
+`tests/pwa/api-isolation.spec.ts`, `tests/pwa/helpers.ts`, `public/sw.js`,
+`tests/build-base.test.ts`, `.github/workflows/ci.yml`, `docs/PARIDADE.md`,
+`.planning/phases/02-migra-o-para-a-vps/02-09-SUMMARY.md` — todos presentes.
+
+Commits declarados, conferidos em `git log`: `d01a22e`, `dd06e72`, `e054d16` — todos presentes,
+mais `6262fe1` com este documento. Árvore de trabalho limpa.
+
+Nenhum arquivo do plano paralelo 02-10 (`ops/`, `tools/ops/restore-verify.mjs`,
+`tests/ops-config.test.ts`) aparece em nenhum dos quatro commits. `STATE.md` e `ROADMAP.md` não
+foram tocados — são do orquestrador.
+
 ---
 *Phase: 02-migra-o-para-a-vps*
 *Completed: 2026-09-01*
