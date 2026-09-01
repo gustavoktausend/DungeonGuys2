@@ -563,6 +563,48 @@ describe('cert-check — a perna local de D2-16', () => {
     expect(unit).not.toMatch(/^Restart=/m);
   });
 
+  it('o handshake é limitado dos dois lados, para a unit poder CHEGAR a failed', () => {
+    // `Type=oneshot` with no `TimeoutStartSec=` is the P-9 shape again: systemd
+    // DISABLES the start timeout for oneshot, and `openssl s_client` has no
+    // timeout of its own. Against a host that opens the connection and never
+    // finishes the handshake, the unit sits in `activating` indefinitely — it
+    // never reaches `failed`, `list-units --failed` shows nothing, and systemd
+    // will not start a second instance while the first runs, so the daily timer
+    // stops firing without a word.
+    //
+    // Measured with a fake openssl that connects and then sleeps: the old
+    // script had to be killed from outside the harness; the new one exits 1
+    // after TIMEOUT seconds with a message that names the hang.
+    const unit = code('cert-check.service');
+    const src = code('cert-check.sh');
+    const outer = /^TimeoutStartSec=(\d+)$/m.exec(unit);
+    const inner = /^TIMEOUT=(\d+)$/m.exec(src);
+    expect(outer, 'cert-check.service sem TimeoutStartSec').not.toBeNull();
+    expect(inner, 'cert-check.sh sem TIMEOUT').not.toBeNull();
+    expect(src).toContain('timeout "$TIMEOUT" openssl s_client');
+    // 124 is what `timeout` exits when it had to kill, and it earns its own
+    // message: "opened and hung" and "never opened" send the reader to two
+    // different places.
+    expect(src).toContain('[ "$STATUS" -eq 124 ]');
+    // The pair is the assertion, as with MemoryHigh/MemoryMax above: the inner
+    // bound has to fire FIRST, or the unit is killed by systemd before the
+    // script can say why.
+    expect(Number(inner![1])).toBeLessThan(Number(outer![1]));
+  });
+
+  it('separa "não consigo ler isso" de "expira em breve"', () => {
+    // `openssl x509 -checkend` exits 1 for BOTH "expires inside the window" and
+    // "I could not parse the input". Measured with a fake openssl returning
+    // non-certificate text: the old script reported "o certificado servido
+    // expira em menos de 30 dias" — the wrong answer, in the one window where
+    // the remaining time is the entire point. The parse is proved first, on its
+    // own, so the two failures carry different messages.
+    const x509 = code('cert-check.sh').split('\n').filter((l) => l.includes('openssl x509'));
+    expect(x509).toHaveLength(2);
+    expect(x509[0], 'a primeira passada não pode checar validade').not.toContain('checkend');
+    expect(x509[1], 'a segunda passada é a do prazo').toContain('checkend');
+  });
+
   it('o timer roda todo dia e recupera o dia perdido num reboot', () => {
     const unit = code('cert-check.timer');
     expect(unit).toContain('OnCalendar=daily');

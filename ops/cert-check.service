@@ -16,6 +16,19 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# THE OUTER BOUND, and without it the paragraph above is false. systemd
+# DISABLES the start timeout for Type=oneshot by default, so a check that hangs
+# leaves the unit in `activating` indefinitely: it never reaches `failed`,
+# `systemctl list-units --failed` shows nothing, and systemd refuses to start a
+# second instance while the first is still running — so the daily timer stops
+# firing without a word. An alarm that can go quiet while the box is up is
+# worse than no alarm, because it was counted as one.
+#
+# 60s against the 20s `timeout` inside cert-check.sh: the script is meant to be
+# the one that fails, with a message. This is the backstop for the ways it can
+# hang that the inner bound does not cover, and it deliberately leaves room for
+# the script's own bound to fire first.
+TimeoutStartSec=60
 # DG2_DOMAIN. Same file, same reason as every other unit here (D2-15): the
 # repository never says where the machine lives.
 EnvironmentFile=/etc/dg2/env
