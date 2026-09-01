@@ -451,8 +451,24 @@ O que ele faz, e o que cada escolha compra:
   `gold_entry`, nos dois bancos, com o CLI `sqlite3`. Diff binário daria
   vermelho sempre e não provaria nada — dois SQLite semanticamente idênticos
   diferem em disco (páginas livres, estado do WAL).
-- Imprime **quanto tempo levou**. Esse número é parte do que D2-03 manda anotar:
-  é o que transforma um backup em um plano de recuperação.
+- Compara uma **janela fixa**, não o total do banco vivo. A replicação é
+  assíncrona por construção, então o vivo se mexe enquanto o ensaio roda: uma
+  comparação contra o total dá vermelho por causa de uma escrita de três
+  segundos atrás, sobre um backup perfeitamente saudável. Como o ledger é
+  append-only, a restauração é um **prefixo** da tabela viva em ordem de
+  `rowid`, e é esse prefixo que os dois lados respondem. Linhas que chegam
+  durante o ensaio caem acima da marca e não mexem no resultado.
+- Abre os dois bancos em **somente-leitura**, e isso tem uma consequência
+  operacional: o SQLite só abre um banco em WAL como somente-leitura se o
+  arquivo `-shm` já existir, o que é verdade **enquanto `dg2.service` estiver
+  de pé**. Rodar o ensaio com o serviço parado e um `-wal` órfão faz o `sqlite3`
+  recusar, e o script sai 1 dizendo isso. Não é defeito: rode o ensaio com o
+  serviço no ar, que é também o único estado em que o número de defasagem
+  significa alguma coisa.
+- Imprime **quanto tempo levou** e **quantas linhas de defasagem** havia. Os
+  dois números são o que D2-03 manda anotar: o primeiro transforma um backup em
+  um plano de recuperação, e o segundo é o ponto de recuperação — "idêntico" e
+  "idêntico há três segundos" são fatos diferentes sobre um backup.
 - Apaga o diretório temporário em qualquer desfecho. O arquivo restaurado é uma
   cópia completa do ledger, e deixá-lo em `/tmp` faria do verificador o
   vazamento.

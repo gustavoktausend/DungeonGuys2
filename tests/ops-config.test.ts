@@ -38,6 +38,22 @@ const TOOLS_OPS = import.meta.glob<string>('../tools/ops/*', {
 function read(name: string): string {
   const src = OPS[`../ops/${name}`];
   expect(src, `o glob não encontrou ops/${name}`).toBeTypeOf('string');
+  // TYPE IS NOT THE GUARD; LENGTH IS. `''` is a string, so a glob that resolves
+  // and reads nothing passes toBeTypeOf and then SATISFIES every not.toContain
+  // and not.toMatch below it. Measured on this file before the floor existed,
+  // with ops/rollback.sh stubbed to '': 44 of 46 tests stayed green, and the
+  // two that survived included both assertions that carry the requirement —
+  // D2-06 (nenhuma chamada de rede) and D2-07 (nunca toca no banco). They
+  // passed over an empty haystack.
+  //
+  // tests/dom-ids.test.ts:50-54 records the same trap from plan 02-02, where a
+  // `?raw` CSS import stubbed to '' shipped a green test that had read nothing.
+  // This file — the one guarding infrastructure that has never executed — was
+  // the one that skipped the lesson.
+  //
+  // The floor is far below the smallest real file (ops/cert-check.timer, 962
+  // bytes) on purpose: it must catch emptiness and never police size.
+  expect((src as string).length, `ops/${name} veio vazio`).toBeGreaterThan(200);
   return src as string;
 }
 
@@ -45,6 +61,7 @@ function read(name: string): string {
 function readTool(name: string): string {
   const src = TOOLS_OPS[`../tools/ops/${name}`];
   expect(src, `o glob não encontrou tools/ops/${name}`).toBeTypeOf('string');
+  expect((src as string).length, `tools/ops/${name} veio vazio`).toBeGreaterThan(200);
   return src as string;
 }
 
@@ -59,10 +76,18 @@ function readTool(name: string): string {
  * "fix" would be to delete the explanation. Strip first, then assert.
  */
 function code(name: string): string {
-  return read(name)
+  const stripped = read(name)
     .split('\n')
     .filter((line) => !/^\s*#/.test(line))
     .join('\n');
+  // The second floor, and it is not redundant with the first: most assertions
+  // in this file read code(), not read(), so a file that passed the length
+  // guard while being nothing but prose would still hand them an empty
+  // haystack. Every ops/ file here is majority comment by design, so this is
+  // the number the vacuity would actually hide behind. Smallest real value is
+  // ops/cert-check.timer, at 167 bytes once stripped.
+  expect(stripped.trim().length, `ops/${name} é só comentário`).toBeGreaterThan(50);
+  return stripped;
 }
 
 describe('ops/Caddyfile', () => {
@@ -90,6 +115,56 @@ describe('ops/Caddyfile', () => {
 
   it('não transforma 404 em index.html servido com 200 (DM-5)', () => {
     expect(code('Caddyfile')).not.toContain('try_files');
+  });
+
+  it('manda os quatro cabeçalhos de segurança, e do lado do site', () => {
+    // Caddy sends none of these by default, HSTS included — automatic TLS and
+    // HSTS are different things and only the first one is automatic.
+    const cfg = code('Caddyfile');
+    for (const h of [
+      'X-Content-Type-Options nosniff',
+      'Referrer-Policy strict-origin-when-cross-origin',
+      'Strict-Transport-Security',
+      'Content-Security-Policy',
+    ]) {
+      expect(cfg, `o Caddyfile não manda ${h}`).toContain(h);
+    }
+    // `preload` is a one-way door: getting off the list takes months, and this
+    // is one box whose domain may still move. Its ABSENCE is the decision.
+    expect(cfg).not.toContain('preload');
+    // No 'unsafe-inline' anywhere: index.html carries one module script and no
+    // style element, and el.style.foo from JavaScript is CSSOM, which style-src
+    // does not govern.
+    expect(cfg).not.toContain("'unsafe-inline'");
+    expect(cfg).not.toContain("'unsafe-eval'");
+    expect(cfg).toContain("frame-ancestors 'none'");
+    // Before the static `handle`, so /api and /ws answers carry them too. The
+    // index comparison is the assertion: inside the handle they would cover the
+    // game and nothing else.
+    const header = cfg.indexOf('X-Content-Type-Options');
+    const handle = cfg.indexOf('handle /api/*');
+    expect(header).toBeGreaterThan(-1);
+    expect(header, 'o bloco de header tem de vir antes dos handle').toBeLessThan(handle);
+  });
+
+  it('nenhuma classe de arquivo servido fica sem Cache-Control', () => {
+    // /assets/dungeon_tileset.png, /fonts/*.woff2 and /icons/*.png are copied
+    // from public/ verbatim: STABLE NAMES, MUTABLE BYTES. They used to match no
+    // matcher at all, so the browser applied heuristic freshness and a redeploy
+    // of changed art under the same filename served stale bytes to anyone not
+    // yet controlled by a new service worker.
+    const cfg = code('Caddyfile');
+    expect(cfg).toContain('@stable');
+    expect(cfg).toContain('must-revalidate');
+    // The `not` is load-bearing rather than decorative: @assets and @stable
+    // both match /assets/index-<hash>.js, both are `header` directives, and
+    // whichever ran second would overwrite the other — silently unpinning
+    // exactly the two files whose whole point is being pinned.
+    expect(cfg).toMatch(/@stable\s*\{[^}]*not path \/assets\/index-\*\.js/);
+    // And the immutable pin survives, because dropping it is the other way to
+    // make this test pass.
+    expect(cfg).toContain('public, max-age=31536000, immutable');
+    expect(cfg).toContain('@shell');
   });
 
   it('responde 503 legível por máquina quando o upstream cai', () => {
@@ -144,6 +219,82 @@ describe('scripts de ops/', () => {
     expect(bad).toEqual([]);
   });
 
+  it('deploy.sh não deixa um release partido quando o restart falha', () => {
+    // Under `set -e` a failing `systemctl restart` aborted the script on the
+    // spot. Measured under dash with a fake sudo failing on `restart`: exit 1
+    // and ZERO bytes of output — no prune, no success line, and nothing in the
+    // `script:pointer: message` format the file's own header promises. After
+    // the fix the same run prints `deploy.sh:systemctl restart dg2: ...` and
+    // exits 1.
+    //
+    // The state was the worse half: `current` on the new client,
+    // `current-server` on the new server bundle, and the unit down — so the
+    // next boot brings the broken bundle back up.
+    const src = code('deploy.sh');
+    const capture = src.indexOf('OLD_SERVER_REL=$(readlink -f "$CURRENT_SERVER")');
+    const swap = src.indexOf('swap_symlink "$CURRENT_SERVER" "$SERVER_REL"');
+    expect(capture, 'deploy.sh não guarda o alvo anterior de current-server').toBeGreaterThan(-1);
+    expect(swap, 'deploy.sh não troca o symlink do servidor').toBeGreaterThan(-1);
+    // Order is the assertion, not presence: captured AFTER the swap, the
+    // variable would already hold the new release and the revert would be a
+    // no-op wearing the right name.
+    expect(capture, 'a captura tem de vir antes da troca').toBeLessThan(swap);
+    expect(src).toContain('if ! $SYSTEMCTL restart dg2; then');
+    expect(src).toContain('swap_symlink "$CURRENT_SERVER" "$OLD_SERVER_REL"');
+    // Two arms, and both have to exist: with a previous release to revert to,
+    // and without one (the first deploy), each with its own message.
+    expect(src.split('\n').filter((l) => l.includes("fail 'systemctl restart dg2'")))
+      .toHaveLength(2);
+  });
+
+  it('a decisão de restart não sai de um pipeline sem pipefail', () => {
+    // `NEW_HASH=$(sha256sum X | cut -d' ' -f1)` reports CUT's status, not
+    // sha256sum's, and `set -eu` carries no pipefail. Measured under dash: with
+    // sha256sum failing, the script survives, NEW_HASH is '', and because ''
+    // equals the empty OLD_HASH the conditional takes the "do not restart"
+    // branch and the deploy reports success. The safe/unsafe split of the whole
+    // deploy, decided on an empty string.
+    //
+    // `set -o pipefail` is NOT the fix and is not asserted here: it reached
+    // dash only in 0.5.12, and on an older dash the line does not degrade — it
+    // kills the shell, so every script here would die at line one.
+    const bad: string[] = [];
+    for (const name of ['deploy.sh', 'rollback.sh']) {
+      const src = code(name);
+      for (const line of src.split('\n')) {
+        if (/sha256sum.*\|/.test(line)) bad.push(`${name}: ${line.trim()}`);
+      }
+      // And the replacement has to be the whole shape: the substitution guarded
+      // by a `fail`, then the pure-shell cut. Either half alone is the bug.
+      // `[^|]*` is what carries the assertion: between `sha256sum` and the
+      // `|| fail` there may be no single `|` at all, so this one regex rejects
+      // the pipeline AND requires the guard.
+      if (!/sha256sum[^|]*\|\| fail /.test(src)) bad.push(`${name}: sha256sum sem || fail`);
+      if (!src.includes('%% *}')) bad.push(`${name}: sem o corte por expansão de parâmetro`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('rollback.sh sem argumento anda a partir da posição do vivo, não do topo', () => {
+    // "The newest release that is NOT the live one" is right exactly once.
+    // Roll back from N and it lands on N-1; roll back again — which is what an
+    // operator does when N-1 is also bad — and the newest non-live release is
+    // N, the one just abandoned. Measured under dash over five releases, the
+    // old form walked E, D, E, D and could never reach C.
+    //
+    // The fix is a flag that records the live entry going past, plus a break on
+    // the first entry after it. Both halves are asserted, because either one
+    // alone reverts to the old behaviour.
+    const src = code('rollback.sh');
+    expect(src).toContain('PASSED_LIVE=yes');
+    expect(src).toMatch(/if \[ -n "\$PASSED_LIVE" \]; then\s*\n\s*SHA=\$base\s*\n\s*break/);
+    // And the fallback must be reachable ONLY when the live release was never
+    // seen in the list at all. Extending it to "the live release is the oldest
+    // one" would hand back the release just abandoned — the oscillation again,
+    // wearing the fallback's clothes.
+    expect(src).toContain('[ -z "$SHA" ] && [ -z "$PASSED_LIVE" ]');
+  });
+
   it('rollback.sh não faz nenhuma chamada de rede (D2-06)', () => {
     // Not comment-stripped on purpose: the requirement is that these words do
     // not appear in the file AT ALL. A revert is needed exactly when the
@@ -163,6 +314,55 @@ describe('scripts de ops/', () => {
     const src = code('prune-releases.sh');
     expect(src).toContain('readlink');
     expect(src).toMatch(/^KEEP=5$/m);
+  });
+
+  it('nenhum script monta uma lista de caminhos parseando ls', () => {
+    // `for dir in $(ls -1dt "$root"/*/)` is the shape, and in
+    // prune-releases.sh that loop ends in `rm -rf`. Measured under dash against
+    // the real script, with a directory named `a keep-me` in the release root
+    // and the process's working directory somewhere else — which is what an
+    // SSH forced command leaves behind: the split second word was
+    // canonicalised against the WORKING DIRECTORY, `rm -rf` deleted a
+    // directory outside the release tree entirely, and the run pruned 6
+    // releases where the retention policy says 2.
+    //
+    // The justification that used to sit next to it — "release names are 40 hex
+    // characters by construction" — was true of the names the CI writes and of
+    // nothing else: both release roots are writable by dg2-deploy, and a manual
+    // mkdir or a half-finished `rsync --partial` is enough.
+    const bad: string[] = [];
+    for (const name of SCRIPTS) {
+      for (const line of code(name).split('\n')) {
+        if (/\$\(\s*ls\b/.test(line)) bad.push(`${name}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('todo nome de release é validado antes de virar caminho', () => {
+    // The two scripts that enumerate a release root do it through the same
+    // validation, duplicated rather than shared for the reason swap_symlink()
+    // already records. Both halves are asserted: the character class alone
+    // accepts a 3-character name, and the length alone accepts `../../etc`.
+    const bad: string[] = [];
+    for (const name of ['rollback.sh', 'prune-releases.sh']) {
+      const src = code(name);
+      if (!/\*\[!0-9a-f\]\*/.test(src)) bad.push(`${name}: sem a classe [!0-9a-f]`);
+      if (!src.includes('[ ${#base} -eq 40 ]')) bad.push(`${name}: sem o comprimento 40`);
+      if (!src.includes('stat -c')) bad.push(`${name}: não ordena por mtime com stat`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('prune-releases.sh apaga pelo caminho que ele mesmo monta', () => {
+    // `rm -rf "$path"` on the canonicalised target and `rm -rf "$root/$base"`
+    // differ exactly when the entry is a symlink — and there the first follows
+    // the link out of the release tree, which is the only place this script is
+    // allowed to touch.
+    const src = code('prune-releases.sh');
+    const removals = src.split('\n').filter((l) => l.includes('rm -rf'));
+    expect(removals.length).toBe(1);
+    expect(removals[0]).toContain('"$root/$base"');
   });
 
   it('deploy-forced.sh só aceita rsync --server e um sha de 40 hexadecimais', () => {
@@ -413,6 +613,48 @@ describe('cert-check — a perna local de D2-16', () => {
     expect(unit).not.toMatch(/^Restart=/m);
   });
 
+  it('o handshake é limitado dos dois lados, para a unit poder CHEGAR a failed', () => {
+    // `Type=oneshot` with no `TimeoutStartSec=` is the P-9 shape again: systemd
+    // DISABLES the start timeout for oneshot, and `openssl s_client` has no
+    // timeout of its own. Against a host that opens the connection and never
+    // finishes the handshake, the unit sits in `activating` indefinitely — it
+    // never reaches `failed`, `list-units --failed` shows nothing, and systemd
+    // will not start a second instance while the first runs, so the daily timer
+    // stops firing without a word.
+    //
+    // Measured with a fake openssl that connects and then sleeps: the old
+    // script had to be killed from outside the harness; the new one exits 1
+    // after TIMEOUT seconds with a message that names the hang.
+    const unit = code('cert-check.service');
+    const src = code('cert-check.sh');
+    const outer = /^TimeoutStartSec=(\d+)$/m.exec(unit);
+    const inner = /^TIMEOUT=(\d+)$/m.exec(src);
+    expect(outer, 'cert-check.service sem TimeoutStartSec').not.toBeNull();
+    expect(inner, 'cert-check.sh sem TIMEOUT').not.toBeNull();
+    expect(src).toContain('timeout "$TIMEOUT" openssl s_client');
+    // 124 is what `timeout` exits when it had to kill, and it earns its own
+    // message: "opened and hung" and "never opened" send the reader to two
+    // different places.
+    expect(src).toContain('[ "$STATUS" -eq 124 ]');
+    // The pair is the assertion, as with MemoryHigh/MemoryMax above: the inner
+    // bound has to fire FIRST, or the unit is killed by systemd before the
+    // script can say why.
+    expect(Number(inner![1])).toBeLessThan(Number(outer![1]));
+  });
+
+  it('separa "não consigo ler isso" de "expira em breve"', () => {
+    // `openssl x509 -checkend` exits 1 for BOTH "expires inside the window" and
+    // "I could not parse the input". Measured with a fake openssl returning
+    // non-certificate text: the old script reported "o certificado servido
+    // expira em menos de 30 dias" — the wrong answer, in the one window where
+    // the remaining time is the entire point. The parse is proved first, on its
+    // own, so the two failures carry different messages.
+    const x509 = code('cert-check.sh').split('\n').filter((l) => l.includes('openssl x509'));
+    expect(x509).toHaveLength(2);
+    expect(x509[0], 'a primeira passada não pode checar validade').not.toContain('checkend');
+    expect(x509[1], 'a segunda passada é a do prazo').toContain('checkend');
+  });
+
   it('o timer roda todo dia e recupera o dia perdido num reboot', () => {
     const unit = code('cert-check.timer');
     expect(unit).toContain('OnCalendar=daily');
@@ -540,6 +782,59 @@ describe('tools/ops/restore-verify.mjs', () => {
     expect(src).toContain('rmSync');
   });
 
+  it('compara uma janela fixa, não o total de um banco que se mexe', () => {
+    // `litestream restore` answers with whatever has already reached the
+    // bucket, and replication is asynchronous by construction. Comparing that
+    // against the live TOTAL means any write in the seconds before the drill
+    // prints NÃO CONFERE. Measured against the real script with three rows
+    // appended after the copy: exactly that, red over a healthy backup — and
+    // the operator so trained is the operator who stops believing the one check
+    // whose entire value is being believed.
+    //
+    // The ledger is append-only and litestream replicates pages, so the restore
+    // is a prefix of the live table in rowid order. Asking the live database
+    // for that same prefix is exact no matter how many rows arrive meanwhile.
+    const src = readTool('restore-verify.mjs');
+    expect(src).toContain('max(rowid)');
+    expect(src).toContain('where rowid <=');
+    // The rowid watermark is interpolated into SQL and arrives from a restored
+    // file, so it is validated as an integer first.
+    expect(src).toMatch(/\/\^-\?\\d\+\$\//);
+    // Measured after the fix, same six scenarios: replica three rows behind now
+    // passes; empty replica, a row missing from the prefix, a tampered amount,
+    // and "behind AND holed" all still fail. The lag is reported on the pass,
+    // because "identical" and "identical as of 3s ago" are different facts and
+    // D2-03 asks for the second one.
+    expect(src).toContain('defasagem');
+    // An empty restore has no prefix, so it agrees with the empty prefix of
+    // anything: the prefix comparison alone cannot see it, and this guard is
+    // what does.
+    expect(src).toContain('back.count === 0 && before.count > 0');
+    // No inequality on the sum, ever: amounts are SIGNED (a spend is a negative
+    // entry), so "restaurado <= vivo" would be a false invariant.
+    expect(src).not.toMatch(/sum\s*<=|<=\s*.*\.sum/);
+  });
+
+  it('abre os dois bancos em somente-leitura (D2-03)', () => {
+    // The sqlite3 CLI opens READ-WRITE by default, and against a WAL database
+    // that creates the -shm file if absent and checkpoints on close. The drill
+    // is run by hand, as root or as the operator, so a -wal or -shm created
+    // under that identity leaves the dg2 user unable to write to its own
+    // database — the verification of the backup becoming the outage. And
+    // litestream has to be the only checkpointer.
+    //
+    // Measured by running the real script with a fake sqlite3 that logs its
+    // argv: before the flag, not one of the calls carried it.
+    const src = readTool('restore-verify.mjs');
+    expect(src).toContain("'-readonly'");
+    // Every call, not just the one against the live file: a stray read-write
+    // open of the restored copy is harmless but the asymmetry is how the flag
+    // gets dropped from the one that matters.
+    const calls = [...src.matchAll(/run\('sqlite3',\s*\[([^\]]*)\]/g)];
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c[1]).toContain("'-readonly'");
+  });
+
   it('segue o contrato de falha e não deixa exceção escapar', () => {
     const src = readTool('restore-verify.mjs');
     // tools/README.md §3: `file:pointer: message` on stderr, exit 1, and no
@@ -550,13 +845,133 @@ describe('tools/ops/restore-verify.mjs', () => {
   });
 });
 
-describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
-  // NOT comment-stripped: a domain leaked in a comment is leaked all the same.
-  it('o único literal IPv4 permitido é o loopback', () => {
+/**
+ * Suffixes that make a dotted token a FILE or a systemd unit and not a host.
+ * Every entry is one this subsystem actually writes today, and the list is
+ * meant to STAY short: it is the escape hatch of the hostname assertion below,
+ * and a long escape hatch is not a gate.
+ */
+const NOT_A_TLD = new Set([
+  // Files this subsystem names, or that the webroot serves.
+  'md', 'sh', 'yml', 'json', 'js', 'ts', 'mjs', 'html', 'css', 'png', 'txt',
+  'db', 'tmp',
+  // systemd.
+  'service', 'timer', 'target',
+]);
+
+/**
+ * The two tokens in ops/ that are member access wearing a hostname's shape:
+ * `cache.addAll` and `{env.VAR}`, both of them prose in ops/Caddyfile. Only the
+ * TWO-label form is excused — `env.VAR` is a placeholder and `env.exemplo.com`
+ * is a domain, and the label count is what tells them apart.
+ */
+const MEMBER_ACCESS = new Set(['cache', 'env']);
+
+describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-15)', () => {
+  /**
+   * The files this block rules over, with the WR-14 floor applied to each.
+   *
+   * These assertions iterate the globs DIRECTLY instead of going through
+   * read(), so they do not inherit that guard — and every one of them is a
+   * `bad` list expected to be empty, which is precisely the shape that a glob
+   * returning nothing satisfies in full. The block that enforces D2-15 is the
+   * last one that can afford to pass over an empty haystack.
+   */
+  function scanned(): [string, string][] {
+    const entries = Object.entries({ ...OPS, ...TOOLS_OPS }) as [string, string][];
+    expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
+      .toBeGreaterThanOrEqual(13);
+    for (const [path, src] of entries) {
+      expect(src, `${path} não é string`).toBeTypeOf('string');
+      expect(src.length, `${path} veio vazio`).toBeGreaterThan(200);
+    }
+    return entries;
+  }
+
+  // NOTHING here is comment-stripped: a domain leaked in a comment is leaked
+  // all the same.
+  it('o único literal de IP permitido é o loopback', () => {
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const m of src.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) {
         if (m[0] !== '127.0.0.1') bad.push(`${path}: ${m[0]}`);
+      }
+      // IPv6 was uncovered until now, and the box is Brazilian residential
+      // infrastructure where IPv6 is past half of all traffic — an address
+      // leaked in that spelling is exactly as leaked. Both forms: full groups,
+      // and the `::`-compressed one. A time of day shares the shape; there is
+      // none in ops/ today, and in a leak gate a false positive is a nuisance
+      // where a false negative is the leak.
+      for (const m of src.matchAll(/\b(?:[0-9a-f]{1,4}:){2,}(?:[0-9a-f]{1,4})?\b|::[0-9a-f]{1,4}\b/gi)) {
+        bad.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhum literal com cara de host público', () => {
+    // D2-15 covers "segredo, domínio, host ou IP" and this block used to check
+    // only the IP. Nothing caught `DG2_DOMAIN=<um domínio>` in the Caddyfile,
+    // `LITESTREAM_BUCKET=<um bucket>` in litestream.yml, or a hostname sitting
+    // in a comment in the runbook.
+    //
+    // The rule: any dot-separated token whose LAST label is letters-only and is
+    // not a file extension this repository writes. That is what a public name
+    // looks like and what a filename does not.
+    //
+    // ops/ ONLY, and the exclusion of tools/ops/ is reasoned rather than
+    // convenient. This assertion rests on "a dot between two words is
+    // suspicious", which holds for config and shell and is simply false for
+    // JavaScript: `back.count`, `process.env` and `error.stdout` are all
+    // member access and all have the shape. Excusing them would mean an
+    // allowlist that grows with every local variable, and an allowlist that
+    // grows is not a gate. tools/ops/ is still covered by the IP, env-key and
+    // credential assertions in this block — what it loses is only the bare
+    // hostname sitting in a comment.
+    const bad: string[] = [];
+    for (const [path, src] of scanned().filter(([p]) => p.startsWith('../ops/'))) {
+      for (const m of src.matchAll(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+\b/gi)) {
+        const labels = m[0].split('.');
+        const tail = labels[labels.length - 1]!;
+        // A version number, a port, an IPv4: the last label is not a word, so
+        // it is not a TLD. The IPv4 assertion above owns those.
+        if (!/^[a-z]{2,}$/i.test(tail)) continue;
+        if (NOT_A_TLD.has(tail.toLowerCase())) continue;
+        if (labels.length === 2 && MEMBER_ACCESS.has(labels[0]!)) continue;
+        bad.push(`${path}: ${m[0]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhuma chave de /etc/dg2/env aparece com valor literal', () => {
+    // The generalisation of the credential assertion below to all eight keys,
+    // and to the two syntaxes that carry them. A key may be NAMED anywhere;
+    // what it may never be is ASSIGNED.
+    const bad: string[] = [];
+    for (const [path, src] of scanned()) {
+      for (const line of src.split('\n')) {
+        // Every way of REFERENCING a variable is erased first, so that what
+        // survives is an assignment and nothing else. Three spellings, and all
+        // three are in ops/ today:
+        //
+        //   ${VAR}          shell and YAML
+        //   {$VAR:default}  Caddy — the form that legitimately carries the
+        //                   loopback default the IP assertion above rules on
+        //   $VAR            bare shell, as in cert-check.sh's "$DG2_DOMAIN:443",
+        //                   where the `:443` after the name is a port and not
+        //                   a value. Erased LAST, so it cannot eat the `$` of
+        //                   the two brace forms.
+        //
+        // `DG2_DOMAIN=$OUTRA` therefore reads as an empty right-hand side,
+        // which is correct: assigning from another variable is not a literal.
+        const clean = line
+          .replace(/\$\{[^}]*\}/g, '')
+          .replace(/\{\$[^}]*\}/g, '')
+          .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
+        for (const key of ENV_KEYS) {
+          if (new RegExp(`${key}\\s*[=:]\\s*\\S`).test(clean)) bad.push(`${path}: ${line.trim()}`);
+        }
       }
     }
     expect(bad).toEqual([]);
@@ -566,7 +981,7 @@ describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
     // A key may be NAMED anywhere; what it may never be is assigned. An empty
     // right-hand side or an interpolation is fine — a literal is the leak.
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const line of src.split('\n')) {
         const m = /AWS_SECRET_ACCESS_KEY=(.*)$/.exec(line);
         if (!m) continue;
@@ -588,7 +1003,7 @@ describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
     // The `=` regex above cannot see a YAML mapping, a JSON value or a here-doc,
     // and a credential does not care which syntax leaked it.
     const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
+    for (const [path, src] of scanned()) {
       for (const line of src.split('\n')) {
         for (const key of ['AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID']) {
           if (line.includes(key) && !line.includes('${')) bad.push(`${path}: ${line.trim()}`);

@@ -26,6 +26,37 @@ fail() {
     exit 1
 }
 
+# Lists the release directories of $1, newest first, one 40-hex name per line
+# and nothing else. Duplicated from ops/rollback.sh rather than sourced from a
+# shared file, for the reason its swap_symlink() twin already records: a
+# housekeeping script that depends on a second file being present and correct
+# is a script with a second way to break.
+#
+# THE POINT OF IT IS THE VALIDATION, because the loop below ends in `rm -rf`.
+# The previous form was `for dir in $(ls -1dt "$root"/*/)`, justified by
+# "release names are 40 hex characters by construction" — and nothing on the box
+# enforces that construction. Both release roots are writable by dg2-deploy, a
+# manual mkdir or a half-finished `rsync --partial` is enough, and a directory
+# named `a b` split into two words: `readlink -f b` then canonicalised against
+# the PROCESS's working directory — under an SSH forced command that is the
+# deploy user's home, not /srv/dg2 — and `rm -rf` was aimed at whatever came
+# back.
+#
+# Now the basename is validated before it is used at all, and the caller rebuilds
+# the path from the root instead of trusting the split token, so the only paths
+# this script can ever delete are "$root/<40 hexadecimais>".
+release_names() {
+    stat -c '%Y %n' "$1"/*/ 2>/dev/null | sort -rn | while read -r _mtime path; do
+        base=${path%/}
+        base=${base##*/}
+        case "$base" in
+            *[!0-9a-f]* | '') continue ;;
+        esac
+        [ ${#base} -eq 40 ] || continue
+        printf '%s\n' "$base"
+    done
+}
+
 # Resolves the live symlink BEFORE deleting anything, and never deletes what it
 # points at. The live release can legitimately fall outside the newest KEEP —
 # that is exactly the state a rollback leaves behind — and deleting it would
@@ -44,8 +75,10 @@ prune_root() {
     fi
 
     n=0
-    for dir in $(ls -1dt "$root"/*/ 2>/dev/null || true); do
-        path=$(readlink -f "$dir")
+    # The word splitting here is safe BY CONSTRUCTION and not by assumption:
+    # release_names emits nothing but 40 hex characters per line.
+    for base in $(release_names "$root"); do
+        path=$(readlink -f "$root/$base")
         n=$((n + 1))
         # `[ ... ] && continue` would be a bug under `set -e`: a false test
         # makes the AND-list return non-zero and kills the script. Hence `if`.
@@ -55,7 +88,12 @@ prune_root() {
         if [ "$path" = "$live" ]; then
             continue
         fi
-        rm -rf "$path" || fail "$path" 'não consegui remover o release antigo'
+        # Deleted by the path this script BUILT, never by the canonicalised one
+        # it read. The two differ exactly when the entry is a symlink, and there
+        # `rm -rf "$path"` would delete the target — outside the release tree,
+        # which is the one place this script is allowed to touch. `readlink -f`
+        # stays, because comparing against the live symlink needs it.
+        rm -rf "$root/$base" || fail "$root/$base" 'não consegui remover o release antigo'
         REMOVED=$((REMOVED + 1))
     done
 }

@@ -29,6 +29,61 @@
 {$DG2_DOMAIN} {
     encode zstd gzip
 
+    # SECURITY HEADERS. Caddy sends NONE of these by default — automatic TLS
+    # and HSTS are different things, and only the first one is automatic.
+    #
+    # At SITE level rather than inside the static `handle`, so that the
+    # reverse-proxied /api and /ws answers carry them too. `header` is its own
+    # directive with its own place in Caddy's order, so this does not disturb
+    # the mutually-exclusive `handle` group below (P-5 stands).
+    #
+    # NOT covered: the `handle_errors` block at the bottom runs in the error
+    # route and does not inherit these. Its body is a fixed generic JSON string,
+    # so nothing there is sniffable; noted so the gap is a decision.
+    header {
+        # The webroot serves /assets/CREDITS.md and
+        # /assets/100_Anims_Order_List.txt right next to the game. nosniff is
+        # what stops a browser deciding for itself that one of them is a script.
+        X-Content-Type-Options nosniff
+
+        # The path leaks in the Referer otherwise, and phase 6 puts a session
+        # cookie on this origin.
+        Referrer-Policy strict-origin-when-cross-origin
+
+        # One year, subdomains included, and deliberately WITHOUT `preload`:
+        # the preload list is a one-way door — getting off it takes months —
+        # and this is one box whose domain may still move.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+        # DERIVED FROM WHAT THE CODE ACTUALLY LOADS, checked file by file rather
+        # than copied from a template:
+        #
+        #   img-src      src/render/sprites.ts points both sprite sheets at
+        #                ${BASE}assets/ — same origin, nothing else.
+        #   font-src     the two @font-face rules in src/style.css read
+        #                /fonts/*.woff2 — same origin.
+        #   connect-src  the API on this origin. 'self' also covers wss:// on
+        #                the same host, which is what /ws needs in phase 3.
+        #   script-src   index.html carries exactly ONE script element, a module
+        #                with a src attribute; grep found no inline script, no
+        #                style element, no style= attribute and no data: URI
+        #                anywhere in src/, public/ or index.html.
+        #
+        # No 'unsafe-inline' for style, and that is not an oversight: the game
+        # does assign style properties from JavaScript, in src/ui/hud.ts and
+        # src/ui/touch.ts, but CSSOM assignment is NOT governed by style-src.
+        # Only markup — a style element, or a style attribute in HTML — is.
+        #
+        # Audio is synthesised through AudioContext (src/app/audio.ts), so there
+        # is no media file to allow.
+        #
+        # UNVERIFIED AGAINST A RUNNING BROWSER: this repository has no Caddy to
+        # parse the file and no deployment to serve it. The directive list is
+        # derived from source, not observed. Plan 02-12 loads the game with the
+        # console open and the report of that is what turns this into a fact.
+        Content-Security-Policy "default-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    }
+
     # The `handle` blocks below are MUTUALLY EXCLUSIVE and Caddy sorts them by
     # matcher specificity, so the order written here is for the reader, not for
     # correctness. Rewriting any of them as `route` would make file order
@@ -56,6 +111,31 @@
         # what makes a repeat visit cost nothing.
         @assets path /assets/index-*.js /assets/index-*.css
         header @assets Cache-Control "public, max-age=31536000, immutable"
+
+        # STABLE NAMES, MUTABLE BYTES — the class the two matchers around it
+        # left with no Cache-Control at all. /assets/dungeon_tileset.png,
+        # /assets/copRobo.png, /fonts/*.woff2 and /icons/*.png are copied from
+        # public/ verbatim, so their names do NOT change when their bytes do.
+        # With no header the browser applies heuristic freshness, and
+        # redeploying changed art under the same filename then serves the old
+        # bytes to anyone not yet controlled by a new service worker — for as
+        # long as the heuristic says, with no way to dislodge it.
+        #
+        # Revalidation rather than pinning: one conditional request and a 304.
+        # It is not the repeat-visit cost it looks like, because the service
+        # worker's per-build cache is what makes a repeat visit free anyway.
+        #
+        # The `not` is doing real work. Both this matcher and @assets above
+        # match /assets/index-<hash>.js, both are `header` directives, and the
+        # second one to run would overwrite the first — silently unpinning
+        # exactly the files whose whole point is being pinned. Excluding them
+        # here makes the two mutually exclusive by construction instead of by
+        # the order the lines happen to sit in.
+        @stable {
+            path /assets/* /fonts/* /icons/*
+            not path /assets/index-*.js /assets/index-*.css
+        }
+        header @stable Cache-Control "public, max-age=0, must-revalidate"
 
         # The shell has stable names, so it must NEVER be pinned: a stale
         # index.html or sw.js freezes the PWA on an older build and no later

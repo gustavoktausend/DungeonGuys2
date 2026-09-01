@@ -70,10 +70,35 @@ SERVER_REL="$SERVER_RELEASES/$SHA"
 # Restart is CONDITIONAL, and that is the point: a restart re-runs the migration,
 # which is the only operation of a deploy capable of failing. Paying that risk
 # for a CSS change would be trading the safe half of the deploy for nothing.
-NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs" | cut -d' ' -f1)
+#
+# NO PIPELINE HERE, and that is the point rather than a style preference.
+# `set -eu` does not include pipefail, so `sha256sum X | cut -d' ' -f1` reports
+# the exit status of `cut`: sha256sum can fail, cut succeeds over empty input,
+# the command substitution succeeds, and the hash comes out ''. The decision
+# below is then taken on an empty string — and measured under dash it takes the
+# WRONG branch, because '' equals the empty OLD_HASH: the script decides not to
+# restart and reports a successful deploy.
+#
+# `set -o pipefail` is deliberately NOT the answer. It reached dash only in
+# 0.5.12, and on a dash without it the line does not degrade gracefully — it
+# kills the shell on the spot, which would make every script in this directory
+# die at line one on an older box. `${VAR%% *}` is plain POSIX parameter
+# expansion, needs no `cut`, and inherits `set -e` correctly.
+NEW_HASH=$(sha256sum "$SERVER_REL/server.mjs") \
+    || fail "$SERVER_REL/server.mjs" 'sha256sum falhou no bundle novo'
+NEW_HASH=${NEW_HASH%% *}
 OLD_HASH=''
 if [ -f "$CURRENT_SERVER/server.mjs" ]; then
-    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs" | cut -d' ' -f1)
+    OLD_HASH=$(sha256sum "$CURRENT_SERVER/server.mjs") \
+        || fail "$CURRENT_SERVER/server.mjs" 'sha256sum falhou no bundle no ar'
+    OLD_HASH=${OLD_HASH%% *}
+fi
+
+# Captured BEFORE the swap, because a revert needs somewhere to go. Empty on a
+# first deploy, where there is no previous server release to fall back to.
+OLD_SERVER_REL=''
+if [ -e "$CURRENT_SERVER" ]; then
+    OLD_SERVER_REL=$(readlink -f "$CURRENT_SERVER")
 fi
 
 swap_symlink "$CURRENT" "$REL"
@@ -81,7 +106,32 @@ swap_symlink "$CURRENT_SERVER" "$SERVER_REL"
 
 RESTART_NOTE='dg2 mantido de pé'
 if [ "$NEW_HASH" != "$OLD_HASH" ] || ! $SYSTEMCTL is-active --quiet dg2; then
-    $SYSTEMCTL restart dg2
+    # Under `set -e` a failing restart used to abort the script right here: the
+    # prune never ran, the success line was never printed, and — the part that
+    # matters — nothing came out in the `script:pointer: message` format this
+    # file's header promises. A deploy that fails quietly does not count.
+    #
+    # The state left behind was worse than the missing message. `current` on the
+    # new client, `current-server` on the new server bundle, and the process
+    # serving neither, because a failed `restart` leaves the unit down. The next
+    # boot, or the next `systemctl start`, would bring the BROKEN bundle back
+    # up, and keep doing it.
+    #
+    # So the server symlink goes back to what it pointed at. The client half is
+    # left forward deliberately: it is static, it is not what failed, and a
+    # `rollback.sh` with no argument walks both symlinks back together from
+    # here. Bringing the unit up again is deliberately NOT attempted — this
+    # script cannot know why the start failed, and a second start on a guess
+    # would bury the journal entry that says.
+    if ! $SYSTEMCTL restart dg2; then
+        if [ -n "$OLD_SERVER_REL" ]; then
+            swap_symlink "$CURRENT_SERVER" "$OLD_SERVER_REL"
+            fail 'systemctl restart dg2' \
+                "a unit não subiu com $SHA; current-server revertido e a unit está parada — veja journalctl -u dg2 e rode rollback.sh"
+        fi
+        fail 'systemctl restart dg2' \
+            "a unit não subiu com $SHA e não havia release anterior para onde reverter — veja journalctl -u dg2"
+    fi
     RESTART_NOTE='dg2 reiniciado'
 fi
 
