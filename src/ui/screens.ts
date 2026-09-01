@@ -45,21 +45,47 @@ function fmtMod(k: string, v: number): string {
   return `${sign}${v}${PCT_STATS.has(k) ? '%' : ''} ${STAT_LABELS[k]}`;
 }
 
+/** A `<span class="...">text</span>`, built rather than concatenated. */
+function span(className: string, text: string): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
 /** ORIG/entities.js:136-145 — the markup half of `rollLevelChoices`.
  * The roll itself (which three Blessing objects) is sim/xp.ts's job; this
- * only ever reads `p.levelChoices`, which the sim already filled in. */
+ * only ever reads `p.levelChoices`, which the sim already filled in.
+ *
+ * Built as NODES, and not as a string that gets parsed as markup. `b.icon`,
+ * `b.name` and the stat labels are sim constants today, so there is no live
+ * hole here; two things make it worth closing now rather than later. There is
+ * no CSP, and phase 3 makes `World` contents arrive over WebRTC from a peer —
+ * the moment a `Blessing` can be authored remotely, a concatenated
+ * `innerHTML` is a stored-XSS sink on the origin that will be holding the
+ * session cookie from phase 6 on. Every other DOM write in this file already
+ * goes through `textContent`; this was the one that did not (WR-21).
+ *
+ * Nothing downstream changes: same elements, same classes, same order, so the
+ * click delegation on `.shop-item[data-i]` below keeps working untouched. And
+ * `.shop-item` and `.shop-effects` are both flex containers, which ignore
+ * whitespace-only children — so losing the template's indentation costs
+ * nothing on screen either. */
 function renderLevelupChoices(choices: Blessing[]): void {
-  dom.levelupChoices.innerHTML = choices.map((b, i) => {
-    const fx = Object.entries(b.mods)
-      .map(([k, v]) => `<span class="fx-pos">${fmtMod(k, v as number)}</span>`)
-      .join('');
-    return `
-      <button class="shop-item" data-i="${i}">
-        <span class="shop-icon">${b.icon}</span>
-        <span class="shop-name">${b.name}</span>
-        <span class="shop-effects">${fx}</span>
-      </button>`;
-  }).join('');
+  dom.levelupChoices.replaceChildren(...choices.map((b, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'shop-item';
+    btn.dataset.i = String(i);
+
+    const effects = document.createElement('span');
+    effects.className = 'shop-effects';
+    for (const [k, v] of Object.entries(b.mods)) {
+      effects.append(span('fx-pos', fmtMod(k, v as number)));
+    }
+
+    btn.append(span('shop-icon', b.icon), span('shop-name', b.name), effects);
+    return btn;
+  }));
 }
 
 /**
