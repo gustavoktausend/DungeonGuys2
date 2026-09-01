@@ -98,9 +98,8 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Infra/GitHub | 02-01 task 3 -- criar `DungeonGuys2` publico, confirmar Pages em 404, ver `ci.yml` verde num runner | Aguardando usuario | 2026-08-31 |
-| Infra/VPS | 02-04 -- confirmar KVM 2 e regiao, criar bucket B2 e chave de deploy, popular os 4 secrets | Aguardando usuario | 2026-08-31 |
-| Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-01 e 02-04 | 2026-08-31 |
+| Infra/VPS | 02-04 -- confirmar KVM 2 e regiao, criar bucket B2, chave de deploy, os 4 secrets E a variavel DEPLOY_ENABLED | Aguardando usuario | 2026-08-31 |
+| Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-04 | 2026-08-31 |
 
 ## Session Continuity
 
