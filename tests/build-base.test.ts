@@ -11,6 +11,7 @@
 // the check belongs to tools/sw/verify.mjs (plan 02-06), which runs after the
 // build and can therefore see something.
 import { describe, it, expect } from 'vitest';
+import { scan } from './scan';
 
 // Vite's raw glob, not node:fs — tsconfig's `types` is ["vite/client"] only.
 const TS = import.meta.glob<string>('../src/**/*.ts', {
@@ -26,6 +27,13 @@ const VITE_CONFIG = import.meta.glob<string>('../vite.config.ts', {
   query: '?raw', import: 'default', eager: true,
 });
 const MANIFEST = import.meta.glob<string>('../public/manifest.json', {
+  query: '?raw', import: 'default', eager: true,
+});
+
+// Also kept out of the sweep globs: public/sw.js is a TEMPLATE, and the
+// sentinels tools/sw/emit.mjs fills in would be noise to every assertion about
+// sources. It is read here for its own describe block, at the bottom.
+const SW = import.meta.glob<string>('../public/sw.js', {
   query: '?raw', import: 'default', eager: true,
 });
 
@@ -49,6 +57,7 @@ function only(files: Record<string, string>): string {
 
 const fixtureSw = only(FIXTURE_SW);
 const fixtureHtml = only(FIXTURE_HTML);
+const swTemplate = only(SW);
 
 const indexHtml = HTML['../index.html'];
 const viteConfig = VITE_CONFIG['../vite.config.ts'];
@@ -171,5 +180,71 @@ describe('fixture da instalação antiga', () => {
     // under test would not be in-place — a different experiment entirely.
     expect(fixtureHtml).toContain('href="/manifest.json"');
     expect(fixtureHtml).not.toContain(PAGES_SUBPATH);
+  });
+});
+
+// The template of plan 02-06 (D2-09, D2-10, INFRA-03). Every assertion here
+// reads CODE, never the file as it sits on disk: the header explains in prose
+// why this worker does not claim clients and does not swap version on its own,
+// so a grep over the raw text would be measuring the documentation of the rule
+// and would flip red the moment somebody improved a comment.
+describe('template do service worker', () => {
+  // scan(src, true), and NOT the scan(scan(src, true), false) of
+  // purity.test.ts: there the strings are noise, here they are the subject.
+  // The build sentinel lives inside 'dg2-__BUILD_HASH__' and the prefix guard
+  // inside startsWith('dg2-') — blanking string bodies would erase both of the
+  // things being asserted. Comments go, strings stay.
+  const code = scan(swTemplate, true);
+
+  it('o glob leu public/sw.js por inteiro', () => {
+    // Anti-vacuity by LENGTH, never by type (the lesson of plan 02-02): a glob
+    // that hands back '' would make every assertion below pass.
+    expect(swTemplate.length, 'public/sw.js veio vazio ou sumiu').toBeGreaterThan(1000);
+    expect(code.length, 'o filtro de comentários não pode consumir o arquivo inteiro')
+      .toBeGreaterThan(500);
+  });
+
+  it('as duas sentinelas continuam no template', () => {
+    // Without them tools/sw/emit.mjs has nothing to substitute, and the build
+    // would ship a worker whose precache list is a bare identifier.
+    expect(code).toContain('__BUILD_HASH__');
+    expect(code).toContain('__PRECACHE__');
+  });
+
+  it('o worker não toma o controle de páginas que não carregou', () => {
+    // D2-09. With claim(), a deploy would swap the sim under a running match —
+    // the exact refusal D-08 of phase 1 makes unbypassable.
+    expect(code).not.toContain('clients.claim');
+  });
+
+  it('a única troca de versão é a que a página pede', () => {
+    // Exactly one occurrence, and it has to be inside the message handler —
+    // one in install() would be the unconditional swap D2-09 removed.
+    expect(count(code, 'skipWaiting')).toBe(1);
+    const message = code.indexOf("'message'");
+    expect(message, "o listener de 'message' tem de existir").toBeGreaterThan(-1);
+    expect(code.indexOf('skipWaiting')).toBeGreaterThan(message);
+  });
+
+  it('nenhuma resposta não-ok é gravada no cache', () => {
+    // P-2: Cache Storage ignores Cache-Control, so a 502 stored during a deploy
+    // is a broken index.html forever.
+    expect(code).toContain('if (res.ok)');
+  });
+
+  it('o activate só apaga cache com o prefixo do próprio jogo', () => {
+    // DM-3/P-11: Cache Storage is per origin. One delete site, and it is behind
+    // the prefix filter — a second, unfiltered one would reach the sibling game.
+    expect(count(code, "startsWith('dg2-')")).toBe(1);
+    expect(count(code, 'caches.delete')).toBe(1);
+  });
+
+  it('o cache só responde por caminho que o build emitiu', () => {
+    // INFRA-03, the allowlist half: the set comes from the precache sentinel,
+    // so a route the build did not produce can never be answered from storage.
+    expect(code).toContain('PRECACHE_SET.has(path)');
+    // And the redundant early return that documents the intent for a reviewer.
+    expect(code).toContain("url.pathname.startsWith('/api/')");
+    expect(code).toContain("url.pathname === '/ws'");
   });
 });
