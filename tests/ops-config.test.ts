@@ -14,6 +14,13 @@
 //   D2-07 rollback touches no database, or reverting code reverts data
 //   D2-15 no secret and no address ever enters the repository
 import { describe, it, expect } from 'vitest';
+// The one import from apps/ in this file, and it carries the phase's only
+// number that has to agree across the shell/unit boundary: systemd's stop
+// deadline in ops/dg2.service must sit ABOVE the process's own watchdog.
+// Importing beats copying because a copy is what drifts. It costs nothing:
+// shutdown.ts holds no Node global by design, so it compiles inside this
+// program exactly as it compiles inside apps/server's.
+import { SHUTDOWN_GRACE_MS } from '../apps/server/src/shutdown';
 
 // Vite's raw glob, not node:fs — tsconfig's `types` is ["vite/client"] only.
 // The pattern globs the directory rather than a suffix because the Caddyfile
@@ -507,6 +514,27 @@ describe('ops/dg2.service', () => {
     // The bind address lives in apps/server/src/index.ts, but a stray
     // DG2_UPSTREAM or NODE_OPTIONS here could still widen it. Cheap to assert.
     expect(read('dg2.service')).not.toContain('0.0.0.0');
+  });
+
+  it('dá ao desligamento gracioso mais tempo que o watchdog do processo (WR-07)', () => {
+    // The other half of the graceful shutdown. apps/server/src/shutdown.ts
+    // stops accepting, drains the in-flight requests, closes sqlite and only
+    // then exits — and arms a watchdog so that one slow client cannot postpone
+    // a deploy forever. systemd owns the OUTER deadline: without
+    // TimeoutStopSec the unit inherits DefaultTimeoutStopSec, which is 90s on
+    // Debian and Ubuntu.
+    //
+    // The two numbers are COMPARED and not merely both present, which is the
+    // whole reason SHUTDOWN_GRACE_MS is imported instead of copied. If
+    // systemd's deadline ever landed at or below the process's own, SIGKILL
+    // would arrive first and the drain would be dead code: the deploy would go
+    // on severing responses and skipping sqlite.close(), with every assertion
+    // in tests/server-shutdown.test.ts still green, because that file tests
+    // the sequence and not the clock it runs against.
+    const unit = code('dg2.service');
+    const m = /^TimeoutStopSec=(\d+)$/m.exec(unit);
+    expect(m, 'sem TimeoutStopSec — a unit herda os 90s do padrão').not.toBeNull();
+    expect(Number(m![1]) * 1000).toBeGreaterThan(SHUTDOWN_GRACE_MS);
   });
 });
 

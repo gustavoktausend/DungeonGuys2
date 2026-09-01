@@ -50,6 +50,25 @@ Environment=NODE_OPTIONS=--max-old-space-size=192
 EnvironmentFile=/etc/dg2/env
 Restart=always
 RestartSec=2
+# The OUTER half of the graceful shutdown (WR-07); the inner half is
+# apps/server/src/shutdown.ts, which on SIGTERM stops accepting, drains the
+# in-flight requests, closes sqlite and only then exits — arming a 5s watchdog
+# so that one slow client cannot postpone a deploy forever.
+#
+# systemd owns the deadline AROUND that sequence, and without this line the
+# unit inherits DefaultTimeoutStopSec, which is 90s on Debian and Ubuntu. In
+# practice the process always beats it, because its own watchdog fires at 5s —
+# so the value here is not what usually decides. It is what decides on the day
+# the watchdog does not fire at all: a bug in the drain, a handle that never
+# closes, and every `systemctl restart` in ops/deploy.sh stalls a minute and a
+# half before SIGKILL, inside a deploy that is holding the deploy-vps
+# concurrency group.
+#
+# 10s and not 5s: it has to sit ABOVE the process's own deadline, or SIGKILL
+# arrives first and the whole drain is dead code. tests/ops-config.test.ts
+# imports SHUTDOWN_GRACE_MS and compares the two rather than asserting each in
+# isolation, which is the only shape in which that ordering cannot drift.
+TimeoutStopSec=10
 
 # StateDirectory creates /var/lib/dg2, chowns it to User=, grants this unit
 # write access to it, and recreates it after a wiped /var — one directive
