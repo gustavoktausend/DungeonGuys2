@@ -239,6 +239,18 @@ describe('template do service worker', () => {
     expect(count(code, 'caches.delete')).toBe(1);
   });
 
+  it('o activate alcança o cache anterior ao esquema de nome por hash', () => {
+    // T-2-STALECACHE, measured by tests/pwa/update.spec.ts and fixed here: a
+    // `dg2-` prefix cannot match 'dungeonguys2-v1', a name written before the
+    // prefix existed, so every installation predating the rewrite would carry a
+    // dead build in Cache Storage forever. The literal is the only way the
+    // cleanup can reach it, and this assertion is why removing it fails loudly
+    // instead of silently on machines nobody tests on.
+    expect(count(code, "'dungeonguys2-v1'")).toBe(1);
+    // Still exactly one delete site — the reach widened, the surface did not.
+    expect(code).toContain('k === LEGACY_CACHE');
+  });
+
   it('o cache só responde por caminho que o build emitiu', () => {
     // INFRA-03, the allowlist half: the set comes from the precache sentinel,
     // so a route the build did not produce can never be answered from storage.

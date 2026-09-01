@@ -35,6 +35,20 @@
 // did not load. The page asks for the swap, outside a run, by posting
 // SKIP_WAITING to the waiting worker — wired up in plan 02-07.
 const CACHE = 'dg2-__BUILD_HASH__';
+
+// The ONE cache name this game used before D2-10 made the name derive from the
+// build. A prefix filter cannot match a name written before the prefix existed,
+// so without this literal every installation made before the rewrite keeps a
+// whole dead build in Cache Storage forever, and the activate handler below has
+// nothing to clean on the very upgrade that most needs cleaning
+// (T-2-STALECACHE, measured by tests/pwa/update.spec.ts).
+//
+// This is a closed list of one, not a widening of item 2 above: the name is
+// ours, it was only ever used by DungeonGuys2, and the sibling game's
+// 'dungeonguys-v3' is deliberately NOT on it. Nothing new is ever added here —
+// every name from D2-10 onwards carries the `dg2-` prefix by construction.
+const LEGACY_CACHE = 'dungeonguys2-v1';
+
 const PRECACHE = __PRECACHE__;
 const PRECACHE_SET = new Set(PRECACHE);
 
@@ -54,10 +68,11 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    // Our prefix only, and never the current name — item 2 of the header.
-    await Promise.all(
-      keys.filter(k => k.startsWith('dg2-') && k !== CACHE).map(k => caches.delete(k)),
-    );
+    // Ours only, and never the current name — item 2 of the header. "Ours" is
+    // the prefix plus the single pre-prefix name, and nothing else on the
+    // origin is touched.
+    const ours = k => k.startsWith('dg2-') || k === LEGACY_CACHE;
+    await Promise.all(keys.filter(k => ours(k) && k !== CACHE).map(k => caches.delete(k)));
     // Nothing else belongs here on purpose — D2-09, see the header.
   })());
 });
