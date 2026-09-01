@@ -12,7 +12,12 @@ export default tseslint.config(
   // them a defect in any source file. Linting it would also be worse than
   // useless: an autofix there would rewrite the frozen artifact, which is the
   // one thing tests/build-base.test.ts exists to prevent.
-  { ignores: ['dist', 'packages/*/dist', 'public', 'node_modules', 'tools', 'tests/pwa/fixtures'] },
+  // 'dist-server' is the third instance of the same thing: the esbuild bundle
+  // of apps/server, which inlines hono and kysely and reports 38 errors from
+  // THEIR source, not from ours. The bare 'dist' entry does not cover it —
+  // measured, 38 errors — because flat-config ignores match by path segment.
+  // apps/server/src, the actual input, stays linted; see the block below.
+  { ignores: ['dist', 'dist-server', 'packages/*/dist', 'public', 'node_modules', 'tools', 'tests/pwa/fixtures'] },
   ...tseslint.configs.recommended,
   {
     // apps/server/src is linted, and its ABSENCE from the `ignores` above is
