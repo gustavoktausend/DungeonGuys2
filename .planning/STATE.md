@@ -101,6 +101,25 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 | Infra/VPS | 02-04 -- confirmar KVM 2 e regiao, criar bucket B2, chave de deploy, os 4 secrets E a variavel DEPLOY_ENABLED | Aguardando usuario | 2026-08-31 |
 | Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-04 | 2026-08-31 |
 
+## Nota para o planejamento da fase 3
+
+A fase 3 declara `Depends on: Phase 2`, e a fase 2 esta em **10/12**: 02-04 e 02-12 seguem
+adiados por falta da VPS (ver Deferred Items acima). A decisao do usuario foi avancar na
+fase 3 pelo que e codigo puro enquanto a caixa nao existe.
+
+Consequencia para o discuss/plan da fase 3 -- o criterio de sucesso 3 (**"a sala fecha entre
+jogadores atras de NAT residencial brasileiro, incluindo pelo caminho de relay"**, SALA-03)
+depende do coturn, que mora na VPS. Ele NAO pode ser fechado antes do 02-04. Todo o resto da
+fase e local:
+
+- codec binario quantizado do snapshot e o bench de CI abaixo de 16 KiB (criterio 5, SYNC-04)
+- as duas classes de canal e as tabelas de enum congeladas
+- codigo de sala, lobby, escolha de classe e atribuicao de slots `p0..p3` (criterios 1 e 2)
+- telemetria de ping/rota e o registro do desfecho ICE (criterio 4) -- a estrutura e local,
+  a medicao real precisa da caixa
+
+Sequencie as ondas de forma que o que depende da VPS caia nas ultimas, como a fase 2 fez.
+
 ## Session Continuity
 
 Last session: 2026-08-31T20:56:34.236Z
