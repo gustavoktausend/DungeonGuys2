@@ -43,11 +43,28 @@ export interface HealthBody {
  * applied. A bare `select 1` would prove the process is alive, which the HTTP
  * response already proved; opening a connection per request would make the
  * health check the most expensive route on the server.
+ *
+ * The COUNT is what makes the second half of that sentence true, and reading it
+ * is the whole point of the query. A `kysely_migration` that exists with zero
+ * rows answers this query perfectly well, so a probe that only checked for an
+ * exception was a `select 1` wearing a different table name — green over a
+ * migration that created the bookkeeping table and then failed, and green over
+ * a restore from a generation predating the first migration. Since the monitor
+ * of D2-21 keyword-matches `"status":"ok"`, those are exactly the states that
+ * had to stop reading green.
+ *
+ * `db` therefore starts FALSE and is earned, rather than starting true and
+ * being taken away. The two differ on any path that returns without answering
+ * the question — a driver that hands back `undefined` instead of a row, say —
+ * and on that path the safe answer is the one that raises the alarm.
  */
 export function healthBody(sqlite: SqliteHandle, release: string): HealthBody {
-  let db = true;
+  let db = false;
   try {
-    sqlite.prepare('select count(*) as n from kysely_migration').get();
+    const row = sqlite.prepare('select count(*) as n from kysely_migration').get() as
+      | { n: number }
+      | undefined;
+    db = (row?.n ?? 0) > 0;
   } catch {
     // Swallowed on purpose: the caller gets a boolean and the reason stays in
     // the process. Anything more specific than `false` is topology.
