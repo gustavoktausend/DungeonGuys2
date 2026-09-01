@@ -133,7 +133,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 02-04-PLAN.md — A caixa e o bucket confirmados, a chave de deploy criada, e `docs/OPERACAO.md` aberto
-- [ ] 02-05-PLAN.md — Playwright, a fixture do build antigo congelada, e as specs de instalação e offline em vermelho
+- [x] 02-05-PLAN.md — Playwright, a fixture do build antigo congelada, e as specs de instalação e offline em vermelho
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -439,7 +439,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 2/12 | In Progress|  |
+| 2. Migração para a VPS | 3/12 | In Progress|  |
 | 3. Sala, transporte e protocolo | 0/4 | Not started | - |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
