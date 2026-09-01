@@ -169,6 +169,34 @@ describe('scripts de ops/', () => {
     expect(bad).toEqual([]);
   });
 
+  it('deploy.sh não deixa um release partido quando o restart falha', () => {
+    // Under `set -e` a failing `systemctl restart` aborted the script on the
+    // spot. Measured under dash with a fake sudo failing on `restart`: exit 1
+    // and ZERO bytes of output — no prune, no success line, and nothing in the
+    // `script:pointer: message` format the file's own header promises. After
+    // the fix the same run prints `deploy.sh:systemctl restart dg2: ...` and
+    // exits 1.
+    //
+    // The state was the worse half: `current` on the new client,
+    // `current-server` on the new server bundle, and the unit down — so the
+    // next boot brings the broken bundle back up.
+    const src = code('deploy.sh');
+    const capture = src.indexOf('OLD_SERVER_REL=$(readlink -f "$CURRENT_SERVER")');
+    const swap = src.indexOf('swap_symlink "$CURRENT_SERVER" "$SERVER_REL"');
+    expect(capture, 'deploy.sh não guarda o alvo anterior de current-server').toBeGreaterThan(-1);
+    expect(swap, 'deploy.sh não troca o symlink do servidor').toBeGreaterThan(-1);
+    // Order is the assertion, not presence: captured AFTER the swap, the
+    // variable would already hold the new release and the revert would be a
+    // no-op wearing the right name.
+    expect(capture, 'a captura tem de vir antes da troca').toBeLessThan(swap);
+    expect(src).toContain('if ! $SYSTEMCTL restart dg2; then');
+    expect(src).toContain('swap_symlink "$CURRENT_SERVER" "$OLD_SERVER_REL"');
+    // Two arms, and both have to exist: with a previous release to revert to,
+    // and without one (the first deploy), each with its own message.
+    expect(src.split('\n').filter((l) => l.includes("fail 'systemctl restart dg2'")))
+      .toHaveLength(2);
+  });
+
   it('a decisão de restart não sai de um pipeline sem pipefail', () => {
     // `NEW_HASH=$(sha256sum X | cut -d' ' -f1)` reports CUT's status, not
     // sha256sum's, and `set -eu` carries no pipefail. Measured under dash: with

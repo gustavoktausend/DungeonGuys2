@@ -94,12 +94,44 @@ if [ -f "$CURRENT_SERVER/server.mjs" ]; then
     OLD_HASH=${OLD_HASH%% *}
 fi
 
+# Captured BEFORE the swap, because a revert needs somewhere to go. Empty on a
+# first deploy, where there is no previous server release to fall back to.
+OLD_SERVER_REL=''
+if [ -e "$CURRENT_SERVER" ]; then
+    OLD_SERVER_REL=$(readlink -f "$CURRENT_SERVER")
+fi
+
 swap_symlink "$CURRENT" "$REL"
 swap_symlink "$CURRENT_SERVER" "$SERVER_REL"
 
 RESTART_NOTE='dg2 mantido de pé'
 if [ "$NEW_HASH" != "$OLD_HASH" ] || ! $SYSTEMCTL is-active --quiet dg2; then
-    $SYSTEMCTL restart dg2
+    # Under `set -e` a failing restart used to abort the script right here: the
+    # prune never ran, the success line was never printed, and — the part that
+    # matters — nothing came out in the `script:pointer: message` format this
+    # file's header promises. A deploy that fails quietly does not count.
+    #
+    # The state left behind was worse than the missing message. `current` on the
+    # new client, `current-server` on the new server bundle, and the process
+    # serving neither, because a failed `restart` leaves the unit down. The next
+    # boot, or the next `systemctl start`, would bring the BROKEN bundle back
+    # up, and keep doing it.
+    #
+    # So the server symlink goes back to what it pointed at. The client half is
+    # left forward deliberately: it is static, it is not what failed, and a
+    # `rollback.sh` with no argument walks both symlinks back together from
+    # here. Bringing the unit up again is deliberately NOT attempted — this
+    # script cannot know why the start failed, and a second start on a guess
+    # would bury the journal entry that says.
+    if ! $SYSTEMCTL restart dg2; then
+        if [ -n "$OLD_SERVER_REL" ]; then
+            swap_symlink "$CURRENT_SERVER" "$OLD_SERVER_REL"
+            fail 'systemctl restart dg2' \
+                "a unit não subiu com $SHA; current-server revertido e a unit está parada — veja journalctl -u dg2 e rode rollback.sh"
+        fi
+        fail 'systemctl restart dg2' \
+            "a unit não subiu com $SHA e não havia release anterior para onde reverter — veja journalctl -u dg2"
+    fi
     RESTART_NOTE='dg2 reiniciado'
 fi
 
