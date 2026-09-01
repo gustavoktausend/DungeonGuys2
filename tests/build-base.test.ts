@@ -29,6 +29,27 @@ const MANIFEST = import.meta.glob<string>('../public/manifest.json', {
   query: '?raw', import: 'default', eager: true,
 });
 
+// Deliberately NOT merged into the globs above: the fixture is a build
+// artifact, and the "no Pages subpath in any source" sweep below is about
+// sources. These two are read for the opposite reason — to prove the fixture
+// has NOT moved.
+const FIXTURE_SW = import.meta.glob<string>('../tests/pwa/fixtures/old-build/sw.js', {
+  query: '?raw', import: 'default', eager: true,
+});
+const FIXTURE_HTML = import.meta.glob<string>('../tests/pwa/fixtures/old-build/index.html', {
+  query: '?raw', import: 'default', eager: true,
+});
+
+/** The record has exactly one entry, or the glob missed — '' makes the length
+ *  guard below fire instead of every assertion passing on `undefined`. */
+function only(files: Record<string, string>): string {
+  const values = Object.values(files);
+  return values.length === 1 ? values[0] : '';
+}
+
+const fixtureSw = only(FIXTURE_SW);
+const fixtureHtml = only(FIXTURE_HTML);
+
 const indexHtml = HTML['../index.html'];
 const viteConfig = VITE_CONFIG['../vite.config.ts'];
 const styleCss = CSS['../src/style.css'];
@@ -111,5 +132,44 @@ describe('o build é servível da raiz do domínio', () => {
     // Every @font-face sources from the self-hosted directory — one stray
     // remote src: would put the third party back on the offline path.
     expect(count(styleCss, "url('/fonts/")).toBe(faces);
+  });
+});
+
+// T-2-VACUOUS. tests/pwa/fixtures/old-build/ is the "old installation" the
+// update test of success criterion 2 upgrades FROM. Regenerated from a later
+// build it would be the NEW build, and that test would pass without testing
+// anything — the failure mode a fixture cannot report about itself. These four
+// assertions are the report.
+describe('fixture da instalação antiga', () => {
+  // Anti-vacuity by LENGTH, never by type: `toBeTypeOf('string')` accepts '',
+  // which is how plan 02-02 shipped a green test that had read no CSS at all.
+  it.each([
+    ['sw.js', fixtureSw, 1000],
+    ['index.html', fixtureHtml, 500],
+  ])('o glob leu %s da fixture por inteiro', (name, src, minLength) => {
+    expect(src.length, `tests/pwa/fixtures/old-build/${name} veio vazio ou sumiu`)
+      .toBeGreaterThan(minLength);
+  });
+
+  it('o sw.js da fixture é o worker ANTIGO', () => {
+    // The two defects that date it: the unconditional swap D2-09 removes, and
+    // the literal cache name D2-10 replaces with one derived from the build.
+    expect(fixtureSw).toContain('skipWaiting');
+    expect(fixtureSw).toContain('dungeonguys2-v1');
+  });
+
+  it('o sw.js da fixture não foi sobrescrito pelo template novo', () => {
+    // The sentinel tools/sw/emit.mjs fills in (02-06) and the prefix the new
+    // cache name carries. Either one here means the fixture was regenerated.
+    expect(fixtureSw).not.toContain('__PRECACHE__');
+    expect(fixtureSw).not.toContain('dg2-');
+  });
+
+  it('a fixture foi construída DEPOIS da mudança de base', () => {
+    // Root-absolute href is the signature of `base: '/'` (plan 02-02). Built
+    // before it, the worker's scope would be /DungeonGuys2/ and the update
+    // under test would not be in-place — a different experiment entirely.
+    expect(fixtureHtml).toContain('href="/manifest.json"');
+    expect(fixtureHtml).not.toContain(PAGES_SUBPATH);
   });
 });

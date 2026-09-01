@@ -6,7 +6,13 @@ export default tseslint.config(
   // @dg2/sim artifact whose sha256 is SIM_VERSION). Linting minified output is
   // meaningless: it reports ~92 no-unused-expressions on esbuild's comma
   // operators, none of which is a defect in the source.
-  { ignores: ['dist', 'packages/*/dist', 'public', 'node_modules', 'tools'] },
+  // tests/pwa/fixtures is the same kind of thing as 'dist' and for the same
+  // reason: it IS a dist, frozen byte for byte (plan 02-05), so it carries the
+  // very minified bundle the sentence above is about — 279 errors, none of
+  // them a defect in any source file. Linting it would also be worse than
+  // useless: an autofix there would rewrite the frozen artifact, which is the
+  // one thing tests/build-base.test.ts exists to prevent.
+  { ignores: ['dist', 'packages/*/dist', 'public', 'node_modules', 'tools', 'tests/pwa/fixtures'] },
   ...tseslint.configs.recommended,
   {
     // sim/ must stay pure: no I/O, no DOM, no wall-clock, no unseeded randomness.

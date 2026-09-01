@@ -1,0 +1,186 @@
+Animations Order Saved Sprites Sheet. 
+118 Anims Total.  
+
+License further below. Rate this tool here: https://kingbell.itch.io/pixel-sprite-mixer/rate
+
+Email KingBell at Brandondpbell@gmail.com for additional info or requests.
+
+Animations are great for top-down games, roguelikes, platformers, pixel art adventures and action open world games.
+
+1. idle standing
+2. run normal
+3. hurt normal
+4. die normal
+5. press / interact / button / door
+
+6. jump
+7. hop
+8. double jump
+9. ninja run
+10. run normal
+
+11. jog
+12. rush run
+13. slow run
+14. duck
+15. duck pose frame
+
+16. spawn from ground
+17. teleport in air
+18. warp from air above
+
+
+19. land on ground
+20. drop on ground
+21. hardhit fall on ground
+22. squash hit ground
+
+23. air floating 1
+24. air floating 2
+25. in-air pose 1
+26. in-air pose 2
+27. in-air pose 3
+28. in-air pose 4
+
+29. air-fall down 1
+30. air-fall down 2
+31. knockback 1
+32. knockback 2
+33. air knockback up 1
+34. air knockback up 2
+
+35. rest / recover
+36. heal / use item
+37. sleep
+
+38. flying idle on ground
+39. flying idle on ground colorable
+40. flying in-air
+41. flying in-air colorable
+42. flying run on ground
+43. flying run on ground colorable
+
+44. dash boost move 1
+45. dash boost move 2
+46. dash pose frame 1
+47. dash pose frame 2
+58. flash-step teleport 1
+49. flash-step teleport 2
+
+50. firing energy spell cast
+51. charging energy / mana
+52. charging with staff
+53. charging with wand
+54. casting / spell-send
+55. energy cast spell loop pose
+
+56. hurt normal
+57. hurt skull show
+58. hurt tear eye fall
+59. hurt blink eyes
+60. hurt hit mid-air
+61. hurt hit critical mid-air
+
+62. die normal
+63. die shrink down
+64. die head fall
+65. die skull fall
+66. die poof air
+67. die smoke air
+68. die sparkle
+69. die explode
+70. die melt skeleton
+71. die freeze colorable
+72. die soul rise colorable
+73. die drown colorable
+74. die sinking
+75. die trap colorable
+
+
+76. swim idle no shadow, no outline, no bg
+77. swim idle outline, no shadow, no bg
+78. swim idle shadow colorable, no bg
+79. swim idle bg colorable with shadow
+
+80. swim float deep, no arms
+81. swim float shallow, no arms
+82. swim float with arms
+83. swim float bg colorable with shadow
+
+
+84. swim move fast left-right, arms no bg
+85. swim move slow left-right, no bg
+86. swim move boost left-right, no bg, colorable
+87. swim move fast left-right, arms bg, colorable
+
+
+88. swim rush 1, move, arms, no bg, no outline
+89. swim rush 2, move arms, no bg colorable
+90. swim rush 3, move arms, outlined, no bg, colorable
+91. swim rush, down/up, arms bg, colorable
+
+92. weapon idle sword with shield
+93. weapon idle shield double
+94. weapon idle staff with rune
+95. weapon idle wand with rune
+96. weapon idle bow tall
+97. weapon idle bow short
+
+98. weapon run sword with shield
+99. weapon run shield double
+
+100. weapon run staff with shield
+101. weapon run wand with rune
+102. weapon run bow tall with bag
+103. weapon run bow short with bag
+
+
+104. weapon bow tall fire fast
+105. weapon bow tall fire fast with arrows bag
+106. weapon bow tall fire slow
+107. weapon bow tall fire slow with arrows bag
+
+108. weapon bow short fire fast
+109. weapon bow short fire fast with arrows bag
+110. weapon bow short fire slow
+111. weapon bow short fire slow with arrows bag
+
+112. stand poses with wings and weapona
+
+113. weapon attack sword melee
+114. weapon attack staff melee
+115. weapon attack wand melee
+116. weapon attack melee shield bash
+117. weapon staff cast
+118. weapon wand cast
+
+
+
+LICENSE 📜	 
+
+	Sprites free for personal/commercial use. Do NOT use in NFTs, Crypto or AI.
+	Use in your top-down games, stories, rpgs, roguelikes, platformers & streams.
+
+GET MORE SPRITES ON ITCHIO:
+
+	https://kingbell.itch.io/pixel-sprite-mixer/
+
+
+MADE BY: KingBell on Itch.IO
+
+	https://kingbell.itch.io/
+
+	I build Top Tools for Games, Artists, Students, Jams and Devs!
+
+	Your tips & donations will help build even more free features.
+
+	Want to use it for your site, class, event, workshop or game jam?
+
+	Let's plan it together. Email me at BellBlitzKing@gmail.com 📧
+
+
+WANT TO SUPPORT OR RATE ON ITCHIO? Go To:
+
+	https://kingbell.itch.io/pixel-sprite-mixer/rate
+
+	https://kingbell.itch.io/pixel-sprite-mixer/donate
