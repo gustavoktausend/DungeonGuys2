@@ -19,9 +19,9 @@
 //    worker would then store). A test server that fell back to index.html
 //    would prove a behaviour production does not have.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
-import { extname, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import type { Page } from '@playwright/test';
 
 /** A handler for a dynamically registered path, bypassing the filesystem. */
@@ -220,6 +220,28 @@ export async function readCacheEntries(page: Page): Promise<Record<string, strin
     }
     return entries;
   });
+}
+
+/**
+ * Every file under dist/, as root-absolute pathnames, sorted.
+ *
+ * A real recursive scan and never a hand-written list: the hand-written list IS
+ * the defect, documented in the first person by the header of the OLD service
+ * worker (still readable at tests/pwa/fixtures/old-build/sw.js), where names
+ * that no longer existed made cache.addAll reject the whole install. A test
+ * that repeated the mistake could not detect it.
+ *
+ * install.spec.ts (plan 02-05) carries its own copy of this scan, written
+ * before there was a second caller; this is the shared home for it.
+ */
+export async function distPathnames(dir = resolve('dist'), prefix = ''): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const pathname = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...await distPathnames(join(dir, entry.name), pathname));
+    else found.push(pathname);
+  }
+  return found.sort();
 }
 
 /**

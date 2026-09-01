@@ -76,3 +76,57 @@ jobs:
       - run: npm run test:browser
 
       - run: npm run build
+
+  # A prova executavel de INFRA-02 e INFRA-03. Se este job ficar vermelho, uma
+  # de tres coisas aconteceu: o precache deixou de cobrir o dist/, uma resposta
+  # de /api/ passou a ser guardada em Cache Storage, ou a atualizacao a partir
+  # de uma instalacao antiga parou de funcionar. Nenhuma das tres aparece em
+  # outro portao, e nenhuma das tres da sintoma antes de um jogador abrir o jogo
+  # sem rede -- semanas depois, sem nada para correlacionar.
+  #
+  # Independente do job `test` (sem `needs:`) porque os dois nao compartilham
+  # artefato nenhum: serializar so somaria minutos ao PR. O job `deploy` do
+  # plano 02-11 e que vai declarar `needs: [test, pwa]`, e e la que a
+  # dependencia pertence -- publicar e o unico passo que precisa dos dois.
+  pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # O mesmo par de passos do job `test`, e pelo mesmo motivo: a versao exata
+      # do Playwright e a variavel do experimento, entao um cache compartilhado
+      # entre versoes diferentes invalida o portao.
+      - id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+
+      # Mesma FORMA de chave, com o conjunto de motores no fim. Uma chave
+      # literalmente igual a do job `test` seria pior que duplicar: quem
+      # terminasse primeiro gravaria a entrada, e se fosse este job o `test`
+      # restauraria um cache so com Chromium e baixaria Firefox e WebKit em toda
+      # execucao dali em diante, sem nunca poder regravar a chave ja ocupada.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-ms-playwright-${{ steps.playwright-version.outputs.version }}-chromium
+
+      # So Chromium, de proposito: o Playwright suporta service worker apenas
+      # nesse motor, entao instalar os outros dois aqui custaria minutos e nao
+      # compraria cobertura -- produziria dois projetos verdes que nunca
+      # registraram um worker. A lacuna que isso deixa (Firefox, WebKit e
+      # iOS/Safari fisico) e decisao registrada de D2-11 e esta escrita em
+      # docs/PARIDADE.md; nao e efeito colateral deste passo.
+      - run: npx playwright install --with-deps chromium
+
+      # A ordem e obrigatoria. O build produz o dist/ que as specs servem; o
+      # passo do meio recusa um dist/ cujo worker ficou com as sentinelas de pe
+      # (o caso de alguem rodar `vite build` solto), o que faria as quatro specs
+      # falharem por um motivo que nao e o delas.
+      - run: npm run build
+      - run: npm run sw:verify
+      - run: npm run test:pwa
