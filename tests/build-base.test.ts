@@ -43,14 +43,21 @@ function count(haystack: string, needle: string): number {
 }
 
 describe('o build é servível da raiz do domínio', () => {
-  // Anti-vacuity: a glob that finds nothing makes every assertion below pass.
-  it('os globs encontraram os arquivos nomeados', () => {
-    expect(indexHtml, 'o glob não encontrou index.html').toBeTypeOf('string');
-    expect(viteConfig, 'o glob não encontrou vite.config.ts').toBeTypeOf('string');
-    expect(styleCss, 'o glob não encontrou src/style.css').toBeTypeOf('string');
-    expect(screensTs, 'o glob não encontrou src/ui/screens.ts').toBeTypeOf('string');
-    expect(TS['../src/main.ts'], 'o glob não encontrou src/main.ts').toBeTypeOf('string');
-    expect(MANIFEST['../public/manifest.json'], 'o glob não encontrou public/manifest.json').toBeTypeOf('string');
+  // Anti-vacuity: a glob that finds nothing — or that finds the file and hands
+  // back an empty string — makes every assertion below pass. The second case is
+  // not hypothetical: Vitest's default `css: false` blanks CSS modules by file
+  // extension, `?raw` included, so this guard checks CONTENT, not just type.
+  // vitest.config.ts sets `css: true` precisely so style.css arrives whole.
+  it.each([
+    ['index.html', indexHtml, 500],
+    ['vite.config.ts', viteConfig, 100],
+    ['src/style.css', styleCss, 1000],
+    ['src/ui/screens.ts', screensTs, 1000],
+    ['src/main.ts', TS['../src/main.ts'], 500],
+    ['public/manifest.json', MANIFEST['../public/manifest.json'], 200],
+  ])('o glob leu %s por inteiro', (name, src, minLength) => {
+    expect(src, `o glob não encontrou ${name}`).toBeTypeOf('string');
+    expect(src.length, `${name} veio vazio ou truncado`).toBeGreaterThan(minLength);
   });
 
   it('nenhuma fonte carrega o subcaminho do GitHub Pages', () => {
@@ -87,5 +94,22 @@ describe('o build é servível da raiz do domínio', () => {
   it('o link de compartilhamento não crava um domínio', () => {
     expect(screensTs).not.toContain('github.io');
     expect(count(screensTs, 'location.origin')).toBe(1);
+  });
+
+  it('nenhuma fonte de terceiro no caminho de carregamento', () => {
+    expect(indexHtml).not.toContain('fonts.googleapis.com');
+    expect(indexHtml).not.toContain('fonts.gstatic.com');
+  });
+
+  it('as duas famílias são declaradas localmente', () => {
+    // The family names are load-bearing: --pixel-font and --display-font, and
+    // the ~40 font-family rules that read them, were not touched.
+    expect(styleCss).toContain("font-family: 'Press Start 2P'");
+    expect(styleCss).toContain("font-family: 'Pixelify Sans'");
+    const faces = count(styleCss, '@font-face');
+    expect(faces).toBeGreaterThanOrEqual(2);
+    // Every @font-face sources from the self-hosted directory — one stray
+    // remote src: would put the third party back on the offline path.
+    expect(count(styleCss, "url('/fonts/")).toBe(faces);
   });
 });

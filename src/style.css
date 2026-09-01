@@ -1,3 +1,32 @@
+/* ─── Fonts, self-hosted (D2-20) ───────────────────────── */
+/* These used to come from fonts.googleapis.com/fonts.gstatic.com. They are
+   cross-origin, so they never enter a precache derived from dist/ — a clean
+   install that goes offline before the fetch renders with the system-ui /
+   monospace fallbacks declared below, and "opens without network" would mean
+   "opens with different typography". Self-hosted, offline is byte-identical to
+   online, and the offline test can assert ZERO network failures with no
+   per-origin exception carved out of it.
+   Root-absolute url() for the same reason the index.html href are: the
+   stylesheet is hashed into /assets/, so a relative path would resolve against
+   that directory, not the site root.
+   Latin subsets only, straight from the official Google Fonts API; both
+   families are SIL OFL 1.1 — see public/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/PressStart2P-Regular.woff2') format('woff2');
+}
+@font-face {
+  /* Variable font, wght axis: one file covers the 400/500/600/700 the UI asks for. */
+  font-family: 'Pixelify Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/PixelifySans-Variable.woff2') format('woff2');
+}
+
 /* ─── Reset & Base ─────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
