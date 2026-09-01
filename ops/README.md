@@ -139,6 +139,76 @@ culpando a rede. `deploy-forced.sh` aceita exatamente dois formatos de
 Sem isso, uma chave privada guardada num CI de terceiro **é um shell nesta
 caixa** — e de um shell até `/etc/dg2/env` são dois comandos.
 
+O ramo do `rsync` **lê o argv inteiro**, e não só os dois primeiros nomes: o
+cliente é quem gera esse argv, e `rsync --server` recebe o destino como último
+argumento. O wrapper desliga o globbing antes de dividir a linha, recusa
+`--sender`, `--daemon`, `-e` e `--rsh`, recusa qualquer argumento que carregue
+um caminho fora de `/srv/dg2`, e exige que o destino seja
+`/srv/dg2/{releases,server-releases}/<40 hexadecimais>`. O cabeçalho do script
+lista as quatro fugas concretas que a versão anterior — casamento de prefixo
+mais `exec $CMD` — deixava abertas.
+
+**A opção mais forte, para quando a caixa existir:** o `rrsync`, que vem junto
+com o próprio `rsync` (normalmente em `/usr/share/doc/rsync/scripts/rrsync`), é
+um validador de argv completo, mantido por quem escreve o argv do `rsync`.
+Trocar é uma linha na `authorized_keys`:
+
+```
+command="/usr/share/doc/rsync/scripts/rrsync -wo /srv/dg2",no-port-forwarding,...
+```
+
+Ele não está em uso hoje porque o caminho do arquivo depende da distribuição e
+este repositório não tem como conferir que ele existe numa caixa que ainda não
+existe. Confira o caminho no primeiro acesso à caixa (§10 é onde essa visita
+acontece) e faça a troca ali — mas note que o `rrsync` só cobre o `rsync`, então
+o wrapper continua sendo necessário para o ramo do `deploy.sh <sha>`.
+
+### Dono e modo — a metade da defesa que o repositório não consegue criar
+
+O wrapper valida o argv; o resto da confinação é estado de sistema de arquivos.
+A frase "dono da árvore de releases e de nada mais" lá em cima só é verdade
+depois destes comandos, e nada neste repositório os executa nem os confere —
+por isso eles estão aqui como passo, e não como suposição:
+
+```
+# 1. A chave não pode reescrever a própria authorized_keys. Se puder, ela apaga
+#    o command= acima e vira um shell completo na conexão seguinte -- que é a
+#    fuga mais curta que existe daqui. O OpenSSH aceita authorized_keys de dono
+#    root sob StrictModes; é o endurecimento padrão de chave com forced command.
+chown root:root ~dg2-deploy/.ssh ~dg2-deploy/.ssh/authorized_keys
+chmod 755 ~dg2-deploy/.ssh
+chmod 644 ~dg2-deploy/.ssh/authorized_keys
+
+# 2. Os scripts que a chave executa não podem ser reescritos por quem os
+#    executa. 755 e não 644: um command= apontando para arquivo sem bit de
+#    execução falha com "Permission denied" no primeiro deploy (§1).
+chown -R root:root /srv/dg2/bin
+chmod 755 /srv/dg2/bin
+chmod 755 /srv/dg2/bin/*.sh
+
+# 3. /srv/dg2/node_modules é carregado pelo processo Node que roda como dg2
+#    (§3). Escrita ali é execução de código como dg2, que é um usuário
+#    diferente e mais privilegiado em relação ao banco.
+chown -R root:root /srv/dg2/node_modules
+chmod -R go-w /srv/dg2/node_modules
+
+# 4. E o que dg2-deploy é dono de verdade.
+chown -R dg2-deploy:dg2-deploy /srv/dg2/releases /srv/dg2/server-releases
+
+# 5. O sticky bit, que é o passo fácil de esquecer e sem o qual os passos 2 e 3
+#    não valem nada: `deploy.sh` troca os symlinks com `ln -sfn` num nome
+#    temporário mais `mv -T`, e criar `/srv/dg2/current.tmp` exige escrita em
+#    /srv/dg2. Com escrita no diretório e sem sticky, dg2-deploy pode RENOMEAR
+#    /srv/dg2/bin -- apagando de uma vez tudo o que o passo 2 comprou. Com
+#    sticky, só o dono de uma entrada pode removê-la ou renomeá-la, e os dois
+#    symlinks são de dg2-deploy porque foi ele quem os criou.
+chown root:dg2-deploy /srv/dg2
+chmod 1775 /srv/dg2
+```
+
+Nada disso foi executado contra uma caixa real — como todo o resto de `ops/`,
+menos o `cert-check.sh`. O plano 02-12 é a primeira vez.
+
 `deploy.sh` precisa reiniciar a unit, e `dg2-deploy` não é root. O drop-in de
 sudoers dá exatamente dois verbos, numa unit só, sem senha:
 

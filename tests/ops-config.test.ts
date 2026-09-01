@@ -172,6 +172,61 @@ describe('scripts de ops/', () => {
     expect(src).toContain('^[0-9a-f]{40}$');
   });
 
+  // ── CR-01: a chave de deploy confinada à árvore de releases ────────────
+  // The branch that carries the transfer used to be a PREFIX match followed by
+  // `exec $CMD`, and the client generates the whole argv. Measured against the
+  // real script under dash, that accepted a destination of
+  // `/home/dg2-deploy/.ssh/` (which removes the command= and turns the key
+  // into a shell), accepted `--sender` (arbitrary reads), accepted
+  // `--partial-dir` pointing outside the tree, and expanded `*` against the
+  // deploy user's home. Each assertion below pins one of those four shut.
+  it('deploy-forced.sh desliga o globbing ANTES de dividir o argv', () => {
+    // Order is the assertion, not presence. `set -f` after the split would be
+    // decoration: splitting and globbing are one expansion step, and the
+    // damage is already done by then. Measured: with the `set -f` line
+    // deleted, `rsync --server -x . *` reached the validator as `CCC`, the
+    // last entry of the working directory; with it, as the literal `*`.
+    const lines = code('deploy-forced.sh').split('\n').map((l) => l.trim());
+    const guard = lines.indexOf('set -f');
+    const split = lines.indexOf('set -- $CMD');
+    expect(guard, 'deploy-forced.sh não desliga o globbing').toBeGreaterThan(-1);
+    expect(split, 'deploy-forced.sh não divide o argv com set --').toBeGreaterThan(-1);
+    expect(guard, 'set -f tem de vir antes de set -- $CMD').toBeLessThan(split);
+  });
+
+  it('deploy-forced.sh recusa os modos de leitura, de daemon e de shell do rsync', () => {
+    const src = code('deploy-forced.sh');
+    // --sender is rsync's read direction; --daemon opens a service; -e/--rsh
+    // chain another connection out of this one. None appears in a deploy.
+    for (const flag of ['--sender', '--daemon', '--rsh', '-e']) {
+      expect(src, `deploy-forced.sh não recusa ${flag}`).toContain(flag);
+    }
+    // And each refusal has to be a `fail`, not a mention: the words above also
+    // appear in a comment explaining them, which is exactly the vacuity this
+    // file's `code()` filter exists for.
+    expect(src.split('\n').filter((l) => l.includes('fail ')).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('deploy-forced.sh valida o destino contra as duas árvores de release', () => {
+    const src = code('deploy-forced.sh');
+    // The same 40-hex rule deploy.sh and rollback.sh apply to their own
+    // argument, applied to the one string this script did not check at all.
+    expect(src).toContain('^/srv/dg2/(releases|server-releases)/[0-9a-f]{40}/?$');
+  });
+
+  it('nenhum script de ops/ faz exec de uma variável sem aspas', () => {
+    // `exec $CMD` IS the shape of CR-01: word splitting AND pathname expansion
+    // over a string the other end wrote. `exec "$@"` and `exec "$DEPLOY"` are
+    // the forms that survive.
+    const bad: string[] = [];
+    for (const name of SCRIPTS) {
+      for (const line of code(name).split('\n')) {
+        if (/\bexec\s+\$[A-Za-z_{]/.test(line)) bad.push(`${name}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
   it('nenhum script desliga a verificação de host do SSH', () => {
     const bad: string[] = [];
     for (const [path, src] of Object.entries(OPS)) {
@@ -416,6 +471,36 @@ describe('ops/README.md', () => {
     // after it; the ordered list in §10 is the only place that is written down.
     expect(readme).toContain('systemctl enable --now dg2');
     expect(readme).toContain('daemon-reload');
+  });
+
+  it('o runbook manda tornar root dono do que a chave de deploy não pode reescrever', () => {
+    // CR-01, segunda metade. §4 afirma que dg2-deploy é "dono da árvore de
+    // releases e de nada mais", e o runbook nunca mandava fazer isso ser
+    // verdade. O wrapper valida o argv; sem estes passos a validação é a única
+    // camada, e a authorized_keys da própria chave fica gravável por ela.
+    const readme = read('README.md');
+    for (const step of [
+      'chown root:root ~dg2-deploy/.ssh',
+      'chown -R root:root /srv/dg2/bin',
+      'chown -R root:root /srv/dg2/node_modules',
+      'chmod 1775 /srv/dg2',
+    ]) {
+      expect(readme, `o runbook não manda: ${step}`).toContain(step);
+    }
+    // O sticky bit não é enfeite: sem ele, escrita em /srv/dg2 (que a troca
+    // atômica de symlink exige) permite RENOMEAR /srv/dg2/bin e desfazer o
+    // passo dos scripts de dono root.
+    expect(readme).toContain('StrictModes');
+  });
+
+  it('o runbook registra o rrsync como a opção mais forte, com o motivo de não usá-lo', () => {
+    // Não é "veja também": é a alternativa que este repositório recusou por um
+    // motivo datado (o caminho depende da distribuição e a caixa não existe),
+    // e registrar o motivo é o que permite reconsiderar quando ele deixar de
+    // valer, em vez de a decisão virar hábito.
+    const readme = read('README.md');
+    expect(readme).toContain('rrsync');
+    expect(readme).toContain('/usr/share/doc/rsync/scripts/rrsync');
   });
 
   it('o runbook registra que o ensaio de restauração NÃO vira timer (D2-03)', () => {
