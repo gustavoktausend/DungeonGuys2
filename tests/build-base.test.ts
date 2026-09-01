@@ -239,6 +239,24 @@ describe('template do service worker', () => {
     expect(code).toContain('if (res.ok)');
   });
 
+  it('a gravação no cache é sustentada pelo evento', () => {
+    // WR-08. `respondWith` settles the instant the response is returned, and the
+    // browser is free to terminate the worker right then — killing a `cache.put`
+    // nobody is holding. The result is a non-deterministic hole in the precache
+    // that only ever shows itself offline, to a player with no network. Calling
+    // `e.waitUntil` from inside the async function is legal precisely because
+    // `respondWith` was already invoked synchronously with this promise, so the
+    // event is still active when the write is registered.
+    //
+    // Whole line, not `toContain`: a bare `toContain('waitUntil')` is already
+    // satisfied by the two waitUntils in install/activate, so it could never
+    // fail for the reason this case exists.
+    const writes = code.split('\n').map(line => line.trim()).filter(line => line.includes('cache.put('));
+    expect(writes, 'há exatamente um ponto de gravação no cache').toHaveLength(1);
+    expect(writes[0], 'a gravação tem de estar dentro de e.waitUntil(), ou o worker pode morrer no meio dela')
+      .toMatch(/^if \(res\.ok\) e\.waitUntil\(cache\.put\(.+\);$/);
+  });
+
   it('o activate só apaga cache com o prefixo do próprio jogo', () => {
     // DM-3/P-11: Cache Storage is per origin. One delete site, and it is behind
     // the prefix filter — a second, unfiltered one would reach the sibling game.

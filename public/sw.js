@@ -113,7 +113,15 @@ self.addEventListener('fetch', e => {
     // Never store a response that is not ok: thirty seconds of 502 during a
     // deploy would otherwise become the cached index.html forever, because
     // Cache Storage ignores Cache-Control by design (P-2).
-    if (res.ok) cache.put(key, res.clone());
+    //
+    // And the write is held open by the EVENT, not merely started. Returning
+    // the response settles the respondWith promise, and the browser is free to
+    // terminate this worker the moment it does — a bare `cache.put` would be
+    // killed mid-write, leaving a hole in the cache that nothing reports and
+    // that only shows itself offline. `waitUntil` is callable from in here
+    // because respondWith was already handed this promise synchronously, so
+    // the event is still active (WR-08).
+    if (res.ok) e.waitUntil(cache.put(key, res.clone()));
     return res;
   })());
 });
