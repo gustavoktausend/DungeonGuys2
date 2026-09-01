@@ -140,12 +140,44 @@ describe('esquema de gold_entry', () => {
 
     // `confirmed` is the server's acknowledgement watermark: absent means "not
     // confirmed yet". Making it notNull would erase the only state it carries.
-    // `id` is nullable in the PRAGMA sense because SQLite lets a TEXT PRIMARY
-    // KEY hold NULL for historical compatibility — it is covered by the
-    // uniqueness test below instead, which is the property that actually
-    // matters (D-27).
-    expect(nullable).toEqual(['confirmed', 'id']);
+    // It is the ONLY nullable column, and `id` in particular is not: SQLite
+    // lets a TEXT PRIMARY KEY hold NULL for historical compatibility, so the
+    // PRIMARY KEY alone does not buy the dedup of D-27. See the refusal test
+    // below for what that costs.
+    expect(nullable).toEqual(['confirmed']);
     expect(info.find(c => c.name === 'id')?.pk).toBe(1);
+    expect(info.find(c => c.name === 'id')?.notnull).toBe(1);
+
+    await db.destroy();
+  });
+
+  it('recusa id nulo — NULL não colide num PRIMARY KEY de texto', async () => {
+    const { db, sqlite, migrator } = migrated();
+    await migrator.migrateToLatest();
+
+    // Raw SQL and not Kysely, deliberately. open.ts declares `id: string`, so
+    // the query builder would refuse this at the compiler and the test would
+    // measure TypeScript instead of the schema — which is precisely the gap:
+    // the type asserts an invariant that only the DDL can enforce, and any row
+    // arriving through raw SQL or a future bulk path is outside the type.
+    const insertNull = (): unknown =>
+      sqlite
+        .prepare(
+          'insert into gold_entry (id, account_id, amount, reason, at) ' +
+            "values (null, 'acc-nulo', 500, 'run', 1756000000003)",
+        )
+        .run();
+
+    // Without `notNull`, this line inserts. Twice, it inserts twice — because
+    // NULLs do not collide under the implied unique index — and the balance,
+    // which D-28 defines as the sum of the column, is permanently wrong by the
+    // amount with nothing to distinguish the duplicate from a real entry.
+    expect(insertNull).toThrow(/NOT NULL/i);
+
+    // The refusal left the table empty: an INSERT that failed halfway would be
+    // worse than one that succeeded.
+    const rows = sqlite.prepare('select count(*) as n from gold_entry').get() as { n: number };
+    expect(rows.n).toBe(0);
 
     await db.destroy();
   });

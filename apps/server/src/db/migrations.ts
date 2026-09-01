@@ -53,7 +53,27 @@ const migrations: Record<string, Migration> = {
         // Client-generated ULID. PRIMARY KEY is the UNIQUE(id) of D-27: it is
         // what makes syncing the same entry twice a no-op instead of duplicated
         // money, so the id is the deduplication mechanism and not just a label.
-        .addColumn('id', 'text', c => c.primaryKey())
+        //
+        // `notNull` is NOT redundant next to `primaryKey`, and leaving it off
+        // is what would void the sentence above. SQLite permits NULL in any
+        // PRIMARY KEY that is not INTEGER — a documented bug kept for backward
+        // compatibility — and NULLs never collide under the implied unique
+        // index. Without this word, two syncs of an entry whose id arrived
+        // NULL insert twice, and the balance D-28 defines as the sum of the
+        // column is permanently wrong by the amount, with nothing to tell the
+        // duplicate from a legitimate second entry. Kysely's own bookkeeping
+        // table spells it the same way, for the same reason.
+        //
+        // Corrected in the INITIAL migration rather than added by a second
+        // one, and the choice is only available because nothing has shipped:
+        // there is no remote, no box (ops/ has never executed) and no database
+        // outside `:memory:` in the tests. SQLite cannot ALTER COLUMN to add
+        // NOT NULL, so after ship the fix would be a table rebuild — exactly
+        // the destructive shape D2-07 outlaws. Editing in place is safe here
+        // because kysely_migration records only `name` and `timestamp`, with
+        // no checksum: an already-migrated development database does not
+        // error, it simply does not re-apply. Drop and re-migrate it.
+        .addColumn('id', 'text', c => c.primaryKey().notNull())
         .addColumn('account_id', 'text', c => c.notNull())
         // SIGNED. A spend is a negative entry with its own id (D-28), not an
         // UPDATE against a running total — that is what makes the balance a sum
