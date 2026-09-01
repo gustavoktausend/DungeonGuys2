@@ -10,6 +10,13 @@ dist/
 tests/__screenshots__/
 .vitest-attachments/
 
+# @playwright/test writes an error context (and traces/screenshots, if ever
+# enabled) per failing test. tests/pwa/*.spec.ts are red ON PURPOSE until plan
+# 02-06 rewrites the service worker, so this directory is rewritten on every
+# run. playwright-report/ is listed for the day someone runs --reporter=html.
+test-results/
+playwright-report/
+
 # The @dg2/sim lib bundle plus its sibling sim-version.json. Already covered by
 # the bare `dist/` rule above, but spelled out because this artifact is the
 # INPUT of SIM_VERSION (D-07): it is derived from source on every build, and

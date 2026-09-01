@@ -181,6 +181,29 @@ export async function waitForActivated(page: Page, timeoutMs = 15_000): Promise<
 }
 
 /**
+ * Empties Chromium's HTTP cache.
+ *
+ * Without this, "offline" proves nothing about the service worker. The fixture
+ * server sends `Cache-Control: public, max-age=31536000` for hashed assets —
+ * the same header ops/Caddyfile will send — so a reload with the network down
+ * gets them from the HTTP cache and never consults the worker at all.
+ * Measured, not assumed: with the OLD worker, which precaches neither the JS
+ * nor the CSS bundle, offline.spec.ts passed. The precache has to be the only
+ * thing left standing, or the test is not a test of the precache.
+ *
+ * Cache Storage is untouched — it ignores Cache-Control by design, and this
+ * clears the HTTP cache only.
+ *
+ * CDP, so Chromium-only. That costs nothing: the runner is already
+ * Chromium-only, for the reason recorded in playwright.config.ts.
+ */
+export async function clearHttpCache(page: Page): Promise<void> {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Network.clearBrowserCache');
+  await session.detach();
+}
+
+/**
  * Every cache of this origin, by name, with the PATHNAMES it holds — sorted.
  *
  * Pathnames and not full URLs because the port is ephemeral: an expected list
