@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Same move as packages/protocol/tsconfig.json — a subdirectory config
+    // that narrows `lib`/`types` instead of widening the root's — but in the
+    // opposite direction. There the point was to REMOVE the browser library so
+    // a page-only global fails to compile; here it is to ADD Node types, and
+    // this directory plus apps/server (phase 2, plan 02-08) are the only two
+    // places in the repository that legitimately need them: helpers.ts opens a
+    // real http.Server so offline.spec.ts can close it mid-test.
+    //
+    // The root keeps `types: ["vite/client"]` untouched (tools/README.md §4).
+    // Putting "node" there would hand `process`, `Buffer` and `__dirname` to
+    // every file under src/ — the client is DOM-only and must stay unable to
+    // reach for them by accident.
+    "types": ["node"],
+
+    // DOM is still required: the bodies of page.evaluate() run in the browser
+    // and speak `navigator.serviceWorker`, `caches` and `location`. ES2023 for
+    // Array.prototype.toSorted and friends in the specs.
+    "lib": ["ES2023", "DOM"]
+  },
+
+  // Both fields must be restated. `include` and `exclude` are inherited
+  // through `extends`, and the root now carries `exclude: ["tests/pwa"]` —
+  // inheriting it here would exclude this very directory and typecheck
+  // nothing, passing by vacuity.
+  "include": [".", "../../playwright.config.ts"],
+  "exclude": []
+}
