@@ -12,7 +12,7 @@ import { buildTilemap } from './render/tilemap';
 import { createFx } from './render/fx';
 import { render } from './render/index';
 import { updateHud } from './ui/hud';
-import { syncScreens, announce, hurtFlash, showScreen, createPauseControl } from './ui/screens';
+import { syncScreens, announce, hurtFlash, showScreen, createPauseControl, showUpdateOffer } from './ui/screens';
 import { dom } from './ui/dom';
 import { setupTouch } from './ui/touch';
 import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
@@ -36,8 +36,69 @@ addEventListener('resize', resize);
 // '/sw.js' because it tracks `base` on its own: registering a relative
 // 'sw.js' would resolve against the current page and land the worker on the
 // wrong scope at any deep URL. ORIG/ui.js:282-284.
+//
+// The update cycle below (D2-09) is the other half of public/sw.js: that
+// worker deliberately never swaps version by itself on install and never
+// claims pages it did not load, so a new build installs and then WAITS
+// forever. Something has to notice it, and something has to decide when the
+// swap is safe. This is both.
+
+// Declared HERE, above the block that reads it, rather than with its siblings
+// in the game-lifecycle section below: module evaluation suspends at the
+// top-level `await loadSprites()`, so a registration promise that settles
+// first would run `offer` while a `let` declared after that await is still in
+// its temporal dead zone. That throws in exactly the case this feature exists
+// for -- a returning player with a worker already waiting.
+let gameStarted = false; // false until the first beginRun() -- guards `world.phase` reads
+let swWaiting: ServiceWorker | null = null;
+let swReloading = false;
+
+/** Asks the waiting worker to take over. The page asks, the worker decides --
+ *  nothing here forces a swap. Only reachable with `gameStarted === false`. */
+function applyUpdate(): void {
+  swWaiting?.postMessage({ type: 'SKIP_WAITING' });
+}
+
+/** Offers the swap when it is safe to take, and merely says so when it is not. */
+function offer(w: ServiceWorker | null): void {
+  if (!w) return;
+  swWaiting = w;
+  // `gameStarted` is the flag beginRun/quitGame already maintain, and it means
+  // exactly "outside a run" -- a second flag would only give one question two
+  // answers. Phase 3 adds `&& !inRoom` RIGHT HERE and nowhere else: D-08 of
+  // phase 1 makes peers on mismatched versions refuse each other with no
+  // bypass, so swapping mid-room produces that refusal at the worst possible
+  // moment. Mid-run the player is told, and nothing else changes.
+  if (!gameStarted) showUpdateOffer(applyUpdate);
+  else announce('NOVA VERSÃO PRONTA — VOLTE AO MENU PARA ATUALIZAR');
+}
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').catch(() => {});
+  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').then(reg => {
+    offer(reg.waiting); // one was already waiting when this page loaded
+    reg.addEventListener('updatefound', () => {
+      const installing = reg.installing;
+      if (!installing) return;
+      installing.addEventListener('statechange', () => {
+        // A controller already present is what separates an UPDATE from a
+        // first install. Without the check, the very first visit would offer
+        // to reload a page that has only just been precached.
+        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+          offer(reg.waiting);
+        }
+      });
+    });
+  }).catch(() => {}); // a failed registration must never take the boot down with it
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // Not decoration. Without the guard, an event fired for any other reason
+    // reloads the page, which re-registers, which fires it again -- and an
+    // endless reload is indistinguishable, from the player's seat, from a
+    // frozen game.
+    if (swReloading) return;
+    swReloading = true;
+    location.reload();
+  });
 }
 
 const touch = setupTouch(canvas);
@@ -62,7 +123,6 @@ let fx: ReturnType<typeof createFx>;
 let sink: ReturnType<typeof createEventSink>;
 let stopSimLoop: (() => void) | null = null;
 let pauseRaf = 0;
-let gameStarted = false; // false until the first beginRun() — guards `world.phase` reads
 
 /**
  * The slot this machine plays. FORM-01/D-30 numbers the slots p0..p3, and this
@@ -197,6 +257,11 @@ function quitGame(): void {
   dom.hud.classList.add('hidden');
   showScreen('start');
   Sfx.stopMusic();
+  // `quitGame` is literally "back at the menu, outside a run, with the start
+  // screen up" -- the exact seam where an offer withheld mid-run becomes safe
+  // to make. This is the reason no new flag was invented for the gate: the
+  // one that already tracks "outside a run" is the one that gates it.
+  offer(swWaiting);
 }
 
 dom.btnStart.addEventListener('click', mouseOnly(startFromSelection));

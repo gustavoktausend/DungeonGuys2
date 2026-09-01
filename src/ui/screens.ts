@@ -212,6 +212,40 @@ dom.btnShareTg.addEventListener('click', mouseOnly(() => shareTelegram(false)));
 dom.btnShareWaVictory.addEventListener('click', mouseOnly(() => shareWhatsApp(true)));
 dom.btnShareTgVictory.addEventListener('click', mouseOnly(() => shareTelegram(true)));
 
+// ─── PWA update offer (D2-09) ────────────────────────────────────────
+// The notice is split in two halves on purpose. `announce()` above is a
+// 2600ms toast with no interaction: good for telling the player that
+// something happened, useless for asking them to act on it, because it is
+// gone before they can decide. So the half that asks for action is a button
+// that STAYS on the start screen — which is exactly the place where
+// `gameStarted` is false and swapping the simulation out is safe. main.ts
+// owns that gate and passes the callback in; this file only shows and hides.
+let applyUpdate: (() => void) | null = null;
+
+// Wired once, at module level, exactly like the share buttons above. Wiring
+// it inside showUpdateOffer would stack one more listener per offer, and a
+// player who leaves the tab open across two deploys would post SKIP_WAITING
+// twice from one click.
+dom.btnUpdate.addEventListener('click', mouseOnly(() => applyUpdate?.()));
+
+/**
+ * Shows the persistent button and toasts once. `onApply` is stored rather
+ * than bound at wiring time because the waiting worker is not known until
+ * one shows up — and a second offer replaces the first one's target.
+ */
+export function showUpdateOffer(onApply: () => void): void {
+  applyUpdate = onApply;
+  dom.btnUpdate.classList.remove('hidden');
+  announce('NOVA VERSÃO PRONTA');
+}
+
+/** Hides the offer and drops the callback with it, so a stale worker
+ *  reference cannot be posted to after the offer is withdrawn. */
+export function hideUpdateOffer(): void {
+  dom.btnUpdate.classList.add('hidden');
+  applyUpdate = null;
+}
+
 /**
  * Pause is an app-layer concern, not a sim phase — `Phase` deliberately has
  * no 'paused' (task-18 boundary #2). Ported from ORIG/engine.js:45-48 (the
