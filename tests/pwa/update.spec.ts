@@ -159,3 +159,92 @@ test('atualização a partir da instalação antiga: um clique, e sobra um cache
   await page.locator('#btn-start').click();
   await expect(startScreen, 'clicar em START tem de tirar a tela do ar').not.toHaveClass(/\bactive\b/);
 });
+
+test('aceitar a atualização numa aba não recarrega a run de outra aba (CR-03)', async ({ context }) => {
+  // The blind spot of the test above, by construction: it drives a single
+  // `page`, so the second client never exists — and the second client is the
+  // whole problem. `skipWaiting()` does not swap the controller of the tab
+  // that asked; per the Service Worker Activate algorithm the activating
+  // worker becomes the active worker for EVERY client of the registration and
+  // Notify Controller Change fires on all of them. `clients.claim()` is only
+  // needed for clients that were never controlled, which is why D2-09's
+  // refusal to call it does not cover this.
+  //
+  // Two tabs of a browser game is not exotic, and phase 3 makes it worse: a
+  // peer whose page reloads out from under them drops the room.
+  server = await serveDir('tests/pwa/fixtures/old-build');
+
+  // ── A aba do menu instala o worker antigo ──────────────────────────────
+  const menu = await context.newPage();
+  await menu.goto(server.origin);
+  await waitForActivated(menu);
+
+  // ── O deploy, visto pela aba do menu ───────────────────────────────────
+  server.setRoot('dist');
+  await clearHttpCache(menu);
+  await menu.reload();
+
+  await expect
+    .poll(async () => (await controlState(menu)).hasWaiting,
+      { message: 'o build novo tem de instalar e FICAR esperando' })
+    .toBe(true);
+
+  // ── A segunda aba, e a run dentro dela ─────────────────────────────────
+  // Same context and same origin, so it is the same registration and the same
+  // controller — a second BrowserContext would have its own storage and its
+  // own worker, and would prove nothing.
+  const run = await context.newPage();
+  await run.goto(server.origin);
+  await expect(run.locator('#start-screen')).toBeVisible();
+
+  await run.locator('#btn-start').click();
+  await expect(run.locator('#start-screen'), 'a run tem de começar de verdade')
+    .not.toHaveClass(/\bactive\b/);
+
+  // A marker on the window object: it survives anything EXCEPT the document
+  // being replaced. That is exactly the event under test, and it is why the
+  // assertion is a marker and not a screenshot or a timer.
+  await run.evaluate(() => { (window as unknown as Record<string, unknown>).__runAlive = true; });
+
+  // ── O clique acontece na OUTRA aba ─────────────────────────────────────
+  await menu.evaluate(() => { (window as unknown as Record<string, unknown>).__beforeUpdate = true; });
+  await menu.locator('#btn-update').click();
+
+  // The menu tab reloads, which is correct AND is the synchronisation point:
+  // it can only happen after the new worker activated, and the new worker
+  // activating is what fires controllerchange in the tab with the run.
+  await menu.waitForFunction(() => !('__beforeUpdate' in window));
+  await menu.waitForLoadState('load');
+
+  // ── A aba com a run ────────────────────────────────────────────────────
+  // A positive wait and not a sleep. The notice is written by the SAME handler
+  // that would otherwise have called location.reload(), so its appearance is
+  // proof the deferred branch ran — and a fixed sleep followed by one read
+  // could not tell "did not reload" from "reloaded 50 ms later".
+  await expect(run.locator('#wave-announce'),
+    'a aba em jogo tem de ser avisada, não recarregada')
+    .toHaveText(/NOVA VERSÃO ATIVA/);
+
+  expect(await run.evaluate(() => '__runAlive' in window),
+    'a aba em jogo não pode ter trocado de documento — a run seria destruída')
+    .toBe(true);
+
+  // And the run is still the thing on screen: the start screen coming back
+  // would be the reload wearing a different name.
+  await expect(run.locator('#start-screen'), 'a tela inicial não pode ter voltado')
+    .not.toHaveClass(/\bactive\b/);
+
+  // ── E a outra metade: adiado não é cancelado ───────────────────────────
+  // Without this, a "fix" that simply deleted the reload would pass everything
+  // above while leaving the tab running old code against a new worker's cache
+  // forever. Pause -> QUIT is the seam where the run is over and the reload
+  // costs nothing.
+  await run.keyboard.press('Escape');
+  await expect(run.locator('#pause-screen')).toHaveClass(/\bactive\b/);
+  await run.locator('#btn-quit').click();
+
+  await run.waitForFunction(() => !('__runAlive' in window));
+  await run.waitForLoadState('load');
+  await expect(run.locator('#start-screen'), 'depois do QUIT a aba recarrega e volta ao menu')
+    .toBeVisible();
+});

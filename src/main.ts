@@ -52,6 +52,11 @@ addEventListener('resize', resize);
 let gameStarted = false; // false until the first beginRun() -- guards `world.phase` reads
 let swWaiting: ServiceWorker | null = null;
 let swReloading = false;
+// Set when ANOTHER tab accepted the swap while this one was mid-run. It is a
+// second flag and not a reuse of `swWaiting` because the two say different
+// things: `swWaiting` is "a version is ready and this page may ask for it",
+// while this is "the version already changed under us and the reload is owed".
+let swSwapped = false;
 
 /** Asks the waiting worker to take over. The page asks, the worker decides --
  *  nothing here forces a swap. Only reachable with `gameStarted === false`. */
@@ -96,6 +101,24 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // endless reload is indistinguishable, from the player's seat, from a
     // frozen game.
     if (swReloading) return;
+    // This event is NOT private to the tab whose button was clicked. Per the
+    // Service Worker Activate algorithm, the activating worker becomes the
+    // active worker of every client of the registration and Notify Controller
+    // Change fires on all of them -- `clients.claim()` is only needed for
+    // clients that were never controlled, so D2-09's refusal to call it buys
+    // nothing here. Accepting the update on the start screen of one tab
+    // therefore lands in a second tab that may be in the middle of wave 12,
+    // and an unconditional reload would destroy that run: the exact property
+    // D2-09 exists to protect, defeated one layer above the worker.
+    if (gameStarted) {
+      // The swap already happened -- the new worker is active for this client
+      // too, and there is no undoing that. What CAN be preserved is the run,
+      // so the reload that adopts the new code is deferred to the next safe
+      // point instead of being cancelled.
+      swSwapped = true;
+      announce('NOVA VERSÃO ATIVA — VOLTE AO MENU PARA RECARREGAR');
+      return;
+    }
     swReloading = true;
     location.reload();
   });
@@ -261,6 +284,18 @@ function quitGame(): void {
   // screen up" -- the exact seam where an offer withheld mid-run becomes safe
   // to make. This is the reason no new flag was invented for the gate: the
   // one that already tracks "outside a run" is the one that gates it.
+  //
+  // The deferred reload is settled FIRST and returns, because it is not an
+  // offer: another tab already swapped the worker, so this page is running
+  // code from one build against a cache from another. There is nothing left to
+  // ask -- only a reload to take, at the first moment it costs nothing. Note
+  // that pause->quit is the only path here, so a run that ends in gameover or
+  // victory keeps the notice on screen until the player comes back to the
+  // menu; deferred is late, never wrong.
+  if (swSwapped) {
+    if (!swReloading) { swReloading = true; location.reload(); }
+    return;
+  }
   offer(swWaiting);
 }
 
