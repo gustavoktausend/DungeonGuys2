@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "npm run sim:build && npm run sim:version && tsc --noEmit && vite build",
+    "build": "npm run sim:build && npm run sim:version && tsc --noEmit && vite build && npm run sw:emit",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -20,6 +20,7 @@
     "sim:build": "vite build --config packages/sim/vite.config.ts",
     "sim:version": "node tools/sim-version/emit.mjs",
     "sim:version:verify": "node tools/sim-version/verify.mjs",
+    "sw:emit": "node tools/sw/emit.mjs",
     "golden:rebaseline": "node tools/golden/rebaseline.mjs",
     "assets:validate": "node tools/assets/validate.mjs",
     "assets:selftest": "node tools/assets/validate.mjs tools/assets/fixtures/good",
