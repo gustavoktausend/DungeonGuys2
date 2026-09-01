@@ -22,5 +22,12 @@
       "@dg2/protocol": ["./packages/protocol/src/index.ts"]
     }
   },
-  "include": ["src", "tests", "packages", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "tests", "packages", "vite.config.ts", "eslint.config.js"],
+
+  // tests/pwa/ is the one corner of the repository that needs Node types
+  // (helpers.ts opens an http.Server the offline spec has to close). It is
+  // excluded here so that `types` above STAYS `["vite/client"]` — the client
+  // is DOM-only and tools/README.md §4 says not to touch that. Those files are
+  // covered by tests/pwa/tsconfig.json, run as `npm run typecheck:pwa`.
+  "exclude": ["tests/pwa"]
 }
