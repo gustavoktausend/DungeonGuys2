@@ -205,15 +205,48 @@ jobs:
   # D2-05 -- o que chega na caixa e byte a byte o que passou pelo portao
   # cross-engine, que custou a fase 1 inteira.
   #
-  # NADA aqui ja rodou contra a caixa. Os quatro secrets sao criados no plano
-  # 02-04 e a primeira execucao real e o plano 02-12.
+  # NADA aqui ja rodou contra a caixa. Os quatro secrets e a variavel de
+  # repositorio que liga este job sao criados no plano 02-04, e a primeira
+  # execucao real e o plano 02-12. Ate la o job e PULADO, nao vermelho -- o
+  # `if:` logo abaixo explica por que a diferenca importa.
   deploy:
     needs: [test, pwa]
     # D2-08: todo push na main que passar no CI publica, e nada mais publica.
     # E isso que torna a reversao compreensivel, porque o symlink anterior
     # corresponde exatamente ao commit anterior -- nao ha um segundo caminho
     # capaz de por bytes na caixa e desalinhar os dois.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    #
+    # A terceira clausula nao abre um segundo caminho: ela nao escolhe QUAL
+    # commit publica, so diz se ha alvo para onde publicar. Sem ela este job
+    # rodava em TODO push na main e morria na guarda de segredo vazio do
+    # primeiro passo, porque o plano 02-04 -- o que cria os secrets e a caixa
+    # -- esta adiado. Medido na primeira execucao real deste workflow: `test`
+    # verde, `pwa` verde, `deploy` vermelho. Um job vermelho por semanas ensina
+    # todo mundo a nao ler CI vermelho, que e o contrario do que este portao
+    # existe para comprar.
+    #
+    # Por que uma VARIAVEL de repositorio, e nao a presenca de um secret: os
+    # contextos que um `if:` de JOB enxerga sao github, needs, vars e inputs.
+    # `secrets` nao esta entre eles, e uma condicao que tentasse ler um nao
+    # daria erro -- avaliaria para nada, nunca ficaria verdadeira, e o job
+    # deixaria de rodar em silencio. Trocar um job vermelho por um job que some
+    # sem avisar e piorar. tests/workflows.test.ts recusa as duas metades.
+    #
+    # Pular ANTES de configurar e o certo; pular DEPOIS seria a armadilha, e o
+    # que separa os dois casos e a variavel ser propriedade do REPOSITORIO e
+    # nao do commit: nenhum PR, merge ou revert alcanca ela. Ela vira `true`
+    # uma unica vez, pela mao do operador, no mesmo ato que cria os quatro
+    # secrets (plano 02-04; a lista completa esta na secao 5 de ops/README.md).
+    # Dali em diante a condicao vale para todo push na main que passar no CI,
+    # que e literalmente D2-08. O unico jeito de ela voltar a ser falsa e
+    # alguem apagar a variavel nas configuracoes, que e o mesmo ato de
+    # aposentar a caixa.
+    #
+    # As guardas `:?` do primeiro passo FICAM, e nao sao redundantes com isto:
+    # a variavel diz que o alvo foi configurado, elas dizem que o valor chegou.
+    # Um secret criado e vazio passa por aqui e e recusado la, pelo nome, antes
+    # de qualquer conexao.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     # WR-18. O limite padrao de um job sao SEIS HORAS, e com o
     # cancel-in-progress: false logo abaixo esse limite deixa de ser so

@@ -130,6 +130,11 @@ nada mais. A `authorized_keys` dele carrega **uma** linha:
 command="/srv/dg2/bin/deploy-forced.sh",no-port-forwarding,no-agent-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA... deploy@ci
 ```
 
+A metade privada dessa chave vira o secret `DEPLOY_SSH_KEY` do GitHub. Ela
+sozinha não publica nada: o job `deploy` só sai quando a variável de
+repositório `DEPLOY_ENABLED` valer `true` — §5 traz os cinco itens que o
+GitHub precisa ter e o motivo de o quinto ser variável, e não secret.
+
 O wrapper existe porque a **mesma** chave carrega o `rsync` e chama o
 `deploy.sh`. Um `command="/srv/dg2/bin/deploy.sh"` ingênuo rodaria o deploy no
 lugar do `rsync --server`, a transferência penduraria, e a tarde seria gasta
@@ -251,6 +256,40 @@ Do outro lado, nos **secrets do GitHub**: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`,
 verificação de host do SSH **ligada** no job — fixar o `known_hosts` num secret,
 em vez de aceitar qualquer chave apresentada, é o que impede que um
 man-in-the-middle vire um deploy.
+
+### O quinto item do GitHub, e ele não é um secret
+
+O job `deploy` do CI **não roda** enquanto a variável de repositório
+`DEPLOY_ENABLED` não valer exatamente `true`. Ela mora ao lado dos quatro
+secrets acima, em Settings → Secrets and variables → Actions, mas na aba
+**Variables** — não na aba Secrets. Criá-la faz parte do mesmo passo que cria
+os secrets, e é a única coisa que liga a publicação.
+
+| Nome | Aba | O que é |
+|---|---|---|
+| `DEPLOY_SSH_KEY` | Secrets | a metade privada da chave de `dg2-deploy` (§4) |
+| `DEPLOY_KNOWN_HOSTS` | Secrets | a linha de `known_hosts` da caixa, capturada de máquina confiável |
+| `DEPLOY_USER` | Secrets | o usuário de deploy |
+| `DEPLOY_HOST` | Secrets | o endereço da caixa |
+| `DEPLOY_ENABLED` | **Variables** | `true`, literal — e nada mais destrava o job |
+
+**Por que uma variável, e não a mera presença dos secrets:** os contextos que
+um `if:` de **job** enxerga são `github`, `needs`, `vars` e `inputs`;
+`secrets` não está entre eles. Uma condição que tentasse ler um secret ali não
+daria erro — avaliaria para nada, nunca ficaria verdadeira, e o job deixaria de
+rodar em silêncio, que é o mesmo defeito disfarçado de verde.
+
+**A ordem que morde:** criar os quatro secrets e esquecer a variável deixa o
+deploy pulado sem nenhum sinal vermelho — o push fica verde e nada é
+publicado. O erro inverso, criar a variável antes dos secrets, é barulhento: o
+job roda e para na guarda de segredo vazio, nomeando o que faltou. Se for para
+errar, erre nessa ordem.
+
+Enquanto a variável não existir, o job aparece como **pulado** em toda execução
+e o resultado geral do CI continua verde. Esse é o estado correto antes de esta
+seção estar cumprida, e não um portão desligado: as guardas `:?` do primeiro
+passo do job continuam de pé e recusam, pelo nome, qualquer um dos quatro
+secrets vazio.
 
 ## 6. Caddy e o drop-in de ambiente
 

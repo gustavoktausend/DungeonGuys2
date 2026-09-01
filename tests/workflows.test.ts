@@ -108,6 +108,21 @@ function deployJob(src: string): string {
   return slice;
 }
 
+/**
+ * The `deploy` job's own `if:`, and only it.
+ *
+ * COLUMN FOUR IS THE WHOLE POINT, which is why this is a regex and not a
+ * search over deployJob(). A job key sits at four spaces and a step key at
+ * eight, so a plain scan of the slice would hand back the `if: always()` of
+ * the key-cleanup step — and every assertion built on the result would then be
+ * measuring the wrong line while reading as though it measured the gate.
+ */
+function deployIf(src: string): string {
+  const m = /^ {4}if:[ \t]*(\S[^\n]*?)[ \t]*\r?$/m.exec(deployJob(src));
+  expect(m, 'o job `deploy` não declara `if:` no nível do job').not.toBeNull();
+  return m![1]!;
+}
+
 describe('alvo único de deploy (INFRA-01)', () => {
   // Exact count, and checked BEFORE any assertion about content: an empty glob
   // would pass every "nothing matches" test in silence, and a resurrected
@@ -316,10 +331,53 @@ describe('o caminho que carrega a chave de deploy', () => {
     // Both gates, not one: `test` proves the artifact, `pwa` proves the service
     // worker that will serve it offline. Whole line, not substring — see hasLine.
     expect(hasLine(src, 'needs: [test, pwa]'), 'o deploy não depende dos dois portões').toBe(true);
-    expect(
-      hasLine(src, "if: github.ref == 'refs/heads/main' && github.event_name == 'push'"),
-      'o gate de branch e de evento mudou de forma',
-    ).toBe(true);
+    // Clause by clause over the isolated condition, where this used to pin the
+    // whole `if:` as a single literal through hasLine(). The literal was the
+    // wrong unit: ANDing a third clause onto the gate read as "the gate
+    // changed shape" — the same red a DELETED gate produces — so the file had
+    // no way to say "these two must be there" without also saying "and nothing
+    // else may be". Two clauses that must be present is the property; what
+    // stands beside them is the next test's business.
+    const cond = deployIf(src);
+    expect(cond, 'o gate de branch sumiu').toContain("github.ref == 'refs/heads/main'");
+    expect(cond, 'o gate de evento sumiu').toContain("github.event_name == 'push'");
+  });
+
+  it('o deploy é pulado enquanto o alvo de publicação não existir (D2-08)', () => {
+    const cond = deployIf(ci());
+    // Without this clause the job runs on EVERY push to main and dies on the
+    // empty-secret guard of its first step, because plan 02-04 — the one that
+    // creates the four secrets and the box — is deferred. Measured, on the
+    // first real run this workflow ever had: `test` green, `pwa` green,
+    // `deploy` red. A job that stays red for weeks teaches everybody to stop
+    // reading red CI, which is the exact opposite of what this gate was built
+    // to buy.
+    expect(cond, 'o deploy roda sem saber se o alvo de publicação existe')
+      .toContain("vars.DEPLOY_ENABLED == 'true'");
+    // And it has to be `vars`, which is why this is not the assertion above
+    // spelled twice. The contexts a JOB-level `if:` can read are github,
+    // needs, vars and inputs — `secrets` is not among them. A condition that
+    // tried to read one would not error: it evaluates to nothing, the
+    // condition is never true, and the job silently stops running forever.
+    // Same defect, wearing the one disguise nobody checks for, because it
+    // shows up green.
+    expect(cond, 'gate de job lendo `secrets`, contexto que não existe aí')
+      .not.toContain('secrets.');
+  });
+
+  it('os quatro segredos continuam recusados vazios (D2-08)', () => {
+    const job = deployJob(ci());
+    // The second line of defence, and it catches a DIFFERENT failure from the
+    // gate above: the repository variable says the target was configured, the
+    // `:?` says the value actually arrived. A secret that exists and is empty
+    // satisfies the first and is stopped only by the second — by name, before
+    // any connection, instead of as `Permission denied (publickey)` thirty
+    // seconds into a transfer. Now that the gate exists, deleting these four
+    // looks like a tidy-up; this is what refuses it.
+    for (const name of ['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'DEPLOY_USER', 'DEPLOY_HOST']) {
+      expect(job, `o guarda de segredo vazio de ${name} sumiu`)
+        .toMatch(new RegExp(`\\$\\{${name}:\\?`));
+    }
   });
 
   it('todo --link-dest é caminho absoluto (P-12)', () => {
