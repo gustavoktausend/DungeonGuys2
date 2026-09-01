@@ -1,0 +1,39 @@
+# litestream.yml — continuous replication of the SQLite database off this box.
+#
+# Installed at /etc/litestream.yml (ops/README.md §3); this copy is the
+# reviewable source of truth, and the two must be kept identical. Litestream
+# reads the WAL, not the file: copying a .db that is under write with cron
+# produces a corrupt archive, which is why this exists instead of a nightly
+# tarball. Recovery point in seconds rather than a day, because for a currency
+# ledger a lost day is soul gold that simply vanished (D2-17).
+#
+# THE SINGULAR `replica` IS NOT A TYPO. Litestream v0.5 changed it: each
+# database now supports exactly one replica. Every tutorial written before v0.5
+# shows a LIST under a plural key, and pasting one here makes litestream reject
+# or ignore the configuration — a backup that was never running, discovered on
+# the day it was needed (P-8). If you are copying from the internet, check the
+# version of what you are copying first.
+#
+# NOTHING IN THIS FILE IS A SECRET, and that is a property to preserve. Bucket,
+# endpoint and credentials are environment references, expanded by litestream
+# when it loads the file; the values live in /etc/dg2/env (root, 0600), read by
+# systemd before the process drops privilege (D2-15, T-2-SECRET). A literal
+# here would be a credential in git history, which is not something a later
+# commit can undo.
+dbs:
+  - path: /var/lib/dg2/dg2.db
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      # Explicit endpoint, because the target is an S3-COMPATIBLE bucket
+      # (Backblaze B2 or equivalent), not AWS itself. Setting it also switches
+      # on path-style addressing by itself, which is what those providers need
+      # and what an AWS-shaped default would get wrong.
+      endpoint: ${LITESTREAM_ENDPOINT}
+      # Fixed prefix inside the bucket, deliberately NOT an environment
+      # reference: tools/ops/restore-verify.mjs restores through this same
+      # config file, so the two sides can never disagree — but an operator
+      # reading a bucket listing should also be able to tell what wrote it.
+      path: dg2
+      access-key-id: ${AWS_ACCESS_KEY_ID}
+      secret-access-key: ${AWS_SECRET_ACCESS_KEY}

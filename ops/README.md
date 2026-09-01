@@ -114,11 +114,15 @@ repositório, nunca):
 | `DG2_RELEASE` | o sha que está no ar, ecoado pelo `/api/health` |
 | `LITESTREAM_BUCKET` | o bucket da réplica |
 | `LITESTREAM_ENDPOINT` | o endpoint S3-compatível do bucket |
-| `AWS_ACCESS_KEY_ID` | credencial da réplica |
-| `AWS_SECRET_ACCESS_KEY` | credencial da réplica |
+| `AWS_ACCESS_KEY_ID` | credencial da réplica, lida como `${AWS_ACCESS_KEY_ID}` |
+| `AWS_SECRET_ACCESS_KEY` | credencial da réplica, lida como `${AWS_SECRET_ACCESS_KEY}` |
 
 O `litestream.yml` versionado referencia as duas últimas por interpolação
-(`${...}`), nunca por valor.
+(`${...}`), nunca por valor — e é por isso que as duas linhas acima escrevem a
+forma interpolada em vez de só nomear a chave: **toda** ocorrência do nome de
+uma credencial dentro de `ops/` traz o `${...}` junto, o que torna
+`grep -rn 'AWS_SECRET_ACCESS_KEY' ops/ | grep -v '\${'` um detector de vazamento
+que não depende de ninguém lembrar de rodá-lo com cuidado.
 
 Do outro lado, nos **secrets do GitHub**: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`,
 `DEPLOY_USER` e `DEPLOY_KNOWN_HOSTS`. O último é o que permite manter a

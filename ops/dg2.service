@@ -1,0 +1,99 @@
+# dg2.service — supervision of the API process (apps/server).
+#
+# Everything the box needs in order to run it is here: what to start, who as,
+# how much memory it may take, and — the part that is easy to leave out — when
+# to STOP restarting it. Install order and the one manual install step this
+# unit depends on are in ops/README.md §10.
+[Unit]
+Description=DungeonGuys2 API
+After=network-online.target
+Wants=network-online.target
+# THE WHOLE ALARM CHAIN OF D2-16 HANGS ON THESE TWO LINES (P-9). With
+# Restart=always and no start limit, a broken migration restarts forever:
+# journald fills, `systemctl status` reports `activating (auto-restart)`
+# indefinitely, and the unit NEVER reaches `failed` — so nothing ever raises an
+# alarm. With the limit, systemd gives up after 5 attempts inside 60s, the unit
+# goes `failed`, nothing listens on the loopback port, the handle_errors block
+# of ops/Caddyfile answers a machine-readable 503, and the external monitor
+# stops matching "status":"ok". Delete either line and the symptom degrades to
+# "the health check fails sometimes", which is the worst kind of alarm.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dg2
+Group=dg2
+# Both paths go through the `current-server` symlink instead of a resolved
+# release directory, and that is what makes ops/rollback.sh worth having:
+# moving the symlink back and restarting this unit swaps the server binary too.
+# A path pinned to one sha would revert the client and keep serving the old
+# server against the new database.
+WorkingDirectory=/srv/dg2/current-server
+ExecStart=/usr/bin/node /srv/dg2/current-server/server.mjs
+# Module resolution does NOT come from WorkingDirectory. Node resolves a bare
+# specifier from the REAL path of the importing file, so `better-sqlite3` —
+# left external on purpose by the `server:build` bundle, because it is a native
+# module — is found by walking up from /srv/dg2/server-releases/<sha>/ to
+# /srv/dg2/node_modules. That directory is installed once, by hand, and
+# ops/README.md §3 says exactly how. Without it this unit dies at import with
+# ERR_MODULE_NOT_FOUND before it ever opens the database, on the very first
+# deploy.
+Environment=NODE_ENV=production
+# The second half of the memory pair below. Kept next to the other Environment
+# line rather than beside MemoryHigh so that an operator editing the runtime
+# environment sees both.
+Environment=NODE_OPTIONS=--max-old-space-size=192
+# Domain, upstream port, database path, release sha and the replica credentials
+# all come from here. The file is root-owned and 0600; systemd reads it BEFORE
+# dropping to User=, so the dg2 user never needs to be able to read it (D2-15).
+EnvironmentFile=/etc/dg2/env
+Restart=always
+RestartSec=2
+
+# StateDirectory creates /var/lib/dg2, chowns it to User=, grants this unit
+# write access to it, and recreates it after a wiped /var — one directive
+# instead of a mkdir buried in a deploy script plus a hand-written write
+# exception. 0700 because that directory holds the only copy of the ledger that
+# lives on this machine; the off-box copy is litestream.service's job.
+StateDirectory=dg2
+StateDirectoryMode=0700
+
+# Sandbox. The process is a single-purpose HTTP server on loopback: it needs to
+# read its own bundle, write one directory, and open a socket. Everything else
+# is denied here so that a remote-code-execution bug in a future dependency
+# lands in a box with nothing in it (T-2-PRIV).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# AF_UNIX stays because systemd's own notification and journald logging use it;
+# removing it silences the logs, which is the opposite of what this file is for.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Memory, AS A PAIR — never one of these without the NODE_OPTIONS line above
+# (P-10). V8 sizes its default old space from the MACHINE's memory, not from
+# the cgroup limit, so on a 2 GB box it grows straight past a 256 MiB cgroup
+# and the kernel OOM-kills the process instead of the collector reclaiming.
+# With the heap capped below the cgroup ceiling, V8 collects aggressively first
+# and the limit behaves as back-pressure rather than as an execution.
+#
+# Budget on the KVM 2 box of D2-19: Caddy ~64M, this unit 256M, Litestream
+# ~64M, ~128M held back for the phase-3 coturn. The point is not hygiene — it
+# is that a leak in the phase-3 signalling must not be able to take the API
+# down with it.
+#
+# Both limits are silently IGNORED under cgroup v1. The box is Debian 11+ /
+# Ubuntu 22.04+, which is cgroup v2; ops/README.md §3 records why that matters.
+MemoryHigh=200M
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

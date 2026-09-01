@@ -158,6 +158,145 @@ describe('scripts de ops/', () => {
   });
 });
 
+describe('ops/dg2.service', () => {
+  it('desiste depois de 5 partidas em 60s, para a unit chegar a failed (P-9)', () => {
+    // The single most load-bearing pair of lines in the phase. Without it a
+    // broken migration restarts forever, the unit never reaches `failed`, and
+    // every downstream link of the D2-16 alarm chain — no listener, Caddy 503,
+    // external monitor — is never reached. This assertion is here so that
+    // deleting the limit is a red test and not a silent regression six months
+    // from now.
+    const unit = code('dg2.service');
+    expect(unit).toContain('StartLimitIntervalSec=60');
+    expect(unit).toContain('StartLimitBurst=5');
+    expect(unit).toContain('Restart=always');
+  });
+
+  it('limita a memória do cgroup E o heap do V8, nunca só um dos dois (P-10)', () => {
+    // The pair is the assertion. V8 sizes its default old space from the
+    // machine's memory, so a cgroup cap with no heap cap converts a slow leak
+    // into an OOM-kill instead of into garbage collection — and the heap cap
+    // has to stay BELOW the cgroup ceiling for that to work, which is why the
+    // two numbers are compared rather than merely present.
+    const unit = code('dg2.service');
+    const heap = /--max-old-space-size=(\d+)/.exec(unit);
+    const hard = /^MemoryMax=(\d+)M$/m.exec(unit);
+    const soft = /^MemoryHigh=(\d+)M$/m.exec(unit);
+    expect(heap, 'sem --max-old-space-size').not.toBeNull();
+    expect(hard, 'sem MemoryMax').not.toBeNull();
+    expect(soft, 'sem MemoryHigh').not.toBeNull();
+    const [heapMib, hardMib, softMib] =
+      [heap![1], hard![1], soft![1]].map(Number);
+    expect(heapMib).toBeLessThan(softMib);
+    expect(softMib).toBeLessThan(hardMib);
+  });
+
+  it('roda como dg2 num sandbox, nunca como root', () => {
+    const unit = code('dg2.service');
+    expect(unit).toContain('User=dg2');
+    expect(unit).not.toContain('User=root');
+    for (const directive of [
+      'NoNewPrivileges=true', 'ProtectSystem=strict', 'ProtectHome=true',
+      'PrivateTmp=true', 'PrivateDevices=true', 'ProtectKernelTunables=true',
+      'ProtectKernelModules=true', 'ProtectControlGroups=true',
+      'RestrictSUIDSGID=true', 'RestrictNamespaces=true', 'LockPersonality=true',
+      'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX',
+    ]) {
+      expect(unit, `faltou ${directive}`).toContain(directive);
+    }
+  });
+
+  it('usa StateDirectory em vez de uma exceção de escrita escrita à mão', () => {
+    // One directive that creates, chowns and grants write, and survives a wiped
+    // /var — instead of a mkdir in a deploy script plus a manual exception that
+    // can disagree with it.
+    const unit = code('dg2.service');
+    expect(unit).toContain('StateDirectory=dg2');
+    expect(unit).toContain('StateDirectoryMode=0700');
+    expect(unit).not.toContain('ReadWritePaths');
+  });
+
+  it('arranca pelo symlink que o rollback move, não por um release fixo', () => {
+    // If ExecStart pointed at /srv/dg2/server-releases/<sha>/, rolling the
+    // symlink back would revert the client and keep serving the old server.
+    const unit = code('dg2.service');
+    expect(unit).toContain('ExecStart=/usr/bin/node /srv/dg2/current-server/server.mjs');
+    expect(unit).toContain('WorkingDirectory=/srv/dg2/current-server');
+    expect(unit).not.toMatch(/ExecStart=.*server-releases/);
+  });
+
+  it('não publica a API fora do loopback', () => {
+    // The bind address lives in apps/server/src/index.ts, but a stray
+    // DG2_UPSTREAM or NODE_OPTIONS here could still widen it. Cheap to assert.
+    expect(read('dg2.service')).not.toContain('0.0.0.0');
+  });
+});
+
+describe('ops/litestream.yml', () => {
+  it('usa a chave replica no SINGULAR, como o v0.5 exige (P-8)', () => {
+    // Every pre-v0.5 tutorial shows a plural list. Pasting one makes litestream
+    // reject or ignore the configuration, and the way that is discovered is by
+    // needing the backup. The comment stripping matters here: the file EXPLAINS
+    // the plural form in prose, and without the filter the explanation would
+    // fail the assertion it exists to justify.
+    const yml = code('litestream.yml');
+    const lines = yml.split('\n');
+    expect(lines.filter((l) => l.includes('replica:'))).toHaveLength(1);
+    expect(lines.filter((l) => l.includes('replicas:'))).toHaveLength(0);
+  });
+
+  it('replica o banco que dg2.service escreve, para bucket S3-compatível', () => {
+    const yml = code('litestream.yml');
+    // The same path StateDirectory creates. If the two ever disagree,
+    // litestream replicates a file nobody writes and reports success.
+    expect(yml).toContain('/var/lib/dg2/dg2.db');
+    expect(yml).toContain('type: s3');
+    // Explicit endpoint: the target is B2 or equivalent, not AWS, and the
+    // endpoint is what turns on path-style addressing.
+    expect(yml).toContain('endpoint:');
+  });
+
+  it('não carrega nenhum valor de credencial, só referências de ambiente', () => {
+    const yml = code('litestream.yml');
+    for (const key of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+                       'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT']) {
+      expect(yml, `${key} deveria aparecer interpolado`).toContain(`\${${key}}`);
+    }
+  });
+});
+
+describe('ops/litestream.service', () => {
+  it('é irmã de dg2.service e não filha — o backup sobrevive ao Node cair', () => {
+    const unit = code('litestream.service');
+    expect(unit).toContain('After=dg2.service');
+    expect(unit).toContain('Wants=dg2.service');
+    // Requires= would stop the backup whenever the API stops, which is the
+    // opposite of what a backup is for.
+    expect(unit).not.toContain('Requires=dg2.service');
+    // BindsTo= would do the same thing by another name.
+    expect(unit).not.toContain('BindsTo=');
+  });
+
+  it('tem teto de memória e o mesmo sandbox, com a escrita declarada à mão', () => {
+    const unit = code('litestream.service');
+    expect(unit.split('\n').filter((l) => l.includes('MemoryMax'))).toHaveLength(1);
+    expect(unit).toContain('User=dg2');
+    expect(unit).not.toContain('User=root');
+    expect(unit).toContain('NoNewPrivileges=true');
+    expect(unit).toContain('ProtectSystem=strict');
+    // No StateDirectory here — dg2.service owns the directory — so litestream
+    // needs the write exception spelled out. It keeps its own shadow WAL next
+    // to the database, so read-only is not enough.
+    expect(unit).toContain('ReadWritePaths=/var/lib/dg2');
+  });
+
+  it('lê a configuração instalada e o env, sem valor embutido', () => {
+    const unit = code('litestream.service');
+    expect(unit).toContain('EnvironmentFile=/etc/dg2/env');
+    expect(unit).toContain('-config /etc/litestream.yml');
+  });
+});
+
 /** Every key of /etc/dg2/env. The runbook is the only inventory of them. */
 const ENV_KEYS = [
   'DG2_DOMAIN', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE',
@@ -200,6 +339,27 @@ describe('nenhum arquivo de ops/ carrega endereço ou segredo (D2-15)', () => {
         if (!m) continue;
         const value = m[1].trim();
         if (value !== '' && !/^\$\{[^}]*\}$/.test(value)) bad.push(`${path}: ${line.trim()}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('toda linha que nomeia uma credencial traz o ${...} junto', () => {
+    // The stricter, syntax-blind form of the assertion above, and the reason
+    // ops/README.md §5 spells the interpolated form inside the table instead of
+    // merely naming the key. It makes
+    //
+    //   grep -rn 'AWS_SECRET_ACCESS_KEY' ops/ | grep -v '\${'
+    //
+    // a leak detector that needs no judgement to read: ANY output is a finding.
+    // The `=` regex above cannot see a YAML mapping, a JSON value or a here-doc,
+    // and a credential does not care which syntax leaked it.
+    const bad: string[] = [];
+    for (const [path, src] of Object.entries(OPS)) {
+      for (const line of src.split('\n')) {
+        for (const key of ['AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID']) {
+          if (line.includes(key) && !line.includes('${')) bad.push(`${path}: ${line.trim()}`);
+        }
       }
     }
     expect(bad).toEqual([]);

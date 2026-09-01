@@ -1,0 +1,62 @@
+# litestream.service — the replication process, supervised SEPARATELY from the
+# API and by design.
+#
+# It is a sibling of dg2.service, not a child. If the Node process dies, or is
+# stopped for an hour of debugging, the backup has to keep running — the moment
+# a database is most likely to be damaged is the moment somebody is working on
+# it. After= only orders the boot so the state directory exists first, and
+# Wants= (never Requires=) means litestream failing can never take the API with
+# it.
+[Unit]
+Description=Litestream replication of the DungeonGuys2 database
+After=dg2.service
+Wants=dg2.service
+# Same reasoning as dg2.service: litestream exits on a configuration or
+# credential error, not on a network blip (it retries those itself). Without a
+# start limit, a wrong secret becomes an invisible restart loop and the backup
+# is "running" for months without ever having replicated a byte.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=dg2
+Group=dg2
+# Bucket, endpoint and credentials for the ${...} references in litestream.yml.
+EnvironmentFile=/etc/dg2/env
+# Binary from the official GitHub release, outside the npm graph on purpose —
+# nothing in this phase adds a package to the dependency tree (T-2-SC).
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+Restart=always
+RestartSec=5
+
+# This unit declares no StateDirectory — dg2.service owns that directory — so
+# the write exception is spelled out here. Litestream needs WRITE and not just
+# read: it keeps its own shadow WAL alongside the database. A read-only mount
+# makes it fail at startup, which is the good outcome; the bad one would be a
+# process that looks healthy and replicates nothing.
+ReadWritePaths=/var/lib/dg2
+
+# The same sandbox as dg2.service. This process holds a long-lived credential
+# to an off-box bucket, so it is if anything the more interesting one to
+# contain (T-2-PRIV).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Litestream streams WAL frames; it does not buffer the database. 64 MiB is the
+# slice of the D2-19 budget it gets, and going over it is a bug worth being
+# told about rather than a reason to raise the number.
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target
