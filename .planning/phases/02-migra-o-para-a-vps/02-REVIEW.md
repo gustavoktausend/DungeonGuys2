@@ -57,12 +57,31 @@ files_reviewed_list:
   - vite.config.ts
   - vitest.config.ts
 findings:
-  critical: 4
+  critical: 0
   warning: 21
   info: 0
-  total: 25
+  total: 21
+critical_resolved: 4
 status: issues_found
 ---
+
+## Resolucao dos blockers (2026-09-01)
+
+Os quatro BLOCKER foram confirmados como defeitos reais e corrigidos apos a revisao.
+Cada um foi visto vermelho antes de verde; as descricoes abaixo permanecem como registro
+do que era o defeito, nao do estado atual do codigo.
+
+| Achado | Commit | O que provou o defeito |
+|--------|--------|------------------------|
+| CR-02 | `1f4705b` | `DG2_DB=''` abria banco temporario anonimo; 24 de 30 casos novos falhavam com o `?? fallback` de volta |
+| CR-04 | `1e5b4be` | tres INSERT com `id` NULL entraram todos; saldo errado em 1500 |
+| CR-03 | `bd18ba2` | caso Playwright de duas abas: a aba B voltava com documento novo apos a aba A aceitar |
+| CR-01 | `1ade03a` | script real sob `dash` com `rsync` falso: destino em `~/.ssh/`, `--sender` e `--partial-dir` aceitos; `set -f` provado load-bearing por remocao |
+
+Os 21 WARNING seguem abertos por decisao explicita — nao foram tocados nesta passagem.
+
+Portao apos as correcoes: build ok, 534/534 vitest (era 497), lint 0, `tsc` 0 nos quatro
+programas, `sw:verify` ok, `server:build` ok, Playwright 7/7 (era 6).
 
 # Phase 2: Code Review Report
 
