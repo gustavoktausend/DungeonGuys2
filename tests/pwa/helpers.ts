@@ -223,6 +223,34 @@ export async function readCacheEntries(page: Page): Promise<Record<string, strin
 }
 
 /**
+ * A directory entry's name as a URL PATH SEGMENT — the same conversion
+ * tools/sw/emit.mjs applies when it writes the precache list, and it has to be
+ * the same one or the two disagree.
+ *
+ * What the specs compare is a list of URLs, not a list of filenames: the
+ * entries come back from Cache Storage through `new URL(request.url).pathname`,
+ * which the URL parser hands over percent-encoded. Concatenating the raw
+ * filename is right only for as long as every name in dist/ happens to be a
+ * fixed point of that parser, which every current one is — so nothing is red
+ * today and nothing can ship broken either, because sw:verify refuses a
+ * precache key that is not a fixed point (WR-10). What it costs is the day an
+ * asset with a space arrives: install.spec.ts and update.spec.ts would go red
+ * against a worker that had done exactly the right thing, and the report would
+ * point at the game instead of at this line. Measured, with a planted
+ * `hero walk.png`: expected `/assets/hero walk.png`, received
+ * `/assets/hero%20walk.png`.
+ *
+ * `encodeURI` and NOT `encodeURIComponent`. The latter also escapes
+ * `$ & + , : ; = @`, every one of which the URL path parser leaves LITERAL —
+ * so it would manufacture a fresh mismatch in place of the one being removed.
+ * `?` and `#` are the two characters the parser reads as delimiters rather
+ * than as path content, so they are escaped by hand on top.
+ */
+function segment(name: string): string {
+  return encodeURI(name).replace(/[?#]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
  * Every file under dist/, as root-absolute pathnames, sorted.
  *
  * A real recursive scan and never a hand-written list: the hand-written list IS
@@ -231,13 +259,15 @@ export async function readCacheEntries(page: Page): Promise<Record<string, strin
  * that no longer existed made cache.addAll reject the whole install. A test
  * that repeated the mistake could not detect it.
  *
- * install.spec.ts (plan 02-05) carries its own copy of this scan, written
- * before there was a second caller; this is the shared home for it.
+ * This is now the only copy. install.spec.ts (plan 02-05) carried a private
+ * one, written before there was a second caller; collapsing it here was the
+ * smaller half of the fix above, since two copies of an encoding rule is two
+ * places for it to be wrong.
  */
 export async function distPathnames(dir = resolve('dist'), prefix = ''): Promise<string[]> {
   const found: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const pathname = `${prefix}/${entry.name}`;
+    const pathname = `${prefix}/${segment(entry.name)}`;
     if (entry.isDirectory()) found.push(...await distPathnames(join(dir, entry.name), pathname));
     else found.push(pathname);
   }

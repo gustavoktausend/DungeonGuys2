@@ -5,30 +5,17 @@
 // red-to-green transition is the evidence that the rewrite did what it was
 // asked to do. Asserting today's behaviour here would produce a test that
 // passes forever and proves nothing.
-import { readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { readCacheEntries, serveDir, waitForActivated, type StaticServer } from './helpers';
-
-const DIST = resolve('dist');
-
-/**
- * Every file under dist/, as root-absolute pathnames, sorted.
- *
- * A real recursive scan and never a hand-written list: the hand-written list
- * IS the defect, documented in the first person by the header of the current
- * public/sw.js, where names that no longer existed made cache.addAll reject
- * the whole install. A test that repeated the mistake could not detect it.
- */
-async function distPathnames(dir = DIST, prefix = ''): Promise<string[]> {
-  const found: string[] = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const pathname = `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) found.push(...await distPathnames(join(dir, entry.name), pathname));
-    else found.push(pathname);
-  }
-  return found.sort();
-}
+// distPathnames comes from helpers.ts and no longer has a copy here. The copy
+// was written before update.spec.ts became a second caller, and the two had
+// already stopped being interchangeable: the shared one turns each filename
+// into a URL path segment, which is what the entries read out of Cache Storage
+// actually are, and the private one concatenated the raw name. Both agree for
+// every filename dist/ carries today and disagree the moment one has a space
+// in it — see the comment on segment() in helpers.ts.
+import {
+  distPathnames, readCacheEntries, serveDir, waitForActivated, type StaticServer,
+} from './helpers';
 
 function controllerScript(page: Page): Promise<string | null> {
   return page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? null);
