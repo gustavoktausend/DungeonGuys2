@@ -1013,3 +1013,41 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
     expect(bad).toEqual([]);
   });
 });
+
+// A property of the CHECKOUT, not of the commit — which is exactly why it needs
+// a gate. `core.autocrlf=true` is the default of Git for Windows, and it turns
+// every LF in the index into CRLF on disk. The committed blobs are clean (0x0D
+// bytes: zero, in all of them); the files the developer edits and the files a
+// `scp` from this machine would carry are not.
+//
+// What that costs is not cosmetic. In POSIX shell a `\` at the end of a line
+// escapes the NEXT character, and with CRLF the next character is the CR — so
+// the newline survives as a command separator and the continuation is severed.
+// `dash` refuses all five scripts of ops/ for that reason alone, including
+// files nobody has ever edited. `sh -n` under Git for Windows is bash, which
+// tolerates the CR silently, so the local check does not show it: it took
+// running the same files through `dash -n` to see it at all.
+//
+// systemd is the other victim and the quieter one — it does not strip a
+// trailing CR, so `ExecStart=/usr/bin/node ...\r` would carry the CR into the
+// argument.
+//
+// The fix is .gitattributes pinning `eol=lf` on the paths the Linux box
+// executes. This block is what keeps it pinned.
+describe('os arquivos que a caixa executa nascem com LF', () => {
+  it('nenhum arquivo de ops/ ou tools/ops/ chega ao disco com CRLF', () => {
+    const entries = Object.entries({ ...OPS, ...TOOLS_OPS }) as [string, string][];
+    // The same anti-vacuity floor the D2-15 block uses, and for the same
+    // reason: `bad` being empty is satisfied in full by having looked at
+    // nothing.
+    expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
+      .toBeGreaterThanOrEqual(13);
+    const bad: string[] = [];
+    for (const [path, src] of entries) {
+      expect(src.length, `${path} veio vazio`).toBeGreaterThan(200);
+      const cr = (src.match(/\r/g) ?? []).length;
+      if (cr > 0) bad.push(`${path}: ${cr} bytes CR`);
+    }
+    expect(bad).toEqual([]);
+  });
+});

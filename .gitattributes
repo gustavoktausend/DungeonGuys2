@@ -1,0 +1,41 @@
+# .gitattributes — line endings for the files a Linux box executes.
+#
+# Git for Windows ships with core.autocrlf=true in its system config, so every
+# LF in the index becomes CRLF on disk at checkout. The committed blobs are
+# clean — measured, 0x0D bytes: zero, in all of ops/ and tools/ — but what the
+# developer edits, what an editor saves back, and what an scp from this machine
+# would carry are not.
+#
+# That is not cosmetic for the paths below:
+#
+#   POSIX shell. A `\` at the end of a line escapes the NEXT character; with
+#   CRLF that character is the CR, so the newline survives as a command
+#   separator and the continuation is severed. `dash -n` refuses all five
+#   scripts of ops/ on a checkout of this repository, including files nobody
+#   has ever edited. `sh` under Git for Windows is bash, which tolerates the CR
+#   in silence — so the local check is exactly the one that does not show it,
+#   and the VPS runs /bin/sh, which on Debian and Ubuntu IS dash.
+#
+#   systemd. A unit value keeps a trailing CR: `ExecStart=/usr/bin/node ...\r`
+#   carries the CR into the argument, and the failure is an executable that
+#   "does not exist" under a name that looks right in every log.
+#
+# `text eol=lf` normalises to LF in the index (which is where it already is)
+# and, crucially, checks OUT as LF whatever core.autocrlf says. It is the one
+# form of the setting that is a property of the repository rather than of
+# whoever cloned it.
+#
+# Scope is deliberately narrow: only what a Linux box reads. The rest of the
+# repository — TypeScript, Markdown, the workflow YAML — is consumed by tools
+# that do not care, and tests/workflows.test.ts and tests/ops-config.test.ts
+# already anchor their line matches with `\r?`, so widening this would be a
+# large diff buying nothing. tests/ops-config.test.ts holds the executable half
+# of this file.
+ops/** text eol=lf
+
+# tools/ops/restore-verify.mjs is documented in ops/README.md §11 as an
+# operator command ON the box, so it belongs to the set above by function even
+# though it lives here by convention (tools/README.md). Node itself tolerates
+# CRLF; the pattern covers every .mjs of tools/ rather than that one file so
+# that the next script promoted to the box is already covered.
+tools/**/*.mjs text eol=lf
