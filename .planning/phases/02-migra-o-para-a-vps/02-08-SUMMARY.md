@@ -242,6 +242,11 @@ corpo), T-2-LOOP (`process.exit(1)` antes de `serve()`), T-2-DATA (`PRIMARY KEY`
 
 Todas as três foram revertidas e o portão voltou a verde.
 
+## Self-Check: PASSED
+
+Os 10 arquivos criados estão rastreados no git (`git ls-files`), e os quatro commits existem:
+`e888007`, `e88d02b`, `0596af7` e `d9e2c22`. Árvore de trabalho limpa.
+
 ## Known Stubs
 
 Nenhum. A tabela `gold_entry` não é escrita por nada nesta fase, mas isso é a decisão do
