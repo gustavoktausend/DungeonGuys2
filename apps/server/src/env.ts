@@ -7,9 +7,19 @@
 // one, so it is the one link that has to be callable on its own.
 //
 // The module takes the environment as an argument and never touches `process`
-// itself. That keeps it free of Node globals — which is what lets its test sit
-// in the repository-wide tests/ program alongside the client tests, instead of
-// needing the Node-typed program of apps/server/tsconfig.json.
+// itself, so tests/server-env.test.ts sits in the repository-wide tests/
+// program alongside the client tests instead of in the Node-typed program of
+// apps/server/tsconfig.json.
+//
+// That is a DESIGN RULE, not something the compiler holds up, and the earlier
+// wording here claimed the second. Measured: planting `process.env.HOME` in
+// this file leaves the root `tsc --noEmit` green, because @types/node reaches
+// the root program transitively despite `types: ["vite/client"]` —
+// `tsc --listFiles` shows node/globals.d.ts in it. So nothing would refuse a
+// Node global here; what the rule buys is that this file stays callable from
+// any program, which is why its test needed neither of the two hand-written
+// tsconfig entries that server-migrate and server-health each need twice.
+// apps/server/src/shutdown.ts carries the same rule and the same note.
 
 /** Everything index.ts needs from the environment, already validated. */
 export interface ServerEnv {
