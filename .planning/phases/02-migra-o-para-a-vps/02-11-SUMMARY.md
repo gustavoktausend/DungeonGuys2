@@ -99,11 +99,11 @@ envios, e seis asserções que reprovam cada uma dessas propriedades quando ela 
 
 ## Files Created/Modified
 
-- `.github/workflows/ci.yml` (165 → 283 linhas) — quatro passos novos no fim do job `test`
+- `.github/workflows/ci.yml` (132 → 285 linhas) — quatro passos novos no fim do job `test`
   (`sw:verify`, `server:build`, dois `upload-artifact@v4` com `retention-days: 7`) e o job
   `deploy` inteiro: dois `download-artifact@v4`, o passo que escreve chave e `known_hosts`,
   dois `rsync` e a ativação por `ssh`.
-- `tests/workflows.test.ts` (69 → 149 linhas) — `CI_PATH`, o helper `ci()` com a guarda de
+- `tests/workflows.test.ts` (69 → 210 linhas) — `CI_PATH`, o helper `ci()` com a guarda de
   arquivo vazio/truncado, o helper `hasLine()`, e três `describe` novos com seis asserções.
 
 ## Decisions Made
@@ -341,6 +341,21 @@ ela pertence: um job comprometido continua sem shell na VPS.
 - **Para o verificador da fase:** INFRA-01 e INFRA-04 **continuam pendentes** e
   `REQUIREMENTS.md` não foi alterado por este plano, deliberadamente — ver decisão 4.
 - `STATE.md` e `ROADMAP.md` não foram tocados: são do orquestrador.
+
+## Self-Check: PASSED
+
+Arquivos declarados, conferidos em disco: `.github/workflows/ci.yml`,
+`tests/workflows.test.ts`, `.planning/phases/02-migra-o-para-a-vps/02-11-SUMMARY.md` — todos
+presentes. As contagens de linha declaradas foram medidas contra a base `7f0d780`, não
+estimadas (a primeira versão desta seção trazia dois números errados, corrigidos aqui).
+
+Commits declarados, conferidos em `git log`: `9f13a76`, `b3c31f0` — presentes, mais `39aadff`
+e o commit desta correção. Árvore de trabalho limpa, nenhum arquivo não rastreado, nenhuma
+deleção em nenhum dos commits.
+
+Nenhum arquivo fora dos dois declarados pelo plano foi tocado. `STATE.md`, `ROADMAP.md` e
+`REQUIREMENTS.md` não aparecem em commit nenhum deste plano. Nenhum `git remote`, `git push`
+nem criação de repositório foi executado — não há remoto configurado.
 
 ---
 *Phase: 02-migra-o-para-a-vps*
