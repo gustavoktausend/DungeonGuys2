@@ -1,17 +1,29 @@
 // server-migrate.test.ts — the schema of apps/server, proved against a real
 // SQLite engine rather than against the source of the migration.
 //
-// Every test here opens ':memory:' through the same openDb() the process uses,
-// so the pragmas and the dialect wiring are the ones production gets; only the
-// path differs. That also means no temporary file, no cleanup, and no need for
-// node:fs — which is why this file can be typechecked by apps/server/tsconfig
-// without dragging filesystem types into a test.
+// Almost every test here opens ':memory:' through the same openDb() the process
+// uses, so the pragmas and the dialect wiring are the ones production gets;
+// only the path differs.
+//
+// The exception is the WAL block at the bottom, which is the one property that
+// ':memory:' CANNOT prove: an in-memory database answers `memory` to
+// `journal_mode = WAL` and always will, so asserting WAL against it would pass
+// on a build that never asked for WAL at all. That block is why node:fs, node:os
+// and node:path appear in a file whose header used to boast of not needing them
+// — and it costs nothing, since apps/server/tsconfig.json is the one program in
+// the repository with `types: ["node"]` and this file is already in it.
 //
 // The load-bearing assertion is idempotency. migrateToLatest() runs on EVERY
 // start of dg2.service (D2-07), including the restarts systemd performs by
 // itself, so "applying the same migration twice is a no-op" is not a nicety —
 // it is the property that lets a deploy, a rollback and a reboot all be safe.
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+// The raw driver, imported ONLY by the WAL block, and only to establish that
+// the refusal it tests for is a real SQLite behaviour rather than a premise.
+import SQLite from 'better-sqlite3';
 // 'kysely/migration', not 'kysely': 0.29 moved the migrator behind a subpath
 // export and the root name is now a deprecated sentinel. See db/migrations.ts.
 import { Migrator } from 'kysely/migration';
@@ -234,5 +246,81 @@ describe('esquema de gold_entry', () => {
     expect(rows[0]?.confirmed).toBeNull();
 
     await db.destroy();
+  });
+});
+
+// The pragma that is not a preference. Litestream replicates by tailing the
+// write-ahead log, so a database that is not in WAL is a database with NO
+// continuous backup — and `PRAGMA journal_mode` is one of the handful SQLite
+// ANSWERS rather than obeys: where WAL is unavailable it keeps the mode it had,
+// reports it, and raises nothing. That silence is the same shape as the
+// plural-`replicas` trap ops/litestream.yml warns about, and it has the same
+// ending: a backup that was never running, discovered on the day it is needed
+// (D2-17).
+describe('journal_mode de openDb (D2-17)', () => {
+  it('um banco em arquivo fica mesmo em WAL', async () => {
+    // The production shape, and the ONLY case that can prove WAL was actually
+    // requested: ':memory:' answers `memory` whether or not the pragma is
+    // there at all, so a suite made only of in-memory databases would go on
+    // passing if the WAL line were deleted tomorrow.
+    const dir = mkdtempSync(join(tmpdir(), 'dg2-wal-'));
+    try {
+      const { sqlite, db } = openDb(join(dir, 'dg2.db'));
+      expect(String(sqlite.pragma('journal_mode', { simple: true }))).toBe('wal');
+
+      // sqlite.close() and NOT `await db.destroy()`, which is what every other
+      // test in this file uses. Measured while writing this one: Kysely's
+      // destroy() opens with `if (!this.#initPromise) return` (kysely 0.29,
+      // dist/driver/runtime-driver.js:96-98), so on a Kysely instance that
+      // never ran a query it closes NOTHING and the better-sqlite3 handle stays
+      // open. This test reads a pragma off the raw handle and never touches the
+      // query builder, which is exactly that case — the symptom was rmSync
+      // failing with EPERM on a directory whose database was still open.
+      sqlite.close();
+      // Idempotent, and kept so the two closing styles in this file stay
+      // interchangeable if the test later grows a query.
+      await db.destroy();
+    } finally {
+      // WAL leaves -wal and -shm beside the file; SQLite removes them on the
+      // clean close above, and `force` covers the run where it did not.
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('o SQLite realmente recusa WAL num banco temporário anônimo', () => {
+    // Premise check, not a fix check. Everything below asserts that openDb
+    // REFUSES a database whose WAL request was denied; this is the measurement
+    // that such a database exists and is reachable in-process, so the refusal
+    // test is not merely asserting that a function throws on an input chosen
+    // to make it throw.
+    const raw = new SQLite('');
+    try {
+      const mode = String(raw.pragma('journal_mode = WAL', { simple: true }));
+      // Not 'wal', and not 'memory' either: an anonymous temporary database
+      // reports `delete`, the default rollback journal. It is exactly the
+      // healthy-looking, unreplicated database of the finding.
+      expect(mode).toBe('delete');
+    } finally {
+      raw.close();
+    }
+  });
+
+  it('openDb recusa o banco cujo WAL foi negado', () => {
+    // `openDb('')` is not a hypothetical: it is what the pre-CR-02 code did
+    // with `DG2_DB=` in /etc/dg2/env, and env.ts refuses that string one layer
+    // up. This is the second lock on the same door, at the layer that knows
+    // WHY WAL matters — and it is the layer any future caller reaches first.
+    expect(() => openDb('')).toThrow(/WAL/);
+    expect(() => openDb('')).toThrow(/D2-17/);
+  });
+
+  it("':memory:' continua aceito, e é por isso que a exclusão existe", () => {
+    // The excluded case, asserted rather than assumed: an in-memory database
+    // legitimately answers `memory`, both server test files pass ':memory:',
+    // and a guard that refused it would fail this whole suite instead of the
+    // deployment it is meant to protect.
+    const { sqlite, db } = openDb(':memory:');
+    expect(String(sqlite.pragma('journal_mode', { simple: true }))).toBe('memory');
+    return db.destroy();
   });
 });
