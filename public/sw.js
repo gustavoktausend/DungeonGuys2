@@ -1,74 +1,104 @@
-// sw.js — DungeonGuys2 service worker
-// Code files go network-first (deploys are picked up immediately, cache is the
-// offline fallback); heavy static assets go cache-first.
+// sw.js — DungeonGuys2 service worker (TEMPLATE).
 //
-// Task 20 debt #1 (task-20-brief.md): the scaffolding task copied ORIG's
-// sw.js verbatim, precaching per-file sources (`engine.js`, `combat.js`,
-// `entities.js`, `items.js`, `render.js`, `ui.js`, `config.js`, `save.js`,
-// `audio.js`) that don't exist in this Vite-built app — `cache.addAll`
-// rejects the whole install if any single URL 404s, so this would have
-// broken PWA install outright the moment something registered it.
+// Three things to read before changing this file.
 //
-// Vite bundles everything into one hashed JS + one hashed CSS file per
-// build (`assets/index-<hash>.js/.css` — confirmed via `npm run build`),
-// so there is no stable filename to precache for them, and no build step
-// here rewrites this hand-written file with the current hash. That's
-// exactly why the network-first branch below still exists: those hashed
-// bundles are cached lazily, on first fetch, the same as any other
-// non-precached GET. Only the paths that never change build-to-build are
-// listed explicitly.
-const CACHE = 'dungeonguys2-v1';
-
-const PRECACHE = [
-  '.',
-  'index.html',
-  'manifest.json',
-  'assets/dungeon_tileset.png',
-  'assets/copRobo.png',
-  'icons/icon-192.png',
-  'icons/icon-512.png',
-];
-
-const CACHE_FIRST = /\.(png|woff2?)$|fonts\.(googleapis|gstatic)\.com/;
+// 1. THE HASH COVERS EVERY FILE IN dist/ EXCEPT THIS ONE.
+//    It cannot cover itself: writing the digest in changes the very bytes that
+//    produced it. tools/sim-version/emit.mjs documents the same property and
+//    resolves it from the other side — there the value goes to a SIBLING file,
+//    so the artifact stays clean; here the value has to live inside the
+//    artifact, so the BOUNDARY moves instead. Anyone who "fixes" emit.mjs to
+//    hash dist/sw.js as well makes the build irreproducible.
+//
+// 2. FILTER BY OUR OWN PREFIX, NEVER DELETE OVER THE WHOLE caches.keys().
+//    Cache Storage is per ORIGIN, not per scope. The activate handler of the
+//    original DungeonGuys — live at gustavoktausend.github.io/DungeonGuys/sw.js
+//    with CACHE = 'dungeonguys-v3' — is literally a delete-everything over
+//    keys(), so keeping that shape here would wipe the sibling game's cache on
+//    any shared origin. src/app/save.ts settled the same collision one storage
+//    down, in localStorage, by taking a key of its own, and it saw only half of
+//    the problem: the Cache Storage half has no fix by name, only by prefix
+//    discipline inside the worker (DM-3, P-11).
+//
+// 3. THE TWO SENTINELS BELOW ARE REPLACED BY tools/sw/emit.mjs AFTER
+//    `vite build`. Vite copies public/ verbatim, so this file never passes
+//    through a transform and define() cannot reach it — the substitution is a
+//    post-build step. A bare `vite build` leaves the sentinels standing and
+//    tools/sw/verify.mjs fails the build on purpose: a service worker that
+//    precaches nothing only shows its defect offline, weeks later. Both
+//    sentinels are valid identifiers, which is what lets `node --check` verify
+//    the syntax of the template before anything is substituted.
+//
+// Two absences here are deliberate and are asserted by tests/build-base.test.ts,
+// so read them now instead of reintroducing them later (D2-09): this worker
+// never swaps version by itself on install, and never takes control of pages it
+// did not load. The page asks for the swap, outside a run, by posting
+// SKIP_WAITING to the waiting worker — wired up in plan 02-07.
+const CACHE = 'dg2-__BUILD_HASH__';
+const PRECACHE = __PRECACHE__;
+const PRECACHE_SET = new Set(PRECACHE);
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
-  );
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    // `{cache:'reload'}` bypasses the HTTP cache. index.html, manifest.json and
+    // this worker have stable names, so without it a proxy or an intermediate
+    // cache could feed the PREVIOUS build straight into the "new" precache
+    // (P-4). The other half of the fix is the `Cache-Control: no-cache` that
+    // the @shell matcher of ops/Caddyfile sends for exactly those names.
+    await cache.addAll(PRECACHE.map(url => new Request(url, { cache: 'reload' })));
+    // Nothing else belongs here on purpose — D2-09, see the header.
+  })());
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    // Our prefix only, and never the current name — item 2 of the header.
+    await Promise.all(
+      keys.filter(k => k.startsWith('dg2-') && k !== CACHE).map(k => caches.delete(k)),
+    );
+    // Nothing else belongs here on purpose — D2-09, see the header.
+  })());
+});
+
+// The only path to a version swap. The page decides when it is safe (outside a
+// run; from phase 3 on, outside a room too) and posts the message.
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
 
-  if (CACHE_FIRST.test(e.request.url)) {
-    e.respondWith(
-      caches.match(e.request).then(hit => hit ||
-        fetch(e.request).then(res => {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
-          return res;
-        })
-      )
-    );
-    return;
-  }
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return; // never ours to answer
 
-  // network-first for everything else (html/js/css)
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(e.request))
-  );
+  // Belt and braces. The allowlist below already excludes both of these, and
+  // that redundancy is the point: two lines that cost nothing and document the
+  // intent for whoever reviews this next (INFRA-03; /ws lands in phase 3).
+  if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
+
+  // ALLOWLIST, NOT DENYLIST. Only paths this build actually emitted are ever
+  // answered from the cache. A denylist is always one forgotten route away from
+  // storing an authenticated response in a storage that ignores Cache-Control
+  // and is not cleared on logout; this rule cannot forget, because it only
+  // knows the files the build produced.
+  const path = url.pathname;
+  const key = PRECACHE_SET.has(path) ? path
+    : (path === '/' && PRECACHE_SET.has('/index.html')) ? '/index.html'
+      : null;
+  if (!key) return; // straight to the network, with no respondWith at all
+
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await cache.match(key);
+    if (hit) return hit;
+    const res = await fetch(e.request);
+    // Never store a response that is not ok: thirty seconds of 502 during a
+    // deploy would otherwise become the cached index.html forever, because
+    // Cache Storage ignores Cache-Control by design (P-2).
+    if (res.ok) cache.put(key, res.clone());
+    return res;
+  })());
 });
