@@ -22,12 +22,18 @@ import { createApp } from '../apps/server/src/app';
 /** A git-sha-shaped release, as ops/deploy.sh would put in DG2_RELEASE. */
 const RELEASE = 'a1b2c3d';
 
-/** Opens an in-memory database and migrates it, exactly as index.ts does. */
+/**
+ * Opens an in-memory database and migrates it, exactly as index.ts does.
+ *
+ * `sqlite` is returned alongside because the bookkeeping tests below have to
+ * reach past the query builder to damage the database the way a bad restore
+ * would.
+ */
 async function healthyApp() {
   const { sqlite, db } = openDb(':memory:');
   const { error } = await new Migrator({ db, provider }).migrateToLatest();
   expect(error).toBeUndefined();
-  return { app: createApp({ sqlite, release: RELEASE }), db };
+  return { app: createApp({ sqlite, release: RELEASE }), db, sqlite };
 }
 
 describe('GET /api/health com o banco migrado', () => {
@@ -84,6 +90,58 @@ describe('GET /api/health com o banco migrado', () => {
     }
     // Anti-vacuity: the loop above would also pass on an empty body.
     expect(raw.length).toBeGreaterThan(20);
+
+    await db.destroy();
+  });
+});
+
+// The states between "migrated" and "the query throws". They are the ones the
+// endpoint used to answer `ok` for, because the probe fetched a count and threw
+// it away — which made it a `select 1` against a differently-named table, and a
+// table that merely EXISTS proves nothing about whether the schema was applied.
+//
+// Both cases below are reachable in production and neither is exotic: the
+// bookkeeping table is created by the migrator BEFORE the first migration runs,
+// so a migration that fails on its first statement leaves exactly the first
+// one; and a restore from a generation predating the first migration, or a
+// truncated one, leaves the second. The external monitor of D2-21 keyword-
+// matches `"status":"ok"`, so these are precisely the states that must not read
+// green.
+describe('GET /api/health com kysely_migration vazia', () => {
+  it('recusa dizer ok quando a tabela existe sem nenhuma linha', async () => {
+    const { sqlite, db } = openDb(':memory:');
+    // Built by hand, in the shape kysely 0.29 builds it: the migrator creates
+    // this table first and records a row per migration, so "table present, zero
+    // rows" is the bookkeeping of a migration that never completed.
+    sqlite
+      .prepare(
+        'create table kysely_migration (' +
+          'name varchar(255) primary key, timestamp varchar(255) not null)',
+      )
+      .run();
+
+    const res = await createApp({ sqlite, release: RELEASE }).request('/api/health');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'degraded', db: false, release: RELEASE });
+
+    sqlite.close();
+    await db.destroy();
+  });
+
+  it('volta a degraded se as linhas somem de um banco já migrado', async () => {
+    // The truncated-restore case, and the harsher of the two: this database WAS
+    // migrated, so the table, the schema and every column are present and
+    // correct. Only the bookkeeping rows are gone, which is what a restore from
+    // the wrong generation looks like — the server would answer ok over a
+    // database whose migration state it can no longer vouch for.
+    const { app, db, sqlite } = await healthyApp();
+    expect((await app.request('/api/health')).status).toBe(200);
+
+    sqlite.prepare('delete from kysely_migration').run();
+
+    const res = await app.request('/api/health');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'degraded', db: false, release: RELEASE });
 
     await db.destroy();
   });

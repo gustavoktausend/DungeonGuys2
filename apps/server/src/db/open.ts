@@ -54,7 +54,38 @@ export function openDb(path: string): OpenedDb {
   // REQUIRED by Litestream, not merely nice to have: Litestream replicates by
   // reading the write-ahead log, so a database in the default rollback-journal
   // mode is a database with no continuous backup at all (D2-17).
-  sqlite.pragma('journal_mode = WAL');
+  //
+  // The answer is CHECKED and not discarded, because `journal_mode` is one of
+  // the handful of pragmas SQLite ANSWERS rather than obeys: where WAL is
+  // unavailable — a filesystem without shared-memory support, which is some
+  // network mounts and some container overlays — it keeps the mode it had,
+  // reports that mode, and raises nothing. Discarding the answer makes this
+  // line indistinguishable from not having written it, and the failure has the
+  // same shape and the same ending as the plural-`replicas` trap in
+  // ops/litestream.yml: a backup that was never running, found out on the one
+  // day it is needed.
+  const journalMode = String(sqlite.pragma('journal_mode = WAL', { simple: true })).toLowerCase();
+  // ':memory:' is excluded by its exact name, and NOT by better-sqlite3's
+  // `sqlite.memory` flag, which would read more elegantly and be wrong. That
+  // flag is also true for the anonymous temporary database of `openDb('')` —
+  // which answers `delete`, not `memory` (measured; see the premise test in
+  // tests/server-migrate.test.ts) and is the single case that most needs
+  // refusing, since it is a database whose contents vanish when the handle
+  // closes. Excluding by flag would excuse exactly the database this check
+  // exists to catch.
+  if (path !== ':memory:' && journalMode !== 'wal') {
+    // Closed before throwing: the handle is already open at this point, and a
+    // process that is about to exit non-zero should not also leak a lock on the
+    // file the operator is about to go and look at.
+    sqlite.close();
+    // The path is deliberately NOT in the message. It is the same rule the
+    // health endpoint follows: the mode is what the operator can act on, and
+    // the path is topology (D2-15).
+    throw new Error(
+      `/db/journal_mode: WAL recusado (ficou em "${journalMode}") — ` +
+        'sem WAL não há replicação contínua (D2-17)',
+    );
+  }
   // With WAL, NORMAL means fsync at checkpoint rather than at every commit. The
   // window it opens is losing the last transactions on a power cut, and the
   // ledger tolerates that by construction: entries carry client-minted ULIDs,
