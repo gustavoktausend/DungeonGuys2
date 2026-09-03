@@ -1,7 +1,7 @@
 ---
 phase: 3
 slug: sala-transporte-e-protocolo
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-09-03
