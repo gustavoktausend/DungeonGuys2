@@ -1498,7 +1498,10 @@ it('cada parte cabe em 16 KiB na wave 16 com quatro jogadores (SYNC-04)', () => 
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+As quatro perguntas foram fechadas no planejamento; cada uma aponta abaixo para a decisão e o
+plano que a resolveram.
 
 1. **O grace de 60 s antes de apagar a sala contradiz D3-02 ou implementa D3-02?**
    - **O que se sabe:** D3-02 diz "o servidor apaga a sala quando o WebSocket da autoridade
@@ -1507,6 +1510,8 @@ it('cada parte cabe em 16 KiB na wave 16 com quatro jogadores (SYNC-04)', () => 
      socket é só o detector) ou "quando o socket fecha, literalmente".
    - **Recomendação:** grace de 60 s, apresentado ao usuário como esclarecimento de D3-02 e
      não como mudança. A alternativa é uma regra operacional escrita em `ops/README.md`.
+   - **RESOLVED:** adotado no plano **03-04** (Task 3, `rooms.ts`) como esclarecimento de D3-02 —
+     a constante de 60 s carrega o motivo acima dela e a ameaça está registrada como T-3-19.
 
 2. **`p0` é sempre a autoridade?**
    - **O que se sabe:** ADR 0001 diz que a autoridade atribui os slots na ordem de entrada,
@@ -1517,6 +1522,9 @@ it('cada parte cabe em 16 KiB na wave 16 com quatro jogadores (SYNC-04)', () => 
    - **Recomendação:** **não** derivar autoridade do slot. O `welcome`/`joined` diz
      explicitamente qual `peerId` é a autoridade. Custa um campo e mantém a promessa de que
      mover a autoridade para um servidor é troca de construtor.
+   - **RESOLVED:** autoridade **nunca** derivada do slot — `Created`/`Joined` carregam
+     `authorityPeerId` explícito nos tipos do plano **03-01**, e o cliente do plano **03-08** o lê
+     do `created`/`joined` (T-3-31). FORM-12 continua valendo.
 
 3. **O `?sala=` interage com o `start_url: "."` do manifest?**
    - **O que se sabe:** `public/sw.js:125-126` já deixa `/api/` e `/ws` passarem, e a
@@ -1526,6 +1534,9 @@ it('cada parte cabe em 16 KiB na wave 16 com quatro jogadores (SYNC-04)', () => 
      `start_url`, fazendo o app abrir sempre numa sala morta.
    - **Recomendação:** um teste de Playwright em `tests/pwa/` que instala a partir de
      `/?sala=X` e confere o `start_url` resolvido. A infraestrutura já existe.
+   - **RESOLVED:** plano **03-10**, Task 3 — `tests/pwa/room-url.spec.ts` instala a partir de
+     `/?sala=X` e assere que o `start_url` resolvido não contém `sala=`; a query sai com
+     `replaceState` no boot (D3-07, T-3-32).
 
 4. **Quatro amigos atrás do mesmo CGNAT compartilham IP para o rate limit?**
    - **O que se sabe:** `STACK.md` documenta que CGNAT é amplamente usado no Brasil.
@@ -1533,6 +1544,9 @@ it('cada parte cabe em 16 KiB na wave 16 com quatro jogadores (SYNC-04)', () => 
      mesmo endereço público.
    - **Recomendação:** limites folgados (20 `upgrade`/min) e um teste manual na primeira
      sessão real de quatro pessoas. O custo de errar é baixo enquanto o público é fechado.
+   - **RESOLVED:** limites folgados no plano **03-04** (`limiter.ts`: `upgrade` 20/min/IP e `join`
+     10/min/IP, com a lacuna do CGNAT escrita em comentário) e a medição no plano **03-11**
+     (passo 7 do roteiro manual, T-3-38).
 
 ---
 
