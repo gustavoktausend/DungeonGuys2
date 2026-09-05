@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-09-03T15:41:09.914Z"
-last_activity: 2026-09-01 -- Phase 02 execution started
+last_updated: "2026-09-05T04:52:58.001Z"
+last_activity: 2026-09-05 -- Phase 03 planning complete
 progress:
   total_phases: 9
   completed_phases: 1
-  total_plans: 26
+  total_plans: 37
   completed_plans: 24
   percent: 11
 ---
@@ -28,8 +28,8 @@ mundo, com o jogo respondendo na hora para cada um.
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
 Plan: 1 of 12
-Status: Executing Phase 02
-Last activity: 2026-09-01 -- Phase 02 execution started
+Status: Ready to execute
+Last activity: 2026-09-05 -- Phase 03 planning complete
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -117,6 +117,12 @@ fase e local:
 - codigo de sala, lobby, escolha de classe e atribuicao de slots `p0..p3` (criterios 1 e 2)
 - telemetria de ping/rota e o registro do desfecho ICE (criterio 4) -- a estrutura e local,
   a medicao real precisa da caixa
+
+**Planejada em 2026-09-05:** 11 planos em 7 ondas (commits `3b3f2a1`, `591717b`). Só o `03-11`
+(onda 7, `autonomous: false`) depende da caixa: coturn real, relay real e medição ICE contra NAT
+de verdade — é ele que fecha o critério 3 (SALA-03) e fica bloqueado até o 02-04. Os outros
+10 planos são código puro e não esperam pela VPS. `03-04` e `03-09` também são
+`autonomous: false`, mas por checkpoints locais (legitimidade do `zod`; conferência visual).
 
 Sequencie as ondas de forma que o que depende da VPS caia nas ultimas, como a fase 2 fez.
 
