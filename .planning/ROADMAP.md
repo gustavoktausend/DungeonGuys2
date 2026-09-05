@@ -186,7 +186,47 @@ o monitoramento externo do certificado é parte do critério 1, não item separa
   4. A tela mostra ping e tipo de rota, e o desfecho ICE de cada conexão fica registrado: a taxa real de necessidade de relay passa a ser medida em vez de estimada.
   5. Um bench no CI codifica um `World` de wave 16 com 4 jogadores e o resultado cabe abaixo de 16 KiB por mensagem.
 
-**Plans**: 4 (estimativa)
+**Plans**: 11 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — O vocabulário do fio: as 15 tabelas congeladas, `ping`/`pong`, os tipos de signaling e o código de sala
+- [ ] 03-07-PLAN.md — coturn em `ops/`: `turnserver.conf`, drop-in de memória, a decisão da porta 443 e o runbook §12
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — O codec binário do snapshot: três partes auto-contidas, round-trip duplo e os três motores
+- [ ] 03-03-PLAN.md — `Transport` em processo, `lossy`, a máquina de estado do lobby e a medição de RTT
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-04-PLAN.md — O signaling no servidor: `ws` no `upgrade`, salas em memória, rate limit e o ponto nomeado da fase 6
+- [ ] 03-05-PLAN.md — O bench de CI: o teto de 16 KiB vira portão (**fecha SYNC-04 e o critério 5**)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 03-06-PLAN.md — A tabela `ice_outcome` e a credencial efêmera de TURN por HMAC
+- [ ] 03-08-PLAN.md — WebRTC no cliente: perfect negotiation, os dois canais, a rota por `getStats()` e a flag de relay
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03-09-PLAN.md — As telas: sala, lobby, divergência, o badge de rede e o fluxo `?sala=`
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 03-10-PLAN.md — Início da run pelo lobby, a prova do hash do tick 0 e a sala fechando entre dois navegadores
+
+**Wave 7** *(blocked on Wave 6 completion — e **bloqueada por 02-04**)*
+
+- [ ] 03-11-PLAN.md — Contra a caixa: coturn no ar, relay real e a primeira medição de ICE (**critério 3, SALA-04**)
+
+**O critério 3 não pode fechar antes do 02-04.** Os planos 03-01 a 03-10 são código puro e
+rodam sem a VPS; o 03-11 é o único não autônomo da fase e o único bloqueado por infraestrutura,
+exatamente como a fase 2 fez com o 02-12. Se `/gsd:verify-work` rodar antes dele, o critério 3
+é **bloqueado por infraestrutura**, não falho.
+
 **UI hint**: yes
 
 **Por que o codec vem aqui e não na fase 4**: é uma restrição medida, não uma otimização. O
