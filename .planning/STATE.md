@@ -108,7 +108,7 @@ adiados por falta da VPS (ver Deferred Items acima). A decisao do usuario foi av
 fase 3 pelo que e codigo puro enquanto a caixa nao existe.
 
 Consequencia para o discuss/plan da fase 3 -- o criterio de sucesso 3 (**"a sala fecha entre
-jogadores atras de NAT residencial brasileiro, incluindo pelo caminho de relay"**, SALA-03)
+jogadores atras de NAT residencial brasileiro, incluindo pelo caminho de relay"**, SALA-04)
 depende do coturn, que mora na VPS. Ele NAO pode ser fechado antes do 02-04. Todo o resto da
 fase e local:
 
@@ -120,7 +120,7 @@ fase e local:
 
 **Planejada em 2026-09-05:** 11 planos em 7 ondas (commits `3b3f2a1`, `591717b`). Só o `03-11`
 (onda 7, `autonomous: false`) depende da caixa: coturn real, relay real e medição ICE contra NAT
-de verdade — é ele que fecha o critério 3 (SALA-03) e fica bloqueado até o 02-04. Os outros
+de verdade — é ele que fecha o critério 3 (SALA-04) e fica bloqueado até o 02-04. Os outros
 10 planos são código puro e não esperam pela VPS. `03-04` e `03-09` também são
 `autonomous: false`, mas por checkpoints locais (legitimidade do `zod`; conferência visual).
 
