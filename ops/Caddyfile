@@ -22,10 +22,27 @@
 # empty site address, which Caddy refuses at parse time: a loud failure at boot
 # beats a box quietly serving the game under the wrong name.
 #
-# SCHEDULED FOR PHASE 3: port 443 will be contested — TURN over TLS wants
-# 443/tcp to cross corporate firewalls, and so does this server. This file does
-# not solve that. The note is here so whoever comes back knows the collision is
-# on the calendar, not an oversight.
+# PORT 443 IS CADDY'S, AND THAT IS NOW A DECISION RATHER THAN A CALENDAR ENTRY.
+# The collision this header used to warn about — TURN over TLS also wants
+# 443/tcp — was resolved by giving the relay 3478 (UDP and TCP) and 5349 (TLS)
+# instead. See ops/turnserver.conf and ops/README.md §12. Those two ports cross
+# essentially every home NAT and firewall, which is the population this game
+# has: friends on Brazilian residential access.
+#
+# TURN over TLS on 443 would only buy the corporate firewall that opens nothing
+# else, and it is REGISTERED DEBT, NOT BUILT. The two ways out, named here so
+# the next reader inherits the options instead of the problem: Caddy's `layer4`
+# app routing by ALPN/SNI in front of both services, or a second IP on the VPS.
+# Neither is worth its operational weight before somebody is actually locked
+# out by a firewall we can name.
+#
+# RELOAD CLOSES ACTIVE WEBSOCKETS. `systemctl reload caddy` — for a header, for
+# a cache rule, for anything — terminates every stream through /ws, while the
+# P2P DataChannels that never touch Caddy keep running. The game goes on and
+# the signalling server sees everyone leave at once. That is why plan 03-04
+# puts a 60 s grace on room deletion instead of deleting on disconnect: the
+# mitigation is the second half of this warning, and removing one without the
+# other brings back "everybody dropped at the same time and I did nothing".
 {$DG2_DOMAIN} {
     encode zstd gzip
 
@@ -93,10 +110,16 @@
         reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
     }
 
-    # Reserved for phase 3 signalling. It exists now so the shape is visible in
-    # review; no code in this phase talks to it. Caddy upgrades a WebSocket
-    # through reverse_proxy without an extra module, so the block will not need
-    # to change when the signalling server arrives.
+    # IN USE by the phase 3 signalling server. It was written a phase early,
+    # with no consumer, so the shape would be visible in review — and the bet
+    # paid: the block did not change when the server arrived. Caddy upgrades a
+    # WebSocket through reverse_proxy without an extra module, and the CSP above
+    # already covers it, because connect-src 'self' includes wss:// on the same
+    # origin.
+    #
+    # What DOES change is the operational rule: reloading Caddy closes every
+    # socket here. The header of this file explains why that is survivable and
+    # what pays for it.
     handle /ws {
         reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
     }

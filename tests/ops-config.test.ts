@@ -179,6 +179,33 @@ describe('ops/Caddyfile', () => {
     expect(cfg).toContain('handle_errors');
     expect(cfg).toContain('{"status":"unavailable"}');
   });
+
+  it('a disputa da 443 virou decisão escrita, não um item de calendário', () => {
+    // read() e não code(): a decisão VIVE num comentário, e esta é justamente a
+    // asserção que code() tornaria vazia — o texto que ela persegue nunca
+    // esteve fora de um comentário.
+    const cfg = read('Caddyfile');
+    // O que saiu. Um comentário que promete resolver algo depois envelhece para
+    // "ninguém sabe se isso ainda vale", que é pior que não ter nota nenhuma.
+    expect(cfg, 'o Caddyfile ainda adia a decisão da 443')
+      .not.toContain('SCHEDULED FOR PHASE 3');
+    // O que entrou: a saída nomeada, para que a dívida seja reconsiderável em
+    // vez de redescoberta. `layer4` é o app do Caddy que rotearia por ALPN/SNI.
+    expect(cfg).toContain('layer4');
+    // E a advertência que o plano 03-04 paga com o grace de 60 s: um reload
+    // fecha as WebSockets ativas enquanto os DataChannels P2P sobrevivem.
+    expect(cfg).toMatch(/reload/i);
+  });
+
+  it('o CSP já cobre o wss:// do signaling sem precisar mudar', () => {
+    // connect-src 'self' inclui wss:// na mesma origem, então /ws entrar em uso
+    // NÃO é motivo para afrouxar o CSP. O caso existe para que a próxima pessoa
+    // que "precisar liberar o WebSocket" encontre a resposta já testada.
+    const cfg = code('Caddyfile');
+    expect(cfg).toMatch(/connect-src 'self'/);
+    expect(cfg).not.toContain('connect-src *');
+    expect(cfg).not.toMatch(/connect-src[^;"]*wss:/);
+  });
 });
 
 /**
@@ -538,6 +565,121 @@ describe('ops/dg2.service', () => {
   });
 });
 
+/**
+ * O relay da fase 3 (SALA-04). Nada disto roda nesta máquina nem na próxima —
+ * a caixa é do plano 02-04 e o coturn é do 03-11. Estes casos são a única
+ * coisa que separa "a config está certa" de "a config está no repositório",
+ * e o intervalo entre as duas afirmações é medido em meses.
+ */
+describe('ops/turnserver.conf', () => {
+  it('declara as portas, a credencial efêmera e os tetos de abuso', () => {
+    const cfg = code('turnserver.conf');
+    for (const line of [
+      // 3478 e 5349 são a decisão da fase: a 443 fica com o Caddy.
+      'listening-port=3478',
+      'tls-listening-port=5349',
+      // Credencial efêmera por HMAC. Uma dupla fixa aqui seria um relay que
+      // qualquer um usa para sempre no dia em que vazasse (T-3-03).
+      'use-auth-secret',
+      // Os tetos de banda e de alocação (T-3-05).
+      'user-quota=12',
+      'total-quota=1200',
+      // A interface de gestão, onde historicamente moraram os CVEs do coturn
+      // (T-3-27), e o multicast, que é amplificação de graça.
+      'no-cli',
+      'no-multicast-peers',
+    ]) {
+      expect(cfg, `turnserver.conf não declara ${line}`).toContain(line);
+    }
+  });
+
+  it('recusa as oito faixas reservadas, e são OITO (T-3-04)', () => {
+    // A CONTAGEM É A ASSERÇÃO. O modo de falha real não é apagar o bloco — é
+    // publicar sete das oito linhas, e uma deny-list incompleta não faz barulho
+    // nenhum: o relay funciona, o jogo funciona, e uma família inteira de
+    // endereços continua alcançável a partir da internet. Conferir por leitura
+    // é exatamente o que não pega isso.
+    const cfg = code('turnserver.conf');
+    for (const range of [
+      '0.0.0.0-0.255.255.255',
+      '10.0.0.0-10.255.255.255',
+      '127.0.0.0-127.255.255.255',
+      '169.254.0.0-169.254.255.255',
+      '172.16.0.0-172.31.255.255',
+      '192.168.0.0-192.168.255.255',
+      // IPv6 não é opcional: o acesso residencial brasileiro passou de metade
+      // em IPv6, então uma lista só-v4 deixa aberta a metade moderna.
+      '::1',
+      'fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    ]) {
+      expect(cfg, `falta denied-peer-ip=${range}`).toContain(`denied-peer-ip=${range}`);
+    }
+    expect((cfg.match(/^denied-peer-ip=/gm) ?? []).length,
+      'a lista de denied-peer-ip não tem exatamente oito linhas').toBe(8);
+  });
+
+  it('o static-auth-secret é o placeholder literal, nunca um segredo (D2-15)', () => {
+    // O arquivo é versionado; o valor real existe só em /etc/ na caixa, 0600.
+    const cfg = code('turnserver.conf');
+    const m = /^static-auth-secret=(.*)$/m.exec(cfg);
+    expect(m, 'turnserver.conf não declara static-auth-secret').not.toBeNull();
+    expect(m![1].trim()).toBe('SUBSTITUA_NA_CAIXA');
+    // E a forma genérica, porque a asserção acima passa a valer nada no dia em
+    // que alguém acrescentar uma SEGUNDA linha com o valor de verdade: nenhuma
+    // corrida longa de caracteres de segredo em lugar nenhum do arquivo,
+    // comentários incluídos.
+    const runs = read('turnserver.conf').match(/[A-Za-z0-9+/]{32,}={0,2}/g) ?? [];
+    expect(runs, 'algo com cara de segredo entrou em turnserver.conf').toEqual([]);
+    // O realm também é placeholder: nada versionado diz onde a máquina mora.
+    expect(cfg).toContain('realm=SEU_DOMINIO');
+  });
+
+  it('nem o relay nem o drop-in pedem a 443 — ela é do Caddy', () => {
+    // A decisão que substituiu o comentário "SCHEDULED FOR PHASE 3". Se um dia
+    // TURN/TLS na 443 for construído, é aqui que a colisão apareceria primeiro.
+    for (const file of ['turnserver.conf', 'coturn-dropin.conf']) {
+      expect(code(file), `${file} disputa a 443 com o Caddy`)
+        .not.toMatch(/^(?:tls-)?listening-port=443$/m);
+    }
+  });
+});
+
+describe('ops/coturn-dropin.conf', () => {
+  it('declara o orçamento de memória de §10 e o endurecimento do processo', () => {
+    const unit = code('coturn-dropin.conf');
+    for (const line of [
+      // Os ~128 M que ops/README.md §10 reservava só em prosa (D2-19).
+      'MemoryHigh=96M',
+      'MemoryMax=128M',
+      // O mesmo endurecimento de dg2.service, para um processo que termina UDP
+      // escolhido por atacante (T-3-28).
+      'NoNewPrivileges=true',
+      'ProtectSystem=strict',
+      'ProtectHome=true',
+      'PrivateTmp=true',
+    ]) {
+      expect(unit, `o drop-in não declara ${line}`).toContain(line);
+    }
+    // O destino fica no topo do arquivo, em comentário: um drop-in copiado
+    // para /etc/systemd/system/ sem o diretório .d é um arquivo inerte.
+    expect(read('coturn-dropin.conf')).toContain('coturn.service.d');
+  });
+
+  it('é drop-in e não cópia da unit do distribuidor (T-3-SC)', () => {
+    // Um ExecStart aqui significaria ter copiado coturn.service, e a partir daí
+    // as correções de segurança do pacote parariam de chegar à caixa.
+    const unit = code('coturn-dropin.conf');
+    expect(unit, 'o drop-in tem ExecStart — virou cópia da unit')
+      .not.toContain('ExecStart');
+    // A ausência do par NODE_OPTIONS é decisão, não esquecimento: a armadilha
+    // do heap do V8 contra o limite do cgroup é problema do V8, e coturn é C.
+    // O comentário que explica isso vive no arquivo; code() o remove antes,
+    // que é o que impede a explicação de invalidar a asserção.
+    expect(unit).not.toContain('NODE_OPTIONS');
+    expect(unit).toContain('[Service]');
+  });
+});
+
 describe('ops/litestream.yml', () => {
   it('usa a chave replica no SINGULAR, como o v0.5 exige (P-8)', () => {
     // Every pre-v0.5 tutorial shows a plural list. Pasting one makes litestream
@@ -701,6 +843,11 @@ const ENV_KEYS = [
   'DG2_DOMAIN', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE',
   'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT',
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+  // Fase 3. DG2_TURN_SECRET entra nesta lista pelo motivo pelo qual a lista
+  // existe: é a metade Node de um segredo que também vive em
+  // /etc/turnserver.conf, e a asserção de "nenhuma chave aparece com valor
+  // literal" é o que impede o par de vazar pelo lado mais fácil de esquecer.
+  'DG2_TURN_SECRET', 'DG2_TURN_REALM',
 ];
 
 describe('ops/README.md', () => {
@@ -777,6 +924,63 @@ describe('ops/README.md', () => {
     const readme = read('README.md');
     expect(readme).toContain('node tools/ops/restore-verify.mjs');
     expect(readme).toContain('D2-03');
+  });
+
+  it('§9 deixou de agendar a 443 e passou a decidi-la', () => {
+    const readme = read('README.md');
+    expect(readme, '§9 ainda diz que a 443 está no calendário')
+      .not.toContain('Agendado para a fase 3');
+    // A decisão, e a saída nomeada para o dia em que a dívida for cobrada.
+    expect(readme).toContain('layer4');
+  });
+
+  it('§12 é executável por um operador que nunca viu um coturn', () => {
+    const readme = read('README.md');
+    expect(readme, 'não existe §12').toMatch(/^## 12\./m);
+    for (const step of [
+      // Instalar, e saber que a unit vem do pacote.
+      'apt-get install -y coturn',
+      // Copiar a config e fechá-la.
+      '/etc/turnserver.conf',
+      'chmod 0600 /etc/turnserver.conf',
+      // O drop-in vai para o diretório .d, não para /etc/systemd/system direto:
+      // copiado no lugar errado, ele é um arquivo inerte e nada avisa.
+      'coturn.service.d',
+      'daemon-reload',
+      // As três portas do firewall. Sem elas o relay sobe e ninguém o alcança.
+      '3478/udp',
+      '3478/tcp',
+      '5349/tcp',
+      // E conferir de verdade, porque ProtectSystem=strict pode recusar o start.
+      'systemctl enable --now coturn',
+      'systemctl status coturn',
+    ]) {
+      expect(readme, `§12 não manda: ${step}`).toContain(step);
+    }
+  });
+
+  it('§12 escreve que o segredo mora em DOIS arquivos (T-3-11)', () => {
+    // O sintoma de trocar num só é "um amigo específico nunca entra", que é
+    // indistinguível de NAT ruim — e por isso capaz de custar uma noite. O
+    // runbook é o único lugar onde as duas metades aparecem juntas.
+    const readme = read('README.md');
+    expect(readme).toContain('static-auth-secret');
+    // Nomeada nas duas pontas: a tabela de §5 e o passo 4 de §12.
+    expect(readme.split('\n').filter((l) => l.includes('DG2_TURN_SECRET')).length,
+      'DG2_TURN_SECRET aparece em menos de dois lugares').toBeGreaterThanOrEqual(2);
+    // A consequência, escrita. Sem o sintoma nomeado, a seção vira inventário.
+    expect(readme).toContain('um amigo específico nunca entra');
+    // E o restart, porque §6 já registra que reload não relê o EnvironmentFile.
+    expect(readme).toContain('systemctl restart dg2');
+  });
+
+  it('§12 amarra o orçamento de memória ao drop-in que o aplica (D2-19)', () => {
+    // §10 reservava ~128 MB para o coturn em prosa, sem nada que o impusesse.
+    // Este caso é o que mantém o parágrafo e o limite de cgroup em acordo.
+    const readme = read('README.md');
+    expect(readme).toContain('MemoryHigh=96M');
+    expect(readme).toContain('MemoryMax=128M');
+    expect(readme).toContain('total-quota=1200');
   });
 });
 
@@ -883,8 +1087,50 @@ const NOT_A_TLD = new Set([
   // Files this subsystem names, or that the webroot serves.
   'md', 'sh', 'yml', 'json', 'js', 'ts', 'mjs', 'html', 'css', 'png', 'txt',
   'db', 'tmp',
+  // ops/turnserver.conf, ops/coturn-dropin.conf, and the /etc paths §12 names.
+  'conf',
   // systemd.
   'service', 'timer', 'target',
+]);
+
+/**
+ * The ONLY IP literals allowed into ops/: the loopback that
+ * `{$DG2_UPSTREAM:127.0.0.1:8080}` carries, and the endpoints of the reserved
+ * ranges ops/turnserver.conf forbids the relay to address.
+ *
+ * Excusing them does not open a hole in D2-15. That rule forbids "segredo,
+ * domínio, host ou IP" because those say WHERE THIS BOX LIVES; 10.0.0.0/8 says
+ * nothing about this box. It is a constant of RFC 1918, byte-identical in every
+ * deployment on earth, and it is in the file precisely to stop the relay
+ * reaching a private network. A gate that refused it would push the deny-list
+ * out of the repository — trading an address leak it cannot suffer for the SSRF
+ * the list exists to prevent (T-3-04).
+ *
+ * The set is EXACT rather than a subnet test, and that is the part doing the
+ * work: `10.0.0.0` and `10.255.255.255` are excused, `10.0.0.7` is not. An
+ * operator's real internal host cannot ride in under the exemption, because
+ * only the two ENDPOINTS of each range are spellable.
+ */
+const NON_ROUTABLE_V4 = new Set([
+  '127.0.0.1',
+  '0.0.0.0', '0.255.255.255',
+  '10.0.0.0', '10.255.255.255',
+  '127.0.0.0', '127.255.255.255',
+  '169.254.0.0', '169.254.255.255',
+  '172.16.0.0', '172.31.255.255',
+  '192.168.0.0', '192.168.255.255',
+]);
+
+/**
+ * The IPv6 half of the same exemption, and the same exactness. Two tokens,
+ * because that is all the deny-list spells that the address regex below can
+ * see: the loopback, and the upper end of the RFC 4193 unique-local range.
+ * `fc00::` — the lower end — is not here because the compressed form matches
+ * neither alternative of that regex, so it never reaches this set.
+ */
+const NON_ROUTABLE_V6 = new Set([
+  '::1',
+  'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
 ]);
 
 /**
@@ -918,11 +1164,11 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
 
   // NOTHING here is comment-stripped: a domain leaked in a comment is leaked
   // all the same.
-  it('o único literal de IP permitido é o loopback', () => {
+  it('os únicos literais de IP permitidos são o loopback e as faixas reservadas que o relay recusa', () => {
     const bad: string[] = [];
     for (const [path, src] of scanned()) {
       for (const m of src.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) {
-        if (m[0] !== '127.0.0.1') bad.push(`${path}: ${m[0]}`);
+        if (!NON_ROUTABLE_V4.has(m[0])) bad.push(`${path}: ${m[0]}`);
       }
       // IPv6 was uncovered until now, and the box is Brazilian residential
       // infrastructure where IPv6 is past half of all traffic — an address
@@ -931,7 +1177,7 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
       // none in ops/ today, and in a leak gate a false positive is a nuisance
       // where a false negative is the leak.
       for (const m of src.matchAll(/\b(?:[0-9a-f]{1,4}:){2,}(?:[0-9a-f]{1,4})?\b|::[0-9a-f]{1,4}\b/gi)) {
-        bad.push(`${path}: ${m[0]}`);
+        if (!NON_ROUTABLE_V6.has(m[0].toLowerCase())) bad.push(`${path}: ${m[0]}`);
       }
     }
     expect(bad).toEqual([]);
