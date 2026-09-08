@@ -29,6 +29,16 @@ export interface ServerEnv {
   port: number;
   /** The git sha /api/health publishes. Never empty. */
   release: string;
+  /**
+   * The single origin the signalling upgrade accepts, compared byte for byte
+   * against the request's `Origin` header before the handshake completes.
+   *
+   * ONE STRING, NOT A LIST. This deployment serves the game and the API from
+   * one domain (C-9), so an allowlist would be a list of one with room for a
+   * second nobody audited. The day a second origin is real, it arrives as a
+   * deliberate change here rather than as a comma somebody added.
+   */
+  origin: string;
 }
 
 /** The shape of `process.env`, spelled without needing Node's types. */
@@ -42,7 +52,24 @@ export const DEFAULTS = {
   DG2_DB: '/var/lib/dg2/dg2.db',
   DG2_PORT: '8080',
   DG2_RELEASE: 'dev',
+  /**
+   * The Vite dev server's origin, and the ONE default in this table that is a
+   * development value rather than a production path.
+   *
+   * That asymmetry is why readEnv refuses it outside development instead of
+   * merely defaulting to it: see the paragraph on DG2_ORIGIN below.
+   */
+  DG2_ORIGIN: 'http://localhost:5173',
 } as const;
+
+/**
+ * The release value that means "this is a developer's machine".
+ *
+ * Named rather than spelled twice, because the refusal below and the default
+ * above have to agree about it, and two string literals that must agree are one
+ * edit away from not agreeing.
+ */
+const DEV_RELEASE = DEFAULTS.DG2_RELEASE;
 
 /**
  * Reads one key, treating "defined and blank" as an ERROR rather than as
@@ -93,5 +120,27 @@ export function readEnv(source: EnvSource): ServerEnv {
     throw new Error(`/env/DG2_PORT: "${rawPort}" não é uma porta entre 1 e 65535`);
   }
 
-  return { dbPath, port, release };
+  // DG2_ORIGIN is the allowlist the signalling upgrade checks before completing
+  // a WebSocket handshake, and it is the one key here whose default is a
+  // DEVELOPMENT value. Left alone in production it would mean the server accepts
+  // `http://localhost:5173` and refuses the real site — but the failure that
+  // matters is the other direction, and it is why this refusal exists rather
+  // than a warning: an origin allowlist that assumes a value on its own is an
+  // origin check that checks nothing, and the symptom is a CSWSH defence
+  // silently switched off on the box while every test on the developer's
+  // machine stays green (T-3-02). Nothing crashes, nothing logs, and the hole
+  // is invisible until someone goes looking for it.
+  //
+  // Refusing at startup makes it impossible to run a non-dev release without an
+  // operator having named the origin — the same doctrine as DG2_DB above, where
+  // a wrong answer is worse than a crash because a crash is visible.
+  const origin = required(source, 'DG2_ORIGIN', DEFAULTS.DG2_ORIGIN);
+  if (release !== DEV_RELEASE && origin === DEFAULTS.DG2_ORIGIN) {
+    throw new Error(
+      `/env/DG2_ORIGIN: ainda é o padrão de desenvolvimento ("${DEFAULTS.DG2_ORIGIN}") ` +
+        `com DG2_RELEASE="${release}" — ponha a origem real do site em /etc/dg2/env`,
+    );
+  }
+
+  return { dbPath, port, release, origin };
 }

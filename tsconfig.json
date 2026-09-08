@@ -30,12 +30,22 @@
   // is DOM-only and tools/README.md §4 says not to touch that. Those files are
   // covered by tests/pwa/tsconfig.json, run as `npm run typecheck:pwa`.
   //
-  // The two server test files are here for the same reason and no other: they
-  // drive apps/server, which opens a database and reads process.env, so they
-  // need Node types too. They are covered by apps/server/tsconfig.json, run as
-  // `npm run typecheck:server`, whose `include` names them one by one. Note
-  // that `apps` was never in the `include` above, so the server SOURCE was
+  // The server test files are here for the same reason and no other: they drive
+  // apps/server, which opens a database, reads process.env and binds a socket,
+  // so they need Node types too. They are covered by apps/server/tsconfig.json,
+  // run as `npm run typecheck:server`, whose `include` names them one by one.
+  // Note that `apps` was never in the `include` above, so the server SOURCE was
   // already outside this program — only its tests had to be carved out, since
   // `tests` is included wholesale.
-  "exclude": ["tests/pwa", "tests/server-migrate.test.ts", "tests/server-health.test.ts"]
+  //
+  // The list grew by two in phase 3 (server-rooms, server-signaling), and each
+  // one is named in BOTH places in the same commit. Excluding here without
+  // including there is the failure that leaves a test typechecked by nothing.
+  "exclude": [
+    "tests/pwa",
+    "tests/server-migrate.test.ts",
+    "tests/server-health.test.ts",
+    "tests/server-rooms.test.ts",
+    "tests/server-signaling.test.ts"
+  ]
 }

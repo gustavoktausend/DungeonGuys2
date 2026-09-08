@@ -22,23 +22,31 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULTS, readEnv, type EnvSource } from '../apps/server/src/env';
 
-/** A complete, valid environment. Each test perturbs exactly one key. */
+/**
+ * A complete, valid environment. Each test perturbs exactly one key.
+ *
+ * DG2_ORIGIN carries a REAL-LOOKING origin rather than the default, because
+ * DG2_RELEASE here is a git sha — that is, not a development release — and
+ * readEnv refuses that combination on purpose. See the DG2_ORIGIN block below.
+ */
 const GOOD: EnvSource = {
   DG2_DB: '/var/lib/dg2/dg2.db',
   DG2_PORT: '8080',
   DG2_RELEASE: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+  DG2_ORIGIN: 'https://dg2.example',
 };
 
 describe('readEnv com o ambiente completo', () => {
-  it('devolve exatamente as três chaves, com os valores do arquivo', () => {
+  it('devolve exatamente as quatro chaves, com os valores do arquivo', () => {
     const env = readEnv(GOOD);
-    // Set equality and length: a fourth field would be a fourth thing the
+    // Set equality and length: a fifth field would be a fifth thing the
     // operator has to get right, and it must not appear unnoticed.
-    expect(Object.keys(env).sort()).toEqual(['dbPath', 'port', 'release']);
+    expect(Object.keys(env).sort()).toEqual(['dbPath', 'origin', 'port', 'release']);
     expect(env).toEqual({
       dbPath: '/var/lib/dg2/dg2.db',
       port: 8080,
       release: GOOD.DG2_RELEASE,
+      origin: 'https://dg2.example',
     });
   });
 
@@ -51,11 +59,16 @@ describe('readEnv com o ambiente completo', () => {
 });
 
 describe('chave ausente — o único caso em que o padrão vale', () => {
-  it('um ambiente vazio devolve os três padrões de produção', () => {
+  it('um ambiente vazio devolve os quatro padrões', () => {
+    // An empty environment is a DEVELOPER's machine: DG2_RELEASE falls back to
+    // 'dev', which is exactly the case in which the DG2_ORIGIN default is
+    // legitimate. That is why this test does not trip the refusal below, and
+    // saying so here keeps the next reader from "fixing" one of the two.
     const env = readEnv({});
     expect(env.dbPath).toBe(DEFAULTS.DG2_DB);
     expect(env.port).toBe(Number(DEFAULTS.DG2_PORT));
     expect(env.release).toBe(DEFAULTS.DG2_RELEASE);
+    expect(env.origin).toBe(DEFAULTS.DG2_ORIGIN);
     // Anti-vacuity: '' is a string and would satisfy a type check. The floor
     // is on LENGTH, which is the trap this repository has already fallen into
     // twice.
@@ -70,7 +83,7 @@ describe('chave definida e VAZIA — o caso que o ?? deixava passar', () => {
   // produce. Every one of these used to become a silent, wrong default.
   const BLANK = ['', ' ', '\t', '   \t  '];
 
-  for (const key of ['DG2_DB', 'DG2_PORT', 'DG2_RELEASE'] as const) {
+  for (const key of ['DG2_DB', 'DG2_PORT', 'DG2_RELEASE', 'DG2_ORIGIN'] as const) {
     for (const blank of BLANK) {
       it(`recusa ${key}=${JSON.stringify(blank)} nomeando a chave`, () => {
         // The message has to NAME the key: the operator is reading journalctl
@@ -117,4 +130,47 @@ describe('DG2_PORT — 0 é válido para listen(2) e por isso é recusado à mã
       expect(readEnv({ ...GOOD, DG2_PORT: value }).port).toBe(Number(value));
     });
   }
+});
+
+// The measurement this block stands in for is not a crash: it is a SILENCE. An
+// origin allowlist left at its development default in production accepts
+// `http://localhost:5173` and nothing else, so the anti-CSWSH check is running
+// against a string no real browser will ever send — present in the code, absent
+// in effect (T-3-02). Nothing throws, nothing logs, and the only way to find it
+// is to go looking. Hence a refusal at startup rather than a warning.
+describe('DG2_ORIGIN — o padrão de desenvolvimento é recusado em produção', () => {
+  it('recusa o padrão quando DG2_RELEASE é uma release de verdade', () => {
+    expect(() => readEnv({ ...GOOD, DG2_ORIGIN: DEFAULTS.DG2_ORIGIN })).toThrow(/DG2_ORIGIN/);
+    // The message has to carry BOTH halves of the condition, because the
+    // operator reading journalctl has to know which of the two keys to edit.
+    expect(() => readEnv({ ...GOOD, DG2_ORIGIN: DEFAULTS.DG2_ORIGIN })).toThrow(/DG2_RELEASE/);
+    expect(() => readEnv({ ...GOOD, DG2_ORIGIN: DEFAULTS.DG2_ORIGIN })).toThrow(
+      /\/etc\/dg2\/env/,
+    );
+  });
+
+  it('recusa o padrão quando a chave está simplesmente AUSENTE em produção', () => {
+    // The likelier shape of the same mistake: nobody wrote the key at all, so
+    // `required()` hands back the default without complaint. Testing only the
+    // explicitly-written default would leave the common case uncovered.
+    const withoutOrigin: EnvSource = { ...GOOD };
+    delete withoutOrigin.DG2_ORIGIN;
+    expect(() => readEnv(withoutOrigin)).toThrow(/DG2_ORIGIN/);
+  });
+
+  it('aceita o padrão quando DG2_RELEASE é "dev"', () => {
+    // The acceptance half. Without it a refusal that fired unconditionally
+    // would pass every assertion above while making `npm run dev` impossible.
+    const env = readEnv({ ...GOOD, DG2_RELEASE: 'dev', DG2_ORIGIN: DEFAULTS.DG2_ORIGIN });
+    expect(env.origin).toBe(DEFAULTS.DG2_ORIGIN);
+    expect(env.release).toBe('dev');
+  });
+
+  it('aceita uma origem real em produção e a devolve intacta', () => {
+    // Byte for byte: the value is compared against the Origin header with ===,
+    // so a trailing slash or a lowercased scheme silently added here would make
+    // every real browser fail the check. Only surrounding whitespace is trimmed.
+    const env = readEnv({ ...GOOD, DG2_ORIGIN: '  https://dg2.example  ' });
+    expect(env.origin).toBe('https://dg2.example');
+  });
 });
