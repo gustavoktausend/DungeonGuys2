@@ -56,13 +56,16 @@ import { normalizeRoomCode } from '@dg2/protocol';
 import type { IceRoute, RejectReason, SignalMessage, Versions } from '@dg2/protocol';
 import { CLASS_KEY } from '@dg2/protocol';
 import type { ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig } from '@dg2/sim';
-import { createLobby, type Lobby, type LobbyView, type OccupantView, type Rgb } from '../net/lobby';
+import {
+  createLobby, LOBBY_EMIT_MS,
+  type Lobby, type LobbyView, type OccupantView, type Rgb,
+} from '../net/lobby';
 import {
   BAD_CODE_MESSAGE, createSignalingClient, SignalRefused,
   type RoomEntry, type SignalingClient, type SocketLike,
 } from '../net/signaling';
 import { createRtcTransport, type RtcSignal, type RtcTransport } from '../net/rtc';
-import { clearRelayFlag, type StorageLike } from '../net/ice';
+import { clearRelayFlag, routeOf, type StorageLike } from '../net/ice';
 import type { Schedule } from '../net/transport';
 // Namespace import on purpose, and it must stay one: the acceptance criterion of
 // plan 03-09 allows the name of the keyboard-click guard to appear exactly once
@@ -178,10 +181,11 @@ function routeWord(route: IceRoute): string {
 /**
  * The ping line of one seat.
  *
- * `unknown` is what the lobby carries until plan 03-10 wires the route report
- * in, and it prints the number ALONE: saying "direto" for a route this machine
- * has not measured would be a claim it cannot make, and the wrong half of that
- * claim is the reassuring one.
+ * `unknown` prints the number ALONE, and that case is still real now that the
+ * route IS wired in: it is what a seat reads while the first `getStats()` has
+ * not come back, and what it keeps if the statistics never become legible.
+ * Saying "direto" for a route this machine has not measured would be a claim it
+ * cannot make, and the wrong half of that claim is the reassuring one.
  */
 export function slotLine(o: Pick<OccupantView, 'connected' | 'ping' | 'route'>): string {
   if (!o.connected) return COPY.connectingSeat;
@@ -292,6 +296,16 @@ export interface RoomDeps {
   inviteBase: string;
   now: () => number;
   schedule: Schedule;
+  /**
+   * A fresh run seed, as a uint32.
+   *
+   * A dependency and not a `Math.random()` here, for the same reason `now` and
+   * `schedule` are: this module has to stay callable under Node without the
+   * platform, and the seed is the ONE value of a run that is allowed to be
+   * non-deterministic — so where it comes from is a decision the caller makes
+   * out loud (main.ts draws it from `crypto.getRandomValues`).
+   */
+  newSeed: () => number;
   log: (event: string, fields?: Record<string, unknown>) => void;
   /**
    * The run manifest AND the seat this machine was given, once the room starts.
@@ -361,6 +375,7 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   const knownNames = new Map<string, string>();
   let cancelStatus: (() => void) | null = null;
   let cancelLeaveReset: (() => void) | null = null;
+  let cancelRouteProbe: (() => void) | null = null;
   let leaveArmed = false;
   let busy = false;
 
@@ -510,6 +525,9 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       el.joinCode.focus();
     });
     lobby.onStart(deps.onStart);
+    // Whoever notices shows it, and both ends can be the one that notices.
+    lobby.onDesync(showDesync);
+    armRouteProbe(rtc, lobby);
 
     c.onSignal((message: SignalMessage) => {
       if (message.kind === 'offer' || message.kind === 'answer' || message.kind === 'candidate') {
@@ -547,6 +565,46 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     el.btnCopyLink.focus();
   }
 
+  /**
+   * Reads the route of every leg once a second and feeds it back to the lobby.
+   *
+   * IT LIVES HERE AND NOT IN net/lobby.ts because the route comes off
+   * `RTCPeerConnection.getStats()` — asynchronous, and belonging to a transport
+   * the lobby deliberately does not know the type of (`local.ts` satisfies the
+   * same `Transport` and has no statistics at all). This module holds the real
+   * connection, so this is where the question can be asked.
+   *
+   * ASKED REPEATEDLY AND NOT ONCE. ICE can renominate a pair mid-session — a
+   * direct path that fails over to the relay is exactly the event the badge
+   * exists to make visible — so a single reading taken at connect time would go
+   * stale in the one case that matters. Once a second is the roster's own
+   * cadence (D3-16), so the answer is never older than the row it rides in.
+   *
+   * A guest measures its own leg too, and the lobby drops it: only the
+   * authority's roster is relayed. That call is cheap and the alternative is a
+   * branch here on a topology this module should not be reasoning about.
+   */
+  function armRouteProbe(rtc: RtcTransport, active: Lobby): void {
+    cancelRouteProbe = deps.schedule(() => {
+      cancelRouteProbe = null;
+      // The session may have gone while the previous probe was in flight.
+      if (lobby !== active) return;
+      for (const o of active.state().occupants) {
+        if (o.peerId === active.state().selfPeerId || !o.connected) continue;
+        const pc = rtc.connectionOf(o.peerId);
+        if (!pc) continue;
+        void routeOf(pc).then(
+          (report) => { if (lobby === active) active.setRoute(o.peerId, report.route); },
+          // A failed `getStats()` is a reading that did not happen, not an
+          // error the player can act on: the row keeps `'unknown'`, which is
+          // exactly what "nobody measured this" is supposed to look like.
+          () => {},
+        );
+      }
+      armRouteProbe(rtc, active);
+    }, LOBBY_EMIT_MS);
+  }
+
   function roomDead(): void {
     teardown();
     // The single use of the toast in this phase, and the one it was reserved
@@ -573,6 +631,8 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     el.netRoute.textContent = '—';
     cancelStatus?.();
     cancelStatus = null;
+    cancelRouteProbe?.();
+    cancelRouteProbe = null;
   }
 
   function leave(): void {
@@ -826,13 +886,24 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     el.netBadge.classList.remove('hidden');
   }
 
-  // #btn-start-run IS DELIBERATELY NOT WIRED HERE, and this comment is the
-  // difference between a decision and an oversight. Starting the run means
-  // choosing the seat assignment and the seed, building the world from it on
-  // every machine and comparing the tick-0 hash before anything else — which is
-  // plan 03-10's whole subject (D3-05), and it lists this file among the ones it
-  // edits. Until then the button is present and enabled for the authority
-  // exactly as 03-UI-SPEC requires, and clicking it does nothing.
+  el.btnStartRun.addEventListener('click', () => {
+    // Reachable only by the authority: the node is REMOVED from the document
+    // for a guest (D3-04, see paintLobby). The guard is here anyway because
+    // "the button is not in the DOM" is a property of another function, and
+    // net/lobby.ts throws rather than quietly starting someone else's room.
+    if (!lobby || !lastView?.isAuthority) return;
+    // A closed room has already started. `startRoom` is idempotent on its own —
+    // a second call returns the manifest it handed out rather than reassigning
+    // seats, which would renumber a run already in flight — but reading the
+    // state the room already publishes is cheaper than a flag that says the
+    // same thing in a second place.
+    if (lastView.closed) return;
+    // THE SEED IS DRAWN HERE, AT THE MOMENT THE ROOM CLOSES, and it is the only
+    // machine in the room that draws one: it travels in `startRun` and every
+    // peer builds its world from it. The mode comes from the same selection
+    // screen the lobby has been showing all along.
+    lobby.startRoom({ seed: deps.newSeed(), mode: deps.identity().mode });
+  });
 
   return { open, paintBadge, showDesync, leave };
 }

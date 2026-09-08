@@ -269,6 +269,9 @@ const room = initRoom({
   inviteBase: location.origin + import.meta.env.BASE_URL,
   now: () => performance.now(),
   schedule: (fn, ms) => { const id = setTimeout(fn, ms); return () => { clearTimeout(id); }; },
+  // The same draw the solo path uses, from the same function: two spellings of
+  // "a fresh seed" is one edit away from two different distributions.
+  newSeed,
   log: (event, fields) => { console.debug(event, fields ?? {}); },
   // THE MANIFEST BECOMES A RUN, HERE AND NOWHERE ELSE. Both halves of the game
   // land on the same `beginRun`: solo builds a one-seat manifest below, a room
