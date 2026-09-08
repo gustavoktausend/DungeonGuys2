@@ -24,10 +24,25 @@
     "skipLibCheck": true
   },
 
-  // The two server test files live in the repository-wide tests/ directory
-  // (that is where the vitest `include` looks) but they need Node types, so the
-  // root tsconfig excludes them and they are typechecked HERE instead. Without
-  // naming them the pair would compile nowhere — `npm run typecheck:server`
-  // would pass while the tests that exercise the server went unchecked.
-  "include": ["src", "../../tests/server-migrate.test.ts", "../../tests/server-health.test.ts"]
+  // The server test files live in the repository-wide tests/ directory (that is
+  // where the vitest `include` looks) but they need Node types, so the root
+  // tsconfig excludes them and they are typechecked HERE instead. Without
+  // naming them they would compile nowhere — `npm run typecheck:server` would
+  // pass while the tests that exercise the server went unchecked.
+  //
+  // EVERY ENTRY HERE NEEDS ITS TWIN IN THE ROOT `exclude`, and the pair has to
+  // land in the same commit. Naming a file here without excluding it there puts
+  // it in two programs, one of which has no Node types and would refuse it;
+  // excluding it there without naming it here drops it out of both, which is
+  // the silent half and the one that costs a phase to notice.
+  //
+  // Phase 3 added the last two: server-rooms drives the in-memory room map and
+  // server-signaling drives a real http.Server on a loopback port.
+  "include": [
+    "src",
+    "../../tests/server-migrate.test.ts",
+    "../../tests/server-health.test.ts",
+    "../../tests/server-rooms.test.ts",
+    "../../tests/server-signaling.test.ts"
+  ]
 }

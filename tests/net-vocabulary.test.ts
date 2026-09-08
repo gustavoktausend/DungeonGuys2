@@ -12,15 +12,29 @@
 //
 // THE SCOPE OF THIS FILE GROWS IN A FIXED SEQUENCE, and the sequence matters:
 //
-//   this plan (03-03)  src/net/**/*.ts                      — the glob below
-//   plan 03-04         + apps/server/src/signaling/**/*.ts
+//   plan 03-03         src/net/**/*.ts
+//   this plan (03-04)  + apps/server/src/signaling/**/*.ts
 //   plans 03-08/03-09  + the ICE and lobby-screen sources of those waves
 //
 // Writing tomorrow's glob today would be worse than useless: an
 // `import.meta.glob` over a directory that does not exist yet returns an empty
 // record, every check below would pass over nothing, and the anti-vacuity test
 // is precisely what would go red to say so. So the glob widens when the
-// directory lands, in the same commit.
+// directory lands, in the same commit — which is what happened here.
+//
+// THE RULE APPLIES TO THE SERVER FOR A SHARPER REASON THAN IT DOES TO THE
+// CLIENT. src/net/ is one machine's view of a wire; apps/server/src/signaling/
+// is the thing in the middle, and it is the single place where the temptation
+// to write "the host's socket" is strongest, because from there the authority
+// really does look like a server. It is not one: it is a peer that happens to
+// own the simulation today, and the day that moves to a dedicated process the
+// names have to still describe reality (FORM-12). A relay module that had
+// grown `hostSocket` would have to be renamed in the same commit that changes
+// the topology, which is the commit with the least room for it.
+//
+// tests/scan.ts documents that it cannot handle regex literals. Checked when
+// this glob widened: apps/server/src/signaling/ contains none, so the
+// ambiguous case still does not arise.
 //
 // WHAT THIS FILE ADDS THAT ITS SIBLING DOES NOT: two assertions about
 // src/net/transport.ts specifically. `broadcast` must not survive comment
@@ -40,9 +54,18 @@ import { scan } from './scan';
 
 // Vite's raw glob rather than a filesystem read: the tsconfig pins `types` to
 // ["vite/client"], so Node's fs module is not even typed in this file.
-const FILES = import.meta.glob<string>('../src/net/**/*.ts', {
-  query: '?raw', import: 'default', eager: true,
-});
+//
+// TWO PATTERNS IN ONE CALL, not two globs merged by hand: `import.meta.glob`
+// takes an array and returns one record, so the checks below iterate a single
+// set and cannot be extended for one side and forgotten for the other.
+const FILES = import.meta.glob<string>(
+  ['../src/net/**/*.ts', '../apps/server/src/signaling/**/*.ts'],
+  { query: '?raw', import: 'default', eager: true },
+);
+
+/** The prefixes each half of the glob produces, for the anti-vacuity checks. */
+const CLIENT_PREFIX = '../src/net/';
+const SERVER_PREFIX = '../apps/server/src/signaling/';
 
 /**
  * Matches "host" at the start of an identifier segment, in any casing —
@@ -64,16 +87,27 @@ const EXEMPT_MARKER = 'FORM-12-EXEMPT';
 /** The file whose whole job is to not have a certain method. */
 const TRANSPORT = '../src/net/transport.ts';
 
-describe('vocabulário do transporte do cliente (FORM-12)', () => {
+describe('vocabulário do transporte e do signaling (FORM-12)', () => {
   it('o glob encontrou os fontes de src/net', () => {
     // Without this, a broken glob would make every check below pass on an
     // empty set — the failure mode that makes a guard worthless, and the exact
     // thing that would happen if this file's glob were widened to a directory
     // that a later plan has not created yet.
-    expect(Object.keys(FILES).length).toBeGreaterThan(0);
+    const client = Object.keys(FILES).filter(path => path.startsWith(CLIENT_PREFIX));
+    expect(client.length).toBeGreaterThan(0);
   });
 
-  it('nenhum fonte de src/net contém a palavra "host" fora de comentário', () => {
+  it('o glob encontrou os fontes de apps/server/src/signaling', () => {
+    // The half that was added in plan 03-04, asserted SEPARATELY from the one
+    // above and not merged into a single count. A combined "more than zero"
+    // would stay green if the server pattern matched nothing at all — which is
+    // exactly the state this file spent a plan warning about, and the state it
+    // would silently return to if the directory were ever renamed.
+    const server = Object.keys(FILES).filter(path => path.startsWith(SERVER_PREFIX));
+    expect(server.length).toBeGreaterThan(0);
+  });
+
+  it('nenhum fonte de src/net nem do signaling contém "host" fora de comentário', () => {
     const bad: string[] = [];
     for (const [path, src] of Object.entries(FILES)) {
       // keepStrings: true — comments go, string bodies stay. A literal 'host'
@@ -101,11 +135,12 @@ describe('vocabulário do transporte do cliente (FORM-12)', () => {
     expect(src!.toLowerCase(), 'o parágrafo que explica a ausência sumiu').toContain('broadcast');
   });
 
-  it('nenhum fonte de src/net reivindica o marcador de exceção do FORM-12', () => {
+  it('nenhum fonte de src/net nem do signaling reivindica o marcador de exceção', () => {
     // The single legitimate occurrence in this repository is RFC 8445's
     // candidate type in packages/protocol/src/enums.ts, and the exemption there
-    // is locked three ways. This side of the wire has no such case, and a file
-    // that quietly grew one should have to come through review to get it.
+    // is locked three ways. Neither side of the wire has such a case — the
+    // signalling server never reads a candidate's type, it copies the string —
+    // and a file that quietly grew one should have to come through review.
     const claimants = Object.entries(FILES)
       .filter(([, src]) => src.includes(EXEMPT_MARKER))
       .map(([path]) => path);

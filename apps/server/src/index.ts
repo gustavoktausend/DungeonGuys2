@@ -8,11 +8,20 @@
 import { serve } from '@hono/node-server';
 // 'kysely/migration', not 'kysely' — see db/migrations.ts for why.
 import { Migrator } from 'kysely/migration';
+import { randomBytes } from 'node:crypto';
 import { openDb } from './db/open';
 import { provider } from './db/migrations';
 import { createApp } from './app';
 import { readEnv, type ServerEnv } from './env';
 import { createShutdown, SHUTDOWN_GRACE_MS } from './shutdown';
+import { attachSignalling, HEARTBEAT_MS } from './signaling';
+import { createRooms } from './signaling/rooms';
+import {
+  createLimiter,
+  JOIN_LIMIT,
+  LIMIT_WINDOW_MS,
+  UPGRADE_LIMIT,
+} from './signaling/limiter';
 
 // All three come from /etc/dg2/env, which is NOT in this repository (ops/
 // README.md §1: the repo never says where the machine lives). The defaults are
@@ -61,19 +70,68 @@ const app = createApp({ sqlite, release: env.release });
 /**
  * The real `http.Server`, kept in a named export rather than discarded.
  *
- * Phase 3 attaches the `ws` signalling server to this object's `upgrade` event
- * with `noServer: true`, which is what makes it possible to authenticate a
- * WebSocket BEFORE completing the handshake. That this object is reachable at
- * all is the entire reason Hono was chosen over Fastify, whose websocket plugin
- * keeps the server behind its own abstraction.
+ * The signalling server of phase 3 is attached to this object's `upgrade` event
+ * just below, with `noServer: true` — which is what makes it possible to refuse
+ * a WebSocket BEFORE the handshake completes, and therefore where phase 6 will
+ * validate a session cookie. That this object is reachable at all is the entire
+ * reason Hono was chosen over Fastify, whose websocket plugin keeps the server
+ * behind its own abstraction.
  *
- * hostname is access control, not configuration: bound to loopback, the process
- * is reachable only through Caddy, so the API cannot be spoken to outside TLS.
- * Binding every interface instead — the default if this argument is dropped —
- * would publish the API to the internet on a plain HTTP port and leave the
- * defence to a firewall nobody has configured (T-2-BIND).
+ * The bind address is access control, not configuration: on loopback, the
+ * process is reachable only through Caddy, so the API cannot be spoken to
+ * outside TLS. Binding every interface instead — the default if this argument
+ * is dropped — would publish the API to the internet on a plain HTTP port and
+ * leave the defence to a firewall nobody has configured (T-2-BIND).
  */
 export const server = serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
+
+// The signalling leg, wired with everything time-like and stateful passed in.
+//
+// Two of these dependencies are DELIBERATELY INERT in this wave and are filled
+// by plan 03-06: `recordOutcome` writes the ICE telemetry row, and `iceConfig`
+// mints the ephemeral TURN credential. They are arguments now rather than
+// later so that adding them is a change to this file only — the signalling
+// module never learns that they became real.
+attachSignalling(server, {
+  origin: env.origin,
+  rooms: createRooms({ randomBytes, now: () => Date.now() }),
+  upgradeLimiter: createLimiter({
+    now: () => Date.now(),
+    limit: UPGRADE_LIMIT,
+    windowMs: LIMIT_WINDOW_MS,
+  }),
+  joinLimiter: createLimiter({
+    now: () => Date.now(),
+    limit: JOIN_LIMIT,
+    windowMs: LIMIT_WINDOW_MS,
+  }),
+  // One JSON object per line, which is what the journal wants and what a later
+  // pino would emit unchanged. Correlated by room code, because debugging a
+  // WebRTC failure without being able to group the lines of one room is not
+  // debugging.
+  log: (event, fields) => {
+    console.log(JSON.stringify({ event, ...fields }));
+  },
+  now: () => Date.now(),
+  recordOutcome: () => {
+    // Plan 03-06. A no-op and not a throw: the handler already swallows a
+    // failure here, and a stub that threw would exercise that path on every
+    // single connection and fill the journal with a defect that does not exist.
+  },
+  iceConfig: () => ({
+    // Public STUN only, until plan 03-06 brings up coturn. This is enough to
+    // discover a reflexive address and therefore enough for two peers on
+    // ordinary NATs; it is NOT enough for the symmetric-NAT and CGNAT cases
+    // that TURN exists to cover, which is why 03-06 is not optional.
+    ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
+    turn: { username: '', credential: '', ttl: 0 },
+  }),
+  // .unref() for the same reason shutdown.ts gives: a periodic timer must not
+  // itself be a reason for the process to stay alive.
+  startHeartbeat: (tick) => {
+    setInterval(tick, HEARTBEAT_MS).unref();
+  },
+});
 
 // The other end of the process's life, and it is a DEPLOY path rather than a
 // crash path: ops/deploy.sh runs `systemctl restart dg2` every time the server
