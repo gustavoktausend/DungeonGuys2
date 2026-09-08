@@ -25,7 +25,8 @@
 // why nobody should "tidy" those parameters into a top-level import.
 import { describe, it, expect } from 'vitest';
 import {
-  avatarKey, badgeLine, clipName, inviteLink, NAME_MAX_CODE_POINTS, pingBand, slotLine,
+  avatarKey, badgeLine, clipName, inviteLink, NAME_MAX_CODE_POINTS, pingBand, relayAllowed,
+  slotLine,
 } from '../src/ui/room';
 import type { LobbyView } from '../src/net/lobby';
 
@@ -169,6 +170,23 @@ describe('o texto da tela de sala', () => {
     // instead of a promise.
     expect(inviteLink('http://localhost:5173/?ice=relay#x', 'ABC123'))
       .toBe('http://localhost:5173/?sala=ABC123');
+  });
+
+  it('um relay só é aceito de quem esta máquina negocia com (CR-01)', () => {
+    // The second lock on the door the server already guards: a guest listens
+    // to the authority named by `joined` and to nobody else; the authority
+    // listens to the peers the server seated and to nobody else. Without it,
+    // a forged `answer` in the authority's name would close a guest's
+    // negotiation with the forger, and every invented `from` would cost the
+    // victim a fresh peer connection.
+    const seated = new Set(['peer-b', 'peer-c']);
+    expect(relayAllowed('peer-a', false, 'peer-a', seated)).toBe(true);
+    expect(relayAllowed('peer-b', false, 'peer-a', seated)).toBe(false);
+    expect(relayAllowed('peer-b', true, 'peer-a', seated)).toBe(true);
+    expect(relayAllowed('peer-z', true, 'peer-a', seated)).toBe(false);
+    // An empty roster admits nobody — the state the authority is in before
+    // the first `peers`, when there is nobody to negotiate with yet.
+    expect(relayAllowed('peer-b', true, 'peer-a', new Set())).toBe(false);
   });
 
   it('não constrói markup a partir de texto (T-3-14)', () => {

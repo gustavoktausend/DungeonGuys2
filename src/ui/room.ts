@@ -238,6 +238,26 @@ export function inviteLink(base: string, code: string): string {
   return `${clean}?sala=${code}`;
 }
 
+/**
+ * Whether a relay verb may reach the peer connection, judged by who signed it.
+ *
+ * The server already refuses a `from` that is not the sending socket; this is
+ * the second lock on the same door, on the side that would pay for a forgery.
+ * A guest negotiates with exactly one peer — the authority named by
+ * `created`/`joined`, never derived from a seat (FORM-12) — and the authority
+ * only with peers the server has seated in its roster. Anything else would let
+ * a stranger's `answer` close a guest's negotiation in the authority's name,
+ * and would open a fresh peer connection for every `from` it cared to invent.
+ */
+export function relayAllowed(
+  from: string,
+  isAuthority: boolean,
+  authorityPeerId: string,
+  knownPeers: ReadonlySet<string>,
+): boolean {
+  return isAuthority ? knownPeers.has(from) : from === authorityPeerId;
+}
+
 // ─── The wiring ──────────────────────────────────────────────────────────────
 
 /** The elements this module paints. `ui/dom.ts` satisfies it structurally. */
@@ -536,18 +556,33 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     lobby.onDesync(showDesync);
     armRouteProbe(rtc, lobby);
 
+    /** Everyone the server has seated beside us, as of the last roster. */
+    const knownPeers = new Set<string>();
+    for (const peer of joined.peers) {
+      if (peer.peerId !== joined.peerId) knownPeers.add(peer.peerId);
+    }
+
     c.onSignal((message: SignalMessage) => {
       if (message.kind === 'offer' || message.kind === 'answer' || message.kind === 'candidate') {
-        rtc.accept(message);
+        if (relayAllowed(message.from, authority, joined.authorityPeerId, knownPeers)) {
+          rtc.accept(message);
+        } else {
+          deps.log('sala-relay-recusado', { de: message.from, kind: message.kind });
+        }
         return;
       }
       if (message.kind === 'peers') {
+        // The roster is the whole list, never a delta (protocol/signaling.ts),
+        // so it REPLACES what was known: a seat that emptied stops being a
+        // sender this machine will listen to.
+        knownPeers.clear();
+        for (const peer of message.peers) {
+          if (peer.peerId !== joined.peerId) knownPeers.add(peer.peerId);
+        }
         // The authority is the impolite side and the one that opens the leg
         // (net/rtc.ts): a guest waits for the offer instead of racing it.
         if (!authority) return;
-        for (const peer of message.peers) {
-          if (peer.peerId !== joined.peerId) rtc.connect(peer.peerId);
-        }
+        for (const peer of knownPeers) rtc.connect(peer);
         return;
       }
       if (message.kind === 'closed') roomDead();

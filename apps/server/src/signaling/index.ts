@@ -253,12 +253,16 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
   /**
    * Relays one of the three opaque verbs.
    *
-   * THE ADDRESSEE MUST BE IN THE SENDER'S ROOM. Without that check a peerId is
-   * a bearer token for someone else's negotiation: SDP carries network
-   * addresses, so relaying across the boundary would hand a stranger's
-   * endpoints to anyone who guessed an identifier (ASVS V4). The message itself
-   * is copied verbatim — a length was checked in the schema, and a length is
-   * not a parse.
+   * TWO CHECKS, AND BOTH ARE ACCESS CONTROL. THE ADDRESSEE MUST BE IN THE
+   * SENDER'S ROOM: SDP carries network addresses, so relaying across the
+   * boundary would hand a stranger's endpoints to anyone who guessed an
+   * identifier (ASVS V4). And THE SENDER IS THE SOCKET, NEVER THE BODY — the
+   * same doctrine `iceOutcome` follows (T-3-24). `from` is compared against
+   * the session's own peerId and refused on mismatch; without that, any
+   * occupant could answer an offer in the authority's name, feed a neighbour
+   * forged candidates, or open a fresh peer connection on the victim for every
+   * `from` it cared to invent. The rest of the message is copied verbatim — a
+   * length was checked in the schema, and a length is not a parse.
    */
   const relay = (ws: WebSocket, session: Session, message: Offer | Answer | Candidate): void => {
     const room = session.code === null ? undefined : deps.rooms.get(session.code);
@@ -266,12 +270,18 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       refuse(ws, 'badCode', 'destinatário não está nesta sala');
       return;
     }
+    if (message.from !== session.peerId) {
+      refuse(ws, 'badCode', 'remetente não corresponde a esta conexão');
+      return;
+    }
     const target = byPeerId.get(message.to);
     if (!target) {
       refuse(ws, 'badCode', 'destinatário não está conectado');
       return;
     }
-    sendTo(target, message);
+    // Restated from the session even though it just compared equal: the field
+    // the addressee reads is the one the server vouches for, not the body's.
+    sendTo(target, { ...message, from: session.peerId });
   };
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {

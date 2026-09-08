@@ -158,6 +158,26 @@ function nextMessage(ws: WebSocket): Promise<SignalMessage> {
   });
 }
 
+/**
+ * Resolves once `ms` pass with NOTHING arriving, and rejects on the first
+ * message. The inverse of `nextMessage`, for the assertions whose subject is a
+ * message that must not be delivered — a refusal that still relayed would
+ * satisfy every check on the refuser's socket and leak all the same.
+ */
+function silence(ws: WebSocket, ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (data: Buffer): void => {
+      clearTimeout(timer);
+      reject(new Error(`chegou uma mensagem: ${data.toString('utf8')}`));
+    };
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      resolve();
+    }, ms);
+    ws.once('message', onMessage);
+  });
+}
+
 function send(ws: WebSocket, message: unknown): void {
   ws.send(JSON.stringify(message));
 }
@@ -316,6 +336,40 @@ describe('o relay opaco', () => {
     const answer = await waiting;
     expect(answer.kind).toBe('error');
     expect(first.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('recusa um offer cujo from não é o remetente, e o destinatário não o recebe (CR-01)', async () => {
+    // Three peers in one room. The third signs an answer as the AUTHORITY and
+    // addresses it to the second: with `from` copied verbatim, the second
+    // would apply it as the authority's and finish its negotiation with the
+    // forger instead. The sender is the socket, never the body (T-3-24).
+    const { ws: authority, created } = await openRoom();
+
+    const victim = await connect();
+    let rosterOnAuthority = nextMessage(authority);
+    send(victim, { kind: 'join', code: created.code, accountId: 'conta-b', name: 'vitima', versions: VERSIONS });
+    const victimJoined = await nextMessage(victim);
+    await rosterOnAuthority;
+    if (victimJoined.kind !== 'joined') throw new Error(`esperava joined, veio ${victimJoined.kind}`);
+
+    const forger = await connect();
+    rosterOnAuthority = nextMessage(authority);
+    const rosterOnVictim = nextMessage(victim);
+    send(forger, { kind: 'join', code: created.code, accountId: 'conta-c', name: 'impostor', versions: VERSIONS });
+    expect((await nextMessage(forger)).kind).toBe('joined');
+    await Promise.all([rosterOnAuthority, rosterOnVictim]);
+
+    const nothingLeaked = silence(victim, 300);
+    const refusal = nextMessage(forger);
+    send(forger, { kind: 'answer', from: created.peerId, to: victimJoined.peerId, sdp: 'v=0\r\n' });
+
+    const answer = await refusal;
+    expect(answer.kind).toBe('error');
+    if (answer.kind === 'error') expect(answer.reason).toBe('badCode');
+    // The forger's own connection survives, like every other refusal.
+    expect(forger.readyState).toBe(WebSocket.OPEN);
+    // And the half that matters: nothing reached the addressee.
+    await nothingLeaked;
   });
 
   it('recusa um candidate endereçado a um peer que não existe', async () => {
