@@ -55,7 +55,7 @@
 import { normalizeRoomCode } from '@dg2/protocol';
 import type { IceRoute, RejectReason, SignalMessage, Versions } from '@dg2/protocol';
 import { CLASS_KEY } from '@dg2/protocol';
-import type { ClassKey, ForgeLevels, GameMode, RunConfig } from '@dg2/sim';
+import type { ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig } from '@dg2/sim';
 import { createLobby, type Lobby, type LobbyView, type OccupantView, type Rgb } from '../net/lobby';
 import {
   BAD_CODE_MESSAGE, createSignalingClient, SignalRefused,
@@ -293,8 +293,22 @@ export interface RoomDeps {
   now: () => number;
   schedule: Schedule;
   log: (event: string, fields?: Record<string, unknown>) => void;
-  /** The run manifest, once the authority starts. Plan 03-10 fills this in. */
-  onStart: (config: RunConfig) => void;
+  /**
+   * The run manifest AND the seat this machine was given, once the room starts.
+   *
+   * Two arguments because the manifest cannot name us: `RunConfig` describes
+   * `p0..p3` and nothing in it says which one is this machine — `peerId` never
+   * enters the simulation (ADR 0001). net/lobby.ts is what knows both.
+   */
+  onStart: (config: RunConfig, slot: PlayerSlot) => void;
+  /**
+   * The way out of a run this module ended.
+   *
+   * The SAME exit the pause screen uses, and that is the whole point: a run
+   * whose world disagrees with the room's has to be torn down, not covered by
+   * a modal. A second teardown path would be a second one to get wrong.
+   */
+  onQuit: () => void;
   /** The badge's ✕ turns the flag off and reloads, because the ICE policy is
    *  fixed when the connection is constructed. */
   reload: () => void;
@@ -743,7 +757,16 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   el.btnJoinRoom.addEventListener('click', () => { void joinRoom(); });
   el.btnRetryJoin.addEventListener('click', () => { void joinRoom(); });
   el.btnRoomBack.addEventListener('click', () => { leave(); deps.showScreen('start'); });
-  el.btnDesyncClose.addEventListener('click', () => { leave(); deps.showScreen('start'); });
+  el.btnDesyncClose.addEventListener('click', () => {
+    // `deps.onQuit` and NOT a local `showScreen('start')`: by the time this
+    // screen is up a run is already advancing behind it (the run starts on
+    // `startRun` and the fingerprints are compared alongside it, D3-18), so
+    // closing the modal without tearing the run down would leave a world that
+    // is known to disagree with the room's still stepping under the menu. It is
+    // the same exit the pause screen's QUIT takes.
+    leave();
+    deps.onQuit();
+  });
 
   el.btnCopyLink.addEventListener('click', () => {
     // The value was built from the ROOM CODE when the lobby opened, never from

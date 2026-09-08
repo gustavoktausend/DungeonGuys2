@@ -150,7 +150,15 @@ export interface Lobby {
   /** The authority went. There is no migration (D3-02). */
   onRoomDead(cb: () => void): Unsubscribe;
   onRejected(cb: (reason: RejectReason) => void): Unsubscribe;
-  onStart(cb: (config: RunConfig) => void): Unsubscribe;
+  /**
+   * The run begins, with the manifest AND the seat this machine was given.
+   *
+   * The seat travels alongside because the manifest cannot say it: `RunConfig`
+   * names `p0..p3` and nothing in it says which one is us — `peerId` never
+   * enters the simulation (ADR 0001). The lobby is the one place that knows
+   * both, so it is the one place the translation happens.
+   */
+  onStart(cb: (config: RunConfig, slot: PlayerSlot) => void): Unsubscribe;
   chooseClass(cls: ClassKey): void;
   /** Closes the room and hands out the seats. Authority only (D3-04). */
   startRoom(options: StartOptions): RunConfig;
@@ -408,7 +416,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
   const stateCbs = new Set<(view: LobbyView) => void>();
   const deadCbs = new Set<() => void>();
   const rejectCbs = new Set<(reason: RejectReason) => void>();
-  const startCbs = new Set<(config: RunConfig) => void>();
+  const startCbs = new Set<(config: RunConfig, slot: PlayerSlot) => void>();
   const subs: Unsubscribe[] = [];
   let cancelTick: Unsubscribe | null = null;
   /**
@@ -468,6 +476,18 @@ export function createLobby(deps: LobbyDeps): Lobby {
       closed: isAuthority ? closed : remoteClosed,
       occupants: list,
     };
+  }
+
+  /**
+   * This machine's seat, or null while the room is still open.
+   *
+   * Read from the roster and never from the manifest's array position: the two
+   * agree today, and the day they stop agreeing the roster is the one that
+   * carries `peerId` — which is the only field that says which row is us.
+   */
+  function mySlot(): PlayerSlot | null {
+    const list = isAuthority ? occupants : remote;
+    return list.find((o) => o.peerId === self.peerId)?.slot ?? null;
   }
 
   function notify(): void {
@@ -599,8 +619,16 @@ export function createLobby(deps: LobbyDeps): Lobby {
     }
     const config = readRunConfig(parsed.body);
     if (!config) return;
+    const slot = mySlot();
+    // A manifest with no seat for this machine is not startable, and it is not
+    // a malformed message either — it is a `startRun` that arrived before the
+    // roster that hands out the seats. The reliable channel is ORDERED and
+    // `startRoom` publishes the closed roster BEFORE sending this frame, so it
+    // cannot happen; refusing rather than guessing is what keeps that ordering
+    // a fact instead of an assumption nobody would notice breaking.
+    if (slot === null) return;
     started = config;
-    for (const cb of [...startCbs]) cb(config);
+    for (const cb of [...startCbs]) cb(config, slot);
   }));
 
   subs.push(transport.onPeerLeave((peer) => {
@@ -698,7 +726,13 @@ export function createLobby(deps: LobbyDeps): Lobby {
         if (o.peerId === self.peerId || !o.connected) continue;
         transport.send(o.peerId, frame, 'reliable');
       }
-      for (const cb of [...startCbs]) cb(started);
+      // The authority takes the SAME path as every guest, from here on: it
+      // starts from the manifest it just published, at the seat the roster gave
+      // it. A short cut here — starting from the local selection instead —
+      // would be a second way of beginning a run, and the tick-0 hash would be
+      // comparing two things that were never built the same way (D-11).
+      const slot = mySlot();
+      if (slot !== null) for (const cb of [...startCbs]) cb(started, slot);
       return started;
     },
 

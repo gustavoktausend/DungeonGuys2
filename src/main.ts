@@ -7,7 +7,7 @@ import { createInput } from './app/input';
 import { createEventSink } from './app/events';
 import { Sfx } from './app/audio';
 import { Save } from './app/save';
-import { buildRunConfig, finishRun, forgeLevel } from './app/forge';
+import { buildRunConfig, finishRun, localForge } from './app/forge';
 import { createCamera, updateCamera, type Camera } from './render/camera';
 import { ANIMS, loadSprites, OUTFIT_COLORS, recolorSheet } from './render/sprites';
 import { readRelayFlag } from './net/ice';
@@ -21,7 +21,7 @@ import { dom } from './ui/dom';
 import { setupTouch } from './ui/touch';
 import { getSelection, initStartScreen, refreshClassRecord, tryUnlock } from './ui/settings';
 import { mouseOnly } from './ui/events';
-import type { ClassKey, GameMode, Player, PlayerSlot, World } from '@dg2/sim';
+import type { Player, PlayerSlot, RunConfig, World } from '@dg2/sim';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -249,12 +249,10 @@ const room = initRoom({
       name: playerName,
       cls: classKey,
       // Per player, and it travels in `hello`: a RunConfig assembled without it
-      // would silently give everyone a zeroed forge (03-03).
-      forge: {
-        vigor: forgeLevel('vigor'), honed: forgeLevel('honed'), fleet: forgeLevel('fleet'),
-        startgold: forgeLevel('startgold'), merchant: forgeLevel('merchant'),
-        wise: forgeLevel('wise'), golden: forgeLevel('golden'),
-      },
+      // would silently give everyone a zeroed forge (03-03). One spelling, in
+      // app/forge.ts, so the levels this machine announces to a room and the
+      // levels it starts a solo run with cannot drift apart.
+      forge: localForge(),
       mode,
     };
   },
@@ -272,10 +270,15 @@ const room = initRoom({
   now: () => performance.now(),
   schedule: (fn, ms) => { const id = setTimeout(fn, ms); return () => { clearTimeout(id); }; },
   log: (event, fields) => { console.debug(event, fields ?? {}); },
-  // Plan 03-10 turns this manifest into a run: `LOCAL_SLOT` stops being a
-  // constant, each machine builds the world from the seed, and the two compare
-  // the tick-0 hash before anything else happens.
-  onStart: config => { console.debug('sala-iniciou', { seed: config.seed, jogadores: config.players.length }); },
+  // THE MANIFEST BECOMES A RUN, HERE AND NOWHERE ELSE. Both halves of the game
+  // land on the same `beginRun`: solo builds a one-seat manifest below, a room
+  // receives a four-seat one over the wire, and neither has a code path of its
+  // own. The seat arrives WITH the manifest because the authority assigned it
+  // (ADR 0001) — this machine does not get to pick where it sits.
+  onStart: (config, slot) => { beginRun(config, slot); },
+  // The divergence screen's ✕ takes the SAME exit as the pause screen: a run
+  // whose world disagrees with the room's must end, not hide behind a modal.
+  onQuit: () => { quitGame(); },
   reload: () => { location.reload(); },
 });
 
@@ -307,17 +310,33 @@ let stopSimLoop: (() => void) | null = null;
 let pauseRaf = 0;
 
 /**
- * The slot this machine plays. FORM-01/D-30 numbers the slots p0..p3, and this
- * app has always occupied the first one — it just used to spell that slot with
- * a one-based name, repeated as a literal in six places.
+ * The seat of the only occupant of a room of one.
  *
- * The name matters more than the number. `playerId` is the slot the AUTHORITY
- * assigns and the replay knows; it is not `accountId` (the durable server ULID,
- * which never enters the World) and it is not `peerId` (a transport handle that
- * dies with the connection). When phase 4 makes this value arrive from a lobby
- * instead of being a constant, this is the single line that stops being one.
+ * THE LAST LITERAL SEAT IN THIS FILE, and it is the one the plan sanctions:
+ * solo is a room of one (D3-04) and its single occupant is by definition the
+ * first one to enter it. Every other seat in the game is assigned by the
+ * authority and arrives with the manifest.
  */
-const LOCAL_SLOT: PlayerSlot = 'p0';
+const SOLO_SLOT: PlayerSlot = 'p0';
+
+/**
+ * The slot this machine plays. FORM-01/D-30 numbers the slots p0..p3.
+ *
+ * THIS IS THE LINE THE MARCO 0 ANNOUNCED AS "the single one that stops being a
+ * constant", AND IT HAS STOPPED. It is written once per run, by `beginRun`,
+ * from the manifest the authority handed out — never picked here. `p0` is only
+ * where it starts, and it is right for exactly one case: solo, which is a room
+ * of one whose only occupant sits in the first seat (D3-04).
+ *
+ * The name matters more than the number. This is the slot the AUTHORITY assigns
+ * and the replay knows; it is not `accountId` (the durable server ULID, which
+ * never enters the World) and it is not `peerId` (a transport handle that dies
+ * with the connection) — the three spaces of ADR 0001.
+ *
+ * It is read by `frame()`, `drawFrozenFrame()`, `createInput` and the two
+ * `finishRun` calls, all of which used to close over the constant.
+ */
+let localSlot: PlayerSlot = SOLO_SLOT;
 
 /**
  * The frame drawn every requestAnimationFrame while the sim is advancing.
@@ -325,13 +344,13 @@ const LOCAL_SLOT: PlayerSlot = 'p0';
  * — no game or sim code pushes to the DOM (T1, task-18-brief.md).
  */
 function frame(w: World, alpha: number): void {
-  updateHud(w, LOCAL_SLOT);
-  syncScreens(w, LOCAL_SLOT);
+  updateHud(w, localSlot);
+  syncScreens(w, localSlot);
   // The badge follows the HUD: DOM, one write per frame, and it never reads
   // `world` — the number it shows came from the room, not from the simulation.
   room.paintBadge();
   updateCamera(cam, player, canvas.width, canvas.height);
-  render(w, cam, alpha, ctx, fx, LOCAL_SLOT);
+  render(w, cam, alpha, ctx, fx, localSlot);
 }
 
 /** Redraws the frozen world while paused — no HUD/screen sync (the pause
@@ -339,7 +358,7 @@ function frame(w: World, alpha: number): void {
  * (screen shake/particles/float texts hold still, matching "paused"). */
 function drawFrozenFrame(): void {
   updateCamera(cam, player, canvas.width, canvas.height);
-  render(world, cam, 1, ctx, fx, LOCAL_SLOT);
+  render(world, cam, 1, ctx, fx, localSlot);
 }
 
 /**
@@ -365,25 +384,44 @@ function startSimLoop(): void {
  * system is sim/run.ts's `startRun` (Task 15). This is also what every
  * restart button (start/restart/victory-restart/pause-restart) calls.
  */
-function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void {
+function beginRun(config: RunConfig, slot: PlayerSlot): void {
+  // Read back from the manifest rather than from the arguments: the manifest is
+  // what a replay is rebuilt from, so a run that starts from a different class
+  // than it records is a divergence nobody would see until the replay. With
+  // four seats, `players[0]` is not "me" — it is whoever entered the room
+  // first, and reading it would put this machine in someone else's body.
+  const local = config.players.find(p => p.id === slot);
+  if (!local) {
+    // A manifest with no seat for this machine is not something to start half
+    // of: it would render a world nobody in it is playing. It cannot happen
+    // through either entry point below, and saying so out loud is cheaper than
+    // discovering it as a blank screen.
+    console.error('manifesto sem assento para esta máquina', { slot });
+    return;
+  }
+
   // tear down whatever was running before — a no-op the very first time.
   stopSimLoop?.();
   stopSimLoop = null;
   cancelAnimationFrame(pauseRaf);
   input?.destroy();
 
-  const config = buildRunConfig(LOCAL_SLOT, classKey, mode, playerName);
+  localSlot = slot;
   world = createWorld(config);
   buildTilemap(); // fresh floor-tile variants each run, ORIG/engine.js:171,219
-  // Read back from the manifest rather than from the arguments: the manifest
-  // is what a replay is rebuilt from, so a run that starts from a different
-  // class than it records is a divergence nobody would see until the replay.
-  const local = config.players[0];
-  player = createPlayer(world, local.id, local.cls, local.name);
+  // The canonical start-of-run sequence, and the ONLY one (D-11): every seat of
+  // the manifest gets a player, in the manifest's order, and `startRun` is what
+  // generates the arena. net/lobby.ts fingerprints exactly this sequence, and a
+  // second way of building the initial world would be a second way for the
+  // tick-0 hashes to disagree over nothing.
+  for (const seat of config.players) {
+    const created = createPlayer(world, seat.id, seat.cls, seat.name);
+    if (seat.id === slot) player = created;
+  }
   startRun(world);
 
   cam = createCamera();
-  input = createInput(canvas, world, LOCAL_SLOT, cam, touch);
+  input = createInput(canvas, world, localSlot, cam, touch);
   fx = createFx();
   fx.setShakeEnabled(Save.data.settings.shake !== false);
 
@@ -406,11 +444,11 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
       if (to === 'gameover') {
         Sfx.stopMusic();
         Sfx.play('gameover');
-        finishRun(world, LOCAL_SLOT, false);
+        finishRun(world, localSlot, false);
         refreshClassRecord();
       } else if (to === 'victory') {
         Sfx.stopMusic(); // sim already emitted { t: 'sfx', name: 'victory' }
-        finishRun(world, LOCAL_SLOT, true);
+        finishRun(world, localSlot, true);
         refreshClassRecord();
       }
     },
@@ -425,9 +463,33 @@ function beginRun(classKey: ClassKey, mode: GameMode, playerName: string): void 
   startSimLoop();
 }
 
+/**
+ * A fresh run seed, as a uint32.
+ *
+ * `crypto.getRandomValues` and not `Math.random`, for a reason that is about
+ * the format rather than about cryptography: the seed travels in `startRun`,
+ * where net/lobby.ts refuses anything that is not an integer, and
+ * `(Math.random() * 0xffffffff) >>> 0` is an integer only because of the shift.
+ * Drawing the right SHAPE at the source is what stops that coercion from being
+ * load-bearing. Solo draws it too — solo is a room of one (D3-04).
+ */
+function newSeed(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0];
+}
+
+/**
+ * The solo entry point: a room of one, assembled locally.
+ *
+ * THE SEED IS DRAWN HERE, ONCE, AT THE ENTRY POINT — not inside
+ * `buildRunConfig`, which no longer has an opinion about where a seed comes
+ * from. That is what lets one function build the manifest for both halves of
+ * the game: here from a local draw, and in a room from the number the authority
+ * emitted (net/lobby.ts's `startRoom`).
+ */
 function startFromSelection(): void {
   const { classKey, mode, playerName } = getSelection();
-  beginRun(classKey, mode, playerName);
+  const config = buildRunConfig(newSeed(), mode, [{ name: playerName, cls: classKey }]);
+  beginRun(config, SOLO_SLOT);
 }
 
 /** ORIG/engine.js:228 (`quitGame`). */

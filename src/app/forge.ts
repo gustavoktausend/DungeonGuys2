@@ -9,52 +9,85 @@ import { Sfx } from './audio';
 import { dom } from '../ui/dom';
 import { showScreen } from '../ui/screens';
 import { mouseOnly } from '../ui/events';
+import { PLAYER_SLOT } from '@dg2/protocol';
 import { FORGE_RATE } from '@dg2/sim';
-import type { ClassKey, GameMode, PlayerSlot, RunConfig, World } from '@dg2/sim';
+import type { ClassKey, ForgeLevels, GameMode, RunConfig, World } from '@dg2/sim';
 
 export function forgeLevel(key: string): number {
   return Save.data.progress.forge[key] ?? 0;
 }
 
 /**
- * The run manifest this machine starts a run from.
+ * THIS machine's seven permanent upgrades, read from Save.
  *
- * `players` is a one-entry array today because the game is solo, and the
- * ARRAY IS THE CANONICAL ORDER (FORM-02/D-13) — `step()` iterates it. When
- * phase 4 makes a room, the authority builds this array instead, and nothing
- * inside the simulation has to change to notice.
+ * Exported because it is also what travels in the room's `hello` (net/lobby.ts
+ * validates it on arrival): the forge is PER PLAYER, so four people in one
+ * room bring four different sets to the same world, and a run-wide value would
+ * silently give everyone the same one.
  *
- * `slot` is a PARAMETER rather than a constant read from here, because the
- * slot is assigned by the authority (ADR 0001) and this module is not it.
- * Today main.ts always passes p0; the day a lobby answers instead, this
- * signature already says so.
+ * Debt #4 (task-20-brief.md): a seat's forge has SEVEN perks — the brief's own
+ * buildRunConfig snippet dropped `golden` (the "double coins" perk,
+ * ORIG/ui.js:468). A missing key here would silently zero it out for every run
+ * regardless of what the player forged.
+ */
+export function localForge(): ForgeLevels {
+  return {
+    vigor: forgeLevel('vigor'),
+    honed: forgeLevel('honed'),
+    fleet: forgeLevel('fleet'),
+    startgold: forgeLevel('startgold'),
+    merchant: forgeLevel('merchant'),
+    wise: forgeLevel('wise'),
+    golden: forgeLevel('golden'),
+  };
+}
+
+/** One person a run is being assembled for, before seats are handed out. */
+export interface RunOccupant {
+  name: string;
+  cls: ClassKey;
+  /**
+   * Absent means THIS machine's player — the only occupant whose permanent
+   * upgrades live in this machine's Save. Everyone else's arrived over the
+   * wire in `hello` and is passed in here already validated.
+   */
+  forge?: ForgeLevels;
+}
+
+/**
+ * The run manifest, assembled from the people in the room.
+ *
+ * THE ARRAY IS THE CANONICAL ORDER (FORM-02/D-13) — `step()` iterates it, not
+ * `Object.keys(players)`, so who gets which draw from `world.rng` is decided
+ * by the manifest instead of by the order in which people happened to join.
+ * Seats come from `PLAYER_SLOT`, the frozen table whose INDEX is the seat, and
+ * never from a loose string.
+ *
+ * SOLO IS A ROOM OF ONE (D3-04). It is not a second code path with a second
+ * shape: single player passes one occupant and gets a one-seat manifest, which
+ * is exactly what makes single player and co-op share `beginRun` in main.ts.
+ *
+ * THE SEED IS AN ARGUMENT AND NOT A DRAW MADE HERE. It is the one place a run
+ * is allowed to be non-deterministic, and the authority is what emits it and
+ * sends it to every peer in `startRun` — every machine of a room builds the
+ * same world from the same number, and the tick-0 fingerprint proves it did.
+ * A machine that decided its own would diverge from the first frame, silently.
  */
 export function buildRunConfig(
-  slot: PlayerSlot, classKey: ClassKey, mode: GameMode, playerName: string,
+  seed: number, mode: GameMode, occupants: readonly RunOccupant[],
 ): RunConfig {
+  if (occupants.length < 1 || occupants.length > PLAYER_SLOT.length) {
+    throw new Error(`uma run tem de 1 a ${PLAYER_SLOT.length} jogadores, não ${occupants.length}`);
+  }
   return {
-    // The seed is the one place a run is allowed to be non-deterministic.
-    // In Marco 1 the host picks it and sends it to every client.
-    seed: (Math.random() * 0xffffffff) >>> 0,
+    seed,
     mode,
-    players: [{
-      id: slot,
-      name: playerName,
-      cls: classKey,
-      forge: {
-        vigor: forgeLevel('vigor'),
-        honed: forgeLevel('honed'),
-        fleet: forgeLevel('fleet'),
-        startgold: forgeLevel('startgold'),
-        merchant: forgeLevel('merchant'),
-        wise: forgeLevel('wise'),
-        // Debt #4 (task-20-brief.md): a slot's forge has seven perks — the
-        // brief's own buildRunConfig snippet dropped `golden` (the "double
-        // coins" perk, ORIG/ui.js:468). A missing key here would silently
-        // zero it out for every run regardless of what the player forged.
-        golden: forgeLevel('golden'),
-      },
-    }],
+    players: occupants.map((who, i) => ({
+      id: PLAYER_SLOT[i],
+      name: who.name,
+      cls: who.cls,
+      forge: who.forge ?? localForge(),
+    })),
   };
 }
 
