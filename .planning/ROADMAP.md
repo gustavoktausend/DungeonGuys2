@@ -216,7 +216,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 03-10-PLAN.md — Início da run pelo lobby, a prova do hash do tick 0 e a sala fechando entre dois navegadores
+- [x] 03-10-PLAN.md — Início da run pelo lobby, a prova do hash do tick 0 e a sala fechando entre dois navegadores
 
 **Wave 7** *(blocked on Wave 6 completion — e **bloqueada por 02-04**)*
 
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 9/11 | In Progress|  |
+| 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
