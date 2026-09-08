@@ -207,8 +207,8 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 03-06-PLAN.md — A tabela `ice_outcome` e a credencial efêmera de TURN por HMAC
-- [ ] 03-08-PLAN.md — WebRTC no cliente: perfect negotiation, os dois canais, a rota por `getStats()` e a flag de relay
+- [x] 03-06-PLAN.md — A tabela `ice_outcome` e a credencial efêmera de TURN por HMAC
+- [x] 03-08-PLAN.md — WebRTC no cliente: perfect negotiation, os dois canais, a rota por `getStats()` e a flag de relay
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 6/11 | In Progress|  |
+| 3. Sala, transporte e protocolo | 8/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
