@@ -197,8 +197,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — O codec binário do snapshot: três partes auto-contidas, round-trip duplo e os três motores
-- [ ] 03-03-PLAN.md — `Transport` em processo, `lossy`, a máquina de estado do lobby e a medição de RTT
+- [x] 03-02-PLAN.md — O codec binário do snapshot: três partes auto-contidas, round-trip duplo e os três motores
+- [x] 03-03-PLAN.md — `Transport` em processo, `lossy`, a máquina de estado do lobby e a medição de RTT
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 2/11 | In Progress|  |
+| 3. Sala, transporte e protocolo | 4/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
