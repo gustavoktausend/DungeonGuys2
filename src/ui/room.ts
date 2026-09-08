@@ -551,7 +551,12 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     transport = null;
     client = null;
     lastView = null;
-    el.netBadge.classList.add('hidden');
+    // The badge goes with the session — EXCEPT while the debug flag is on, when
+    // it is the only thing telling the player that every connection they make is
+    // being forced through the relay. Hiding it with the room is what would turn
+    // "the game feels laggy" into an hour of nobody knowing why (RESEARCH #6).
+    if (!deps.forceRelay) el.netBadge.classList.add('hidden');
+    el.netRoute.textContent = '—';
     cancelStatus?.();
     cancelStatus = null;
   }
@@ -790,7 +795,21 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     deps.reload();
   }));
 
-  if (deps.forceRelay) el.btnRelayFlag.classList.remove('hidden');
+  // Visible from boot when the flag is on, room or no room: the badge is the
+  // non-negotiable half of the debug flag, and it has to be on screen wherever
+  // the flag can still bite — including during a run.
+  if (deps.forceRelay) {
+    el.btnRelayFlag.classList.remove('hidden');
+    el.netBadge.classList.remove('hidden');
+  }
+
+  // #btn-start-run IS DELIBERATELY NOT WIRED HERE, and this comment is the
+  // difference between a decision and an oversight. Starting the run means
+  // choosing the seat assignment and the seed, building the world from it on
+  // every machine and comparing the tick-0 hash before anything else — which is
+  // plan 03-10's whole subject (D3-05), and it lists this file among the ones it
+  // edits. Until then the button is present and enabled for the authority
+  // exactly as 03-UI-SPEC requires, and clicking it does nothing.
 
   return { open, paintBadge, showDesync, leave };
 }
