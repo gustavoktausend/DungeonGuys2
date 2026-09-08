@@ -212,7 +212,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 03-09-PLAN.md — As telas: sala, lobby, divergência, o badge de rede e o fluxo `?sala=`
+- [x] 03-09-PLAN.md — As telas: sala, lobby, divergência, o badge de rede e o fluxo `?sala=`
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 8/11 | In Progress|  |
+| 3. Sala, transporte e protocolo | 9/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
