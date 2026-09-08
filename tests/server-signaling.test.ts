@@ -314,6 +314,39 @@ describe('abrir e entrar numa sala', () => {
     await nothingOnSecond;
   });
 
+  it('join com sim diferente da sala é recusado com simVersion, e o detail traz a da sala (D-08)', async () => {
+    const { created } = await openRoom();
+
+    const guest = await connect();
+    send(guest, {
+      kind: 'join', code: created.code, accountId: 'conta-b', name: 'outra-build',
+      versions: { sim: 'fedcba9876543210', protocol: '2' },
+    });
+    const answer = await nextMessage(guest);
+    expect(answer.kind).toBe('error');
+    if (answer.kind !== 'error') return;
+    expect(answer.reason).toBe('simVersion');
+    // The room's value, for the screen; the guest already knows its own. Free
+    // text and never a branch (D-08), so only the number is pinned here.
+    expect(answer.detail).toContain(VERSIONS.sim);
+    expect(guest.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('create com protocol diferente do servidor é recusado com protocolVersion (D-08)', async () => {
+    // The half the server can judge alone: it speaks a protocol version, and
+    // a room opened by a build it cannot read is a room nobody could enter.
+    const ws = await connect();
+    send(ws, { kind: 'create', accountId: 'c', name: 'n', versions: { sim: VERSIONS.sim, protocol: '999' } });
+
+    const answer = await nextMessage(ws);
+    expect(answer.kind).toBe('error');
+    if (answer.kind === 'error') expect(answer.reason).toBe('protocolVersion');
+    // No room was opened for it: the same socket can still create on the
+    // right protocol, which a leftover session.code would refuse (CR-02).
+    send(ws, { kind: 'create', accountId: 'c', name: 'n', versions: VERSIONS });
+    expect((await nextMessage(ws)).kind).toBe('created');
+  });
+
   it('join com código inexistente devolve error com badCode', async () => {
     const guest = await connect();
     send(guest, { kind: 'join', code: 'ZZZZZZ', accountId: 'c', name: 'n', versions: VERSIONS });

@@ -31,6 +31,9 @@ import type { RejectReason } from '@dg2/protocol';
 import type { Transport } from '../src/net/transport';
 import { fakeClock, flush, makePair, makeStar, recordingTransport } from './net/helpers';
 
+/** The pair every peer of these rooms announces. One build, so one pair. */
+const VERSIONS = { sim: 'sha256:0123456789abcdef', protocol: '2' };
+
 const FORGE: ForgeLevels = {
   vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0,
 };
@@ -64,12 +67,18 @@ interface Room {
   guestTransports: Map<string, Transport>;
   dead: Set<string>;
   rejected: Map<string, RejectReason[]>;
+  /** The free text beside each refusal, in the same order. */
+  details: Map<string, string[]>;
 }
 
 function attach(room: Room, id: string, lobby: Lobby): void {
   room.rejected.set(id, []);
+  room.details.set(id, []);
   lobby.onRoomDead(() => { room.dead.add(id); });
-  lobby.onRejected((reason) => { room.rejected.get(id)!.push(reason); });
+  lobby.onRejected((reason, detail) => {
+    room.rejected.get(id)!.push(reason);
+    room.details.get(id)!.push(detail);
+  });
 }
 
 /** Uma sala com só a autoridade dentro. Convidados entram por `join`. */
@@ -80,13 +89,13 @@ function openRoom(cls: ClassKey = 'mage'): Room {
     clock, net: star.net,
     authority: createLobby({
       transport: star.authority,
-      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls, forge: FORGE },
+      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls, forge: FORGE, versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
       colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
     }),
     authorityTransport: star.authority,
     guests: new Map(), guestTransports: new Map(),
-    dead: new Set(), rejected: new Map(),
+    dead: new Set(), rejected: new Map(), details: new Map(),
   };
   attach(room, AUTHORITY, room.authority);
   return room;
@@ -99,12 +108,14 @@ function openRoom(cls: ClassKey = 'mage'): Room {
  * teste e não um efeito colateral da ordem em que as microtasks saíram — e é a
  * ordem de entrada que vira `p0..p3` quando a sala fecha (ADR 0001).
  */
-async function join(room: Room, id: string, name: string, cls: ClassKey): Promise<Lobby> {
+async function join(
+  room: Room, id: string, name: string, cls: ClassKey, versions = VERSIONS,
+): Promise<Lobby> {
   const transport = room.net.open(id);
   room.net.link(AUTHORITY, id);
   const lobby = createLobby({
     transport,
-    self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: FORGE },
+    self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: FORGE, versions },
     isAuthority: false, authorityPeerId: AUTHORITY,
     colorFor: paletteFor(id), now: room.clock.now, schedule: room.clock.schedule,
   });
@@ -127,6 +138,7 @@ function slots(view: LobbyView): (PlayerSlot | null)[] {
 // ─── O quadro forjado, montado à mão. Ver nota 2 do cabeçalho. ───────────────
 
 const KIND_LOBBY_STATE = MSG_KIND.indexOf('lobbyState');
+const KIND_HELLO = MSG_KIND.indexOf('hello');
 
 function frame(kind: number, body: unknown): ArrayBuffer {
   const json = new TextEncoder().encode(JSON.stringify(body));
@@ -165,7 +177,7 @@ function lonelyGuest() {
   const rec = recordingTransport();
   const lobby = createLobby({
     transport: rec.transport,
-    self: { peerId: 'peer-z', accountId: 'conta-z', name: 'ZED', cls: 'ninja', forge: FORGE },
+    self: { peerId: 'peer-z', accountId: 'conta-z', name: 'ZED', cls: 'ninja', forge: FORGE, versions: VERSIONS },
     isAuthority: false, authorityPeerId: AUTHORITY,
     colorFor: paletteFor('peer-z'), now: clock.now, schedule: clock.schedule,
   });
@@ -196,6 +208,49 @@ describe('máquina de estado do lobby', () => {
 
     expect(room.rejected.get('peer-e')).toEqual(['roomFull']);
     expect(names(room.authority.state())).toEqual(['ANA', 'BIA', 'CID', 'DUL']);
+  });
+
+  it('um convidado de outra build é recusado com simVersion e não ocupa assento (D-08)', async () => {
+    // The gate BETWEEN PEERS, the second door of D-08. The server refuses the
+    // same pair at its own door; this is what still stands if that one is
+    // ever bypassed — and before it, `hello` carried no version at all.
+    const room = openRoom();
+    await join(room, 'peer-b', 'BIA', 'archer', { sim: 'sha256:fedcba9876543210', protocol: '2' });
+
+    expect(room.rejected.get('peer-b')).toEqual(['simVersion']);
+    // The room's value rides along for the screen — free text, never a branch.
+    expect(room.details.get('peer-b')![0]).toContain(VERSIONS.sim);
+    expect(names(room.authority.state())).toEqual(['ANA']);
+    // And the room is untouched by it: the next compatible guest gets in.
+    await join(room, 'peer-c', 'CID', 'warrior');
+    expect(names(room.authority.state())).toEqual(['ANA', 'CID']);
+  });
+
+  it('um convidado com protocol diferente é recusado com protocolVersion (D-08)', async () => {
+    const room = openRoom();
+    await join(room, 'peer-b', 'BIA', 'archer', { sim: VERSIONS.sim, protocol: '3' });
+    expect(room.rejected.get('peer-b')).toEqual(['protocolVersion']);
+    expect(names(room.authority.state())).toEqual(['ANA']);
+  });
+
+  it('um hello sem versões é uma mensagem que não aconteceu, não uma build antiga tolerada', () => {
+    // Tolerating a `hello` without the pair would be the escape hatch D-08
+    // forbids, opened from the side that costs nothing to forge.
+    const clock = fakeClock();
+    const rec = recordingTransport();
+    const authority = createLobby({
+      transport: rec.transport,
+      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE, versions: VERSIONS },
+      isAuthority: true, authorityPeerId: AUTHORITY,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+    });
+    rec.deliver('peer-b', frame(KIND_HELLO, {
+      accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: FORGE,
+    }), 'reliable');
+    expect(names(authority.state())).toEqual(['ANA']);
+    // Not even a refusal: nothing was said to a message that never happened.
+    expect(rec.sent).toEqual([]);
+    authority.close();
   });
 
   it('um convidado sai, o lugar dele fica vazio e os outros continuam (D3-08)', async () => {
@@ -410,13 +465,13 @@ describe('máquina de estado do lobby', () => {
     const { a, b } = makePair(AUTHORITY, 'peer-b');
     const authority = createLobby({
       transport: a,
-      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE },
+      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE, versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
       colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
     });
     const guest = createLobby({
       transport: b,
-      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: FORGE },
+      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: FORGE, versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
       colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
     });

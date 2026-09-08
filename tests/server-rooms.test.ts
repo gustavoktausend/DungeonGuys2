@@ -72,11 +72,14 @@ function constantBytes(): (n: number) => Uint8Array {
   return (n: number) => new Uint8Array(n);
 }
 
+/** The pair every peer of these rooms announces, unless a test says otherwise. */
+const VERSIONS = { sim: 'sha256:0123456789abcdef', protocol: '2' };
+
 let nextPeer = 0;
 /** A fresh occupant. `peerId` is a connection handle and dies with it (ADR 0001). */
-function peer(name = 'jogador') {
+function peer(name = 'jogador', versions = VERSIONS) {
   nextPeer += 1;
-  return { peerId: `peer-${nextPeer}`, accountId: `conta-${nextPeer}`, name };
+  return { peerId: `peer-${nextPeer}`, accountId: `conta-${nextPeer}`, name, versions };
 }
 
 /**
@@ -210,6 +213,50 @@ describe('entrar numa sala', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('roomFull');
     expect(room.occupants.size).toBe(MAX_OCCUPANTS);
+  });
+
+  it('join com sim diferente da sala é recusado com simVersion e os dois valores (D-08)', () => {
+    // The gate at the door, measured. Before it, `versions` arrived in every
+    // `join` and was read by nothing: two builds with different simulations
+    // paired, and the divergence surfaced forty seconds in, somewhere else.
+    const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
+    const room = open(rooms, peer());
+
+    const result = rooms.join(room.code, peer('outra-build', { sim: 'sha256:fedcba9876543210', protocol: '2' }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('simVersion');
+    // Both values, because "incompatible" alone costs an hour every time it
+    // is read: the room's is `ours`, the arrival's is `theirs`.
+    expect(result.mismatch).toEqual({
+      kind: 'sim', ours: 'sha256:0123456789abcdef', theirs: 'sha256:fedcba9876543210',
+    });
+    // And no seat was taken by the refused build.
+    expect(room.occupants.size).toBe(1);
+  });
+
+  it('join com protocol diferente é recusado com protocolVersion, antes do sim (D-08)', () => {
+    // Protocol first, in the axis order checkVersions fixes: if the framing
+    // disagrees, the `sim` field may not even mean what this side thinks.
+    const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
+    const room = open(rooms, peer());
+
+    const result = rooms.join(room.code, peer('outra-build', { sim: 'sha256:fedcba9876543210', protocol: '3' }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('protocolVersion');
+  });
+
+  it('a versão da sala é a da autoridade que a abriu, copiada e não compartilhada', () => {
+    const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
+    const announced = { sim: 'sha256:0123456789abcdef', protocol: '2' };
+    const room = open(rooms, peer('autoridade', announced));
+    // Mutating what the caller handed over must not move the room's reference:
+    // a whole room is judged by it.
+    announced.sim = 'sha256:alterado';
+    expect(room.versions).toEqual({ sim: 'sha256:0123456789abcdef', protocol: '2' });
+    // And the pair is not on the seat: PeerInfo is what the wire carries.
+    expect(Object.keys(room.occupants.get(room.authorityPeerId)!).sort())
+      .toEqual(['accountId', 'name', 'peerId', 'slot']);
   });
 
   it('um join repetido do mesmo peer devolve o mesmo assento, sem mudar de slot (CR-02)', () => {

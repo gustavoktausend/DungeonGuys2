@@ -215,14 +215,17 @@ const SIGNALING_URL = import.meta.env.DEV
 /**
  * The pair every peer announces, and the door refuses on (D-08).
  *
- * `protocol` is real. The sim half is the sha256 of the built sim bundle (D-07)
- * and it lives in packages/sim/dist/sim-version.json, a BUILD ARTIFACT that is
- * gitignored: nothing wires it into the client yet, and inventing that wiring
- * inside a screen plan would be making a build decision in the wrong place. So
- * every build announces the same string here, which means the sim half of the
- * gate currently refuses nothing. Recorded as a known stub of plan 03-09.
+ * `protocol` is the hand-bumped integer of packages/protocol. The sim half is
+ * the sha256 of the built sim bundle (D-07), which lives in
+ * packages/sim/dist/sim-version.json — a BUILD ARTIFACT that is gitignored —
+ * and reaches this line through the `define` in vite.config.ts: a published
+ * build carries the real hash, and a `vite build` without the artifact refuses
+ * to produce a bundle at all. Only the dev server announces a placeholder,
+ * and two tabs of one dev server share it. Two published builds with different
+ * simulations therefore refuse each other at the door, with both values on
+ * the screen, instead of desynchronising forty seconds in.
  */
-const VERSIONS: Versions = { protocol: PROTOCOL_VERSION, sim: 'unwired' };
+const VERSIONS: Versions = { protocol: PROTOCOL_VERSION, sim: __SIM_VERSION__ };
 
 /**
  * Who this machine says it is, for as long as the tab is open.

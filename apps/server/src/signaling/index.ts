@@ -15,6 +15,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { randomUUID } from 'node:crypto';
+import { PROTOCOL_VERSION } from '@dg2/protocol';
 import type {
   Answer,
   Candidate,
@@ -364,10 +365,20 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
     switch (message.kind) {
       case 'create': {
         if (seatedAlready(ws, session)) return;
+        // THE HALF OF D-08 THE SERVER CAN JUDGE ON ITS OWN. It has no `sim`
+        // version — that is a build artifact of the client — but it does
+        // speak a protocol version, and a room opened by a build it cannot
+        // read would be a room nobody on the current build could enter. The
+        // `sim` axis is judged at `join`, against the authority's pair.
+        if (message.versions.protocol !== PROTOCOL_VERSION) {
+          refuse(ws, 'protocolVersion', `A do servidor é ${PROTOCOL_VERSION}.`);
+          return;
+        }
         const room = deps.rooms.create({
           peerId: session.peerId,
           accountId: message.accountId,
           name: message.name,
+          versions: message.versions,
         });
         if (room === null) {
           // The ceiling of rooms.ts, answered with the nearest true reason in
@@ -412,9 +423,18 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
           peerId: session.peerId,
           accountId: message.accountId,
           name: message.name,
+          versions: message.versions,
         });
         if (!result.ok) {
-          refuse(ws, result.reason, 'não foi possível entrar na sala');
+          // A version refusal carries the ROOM's value in the free text: the
+          // player already knows their own, and the screen composes the pair
+          // (D-08). `detail` is never branched on, so the sentence is safe to
+          // reword; `reason` is what the client dispatches on.
+          refuse(
+            ws,
+            result.reason,
+            result.mismatch ? `A da sala é ${result.mismatch.ours}.` : 'não foi possível entrar na sala',
+          );
           return;
         }
 

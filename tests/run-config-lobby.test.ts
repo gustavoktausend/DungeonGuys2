@@ -44,6 +44,9 @@ import type { PeerId, Transport } from '../src/net/transport';
 import { scan } from './scan';
 import { fakeClock, flush, makeStar, recordingTransport } from './net/helpers';
 
+/** The pair every peer of these rooms announces. One build, so one pair. */
+const VERSIONS = { sim: 'sha256:0123456789abcdef', protocol: '2' };
+
 // ─── A sequência canônica de início de run ───────────────────────────────────
 
 /** Exatamente `tests/cross-engine.test.ts:49-55`, e por isso mesmo copiada. */
@@ -166,7 +169,7 @@ function openRoom(name: string, cls: ClassKey, levels = forge()): Room {
   const star = makeStar(AUTHORITY, []);
   const authority = createLobby({
     transport: star.authority,
-    self: { peerId: AUTHORITY, accountId: 'conta-a', name, cls, forge: levels },
+    self: { peerId: AUTHORITY, accountId: 'conta-a', name, cls, forge: levels, versions: VERSIONS },
     isAuthority: true,
     authorityPeerId: AUTHORITY,
     colorFor: paletteFor(AUTHORITY),
@@ -201,7 +204,7 @@ async function join(
   room.net.link(AUTHORITY, id);
   const lobby = createLobby({
     transport,
-    self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: levels },
+    self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: levels, versions: VERSIONS },
     isAuthority: false,
     authorityPeerId: AUTHORITY,
     colorFor: paletteFor(id),
@@ -413,12 +416,12 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
     const clock = fakeClock();
     const lobby = createLobby({
       transport: rec.transport,
-      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: forge() },
+      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: forge(), versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
       colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
     });
     rec.deliver('peer-b', frame(MSG_KIND.indexOf('hello'), {
-      accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: forge(),
+      accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: forge(), versions: VERSIONS,
     }), 'reliable');
     lobby.startRoom({ seed: 9, mode: 'endless' });
 
@@ -434,7 +437,7 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
     const clock = fakeClock();
     const lobby = createLobby({
       transport: rec.transport,
-      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge() },
+      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge(), versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
       colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
     });
@@ -462,7 +465,7 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
     const clock = fakeClock();
     const lobby = createLobby({
       transport: rec.transport,
-      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge() },
+      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge(), versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
       colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
     });

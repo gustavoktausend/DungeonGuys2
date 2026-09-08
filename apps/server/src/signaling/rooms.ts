@@ -20,8 +20,8 @@
 // shutdown.ts established: a factory with closed-over state and no module-level
 // singleton. That is what lets a test force a code collision and jump half an
 // hour without waiting or being lucky.
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '@dg2/protocol';
-import type { PeerInfo, RejectReason } from '@dg2/protocol';
+import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, checkVersions } from '@dg2/protocol';
+import type { PeerInfo, RejectReason, VersionMismatch, Versions } from '@dg2/protocol';
 
 /**
  * How long a room survives with no message from its authority: THIRTY MINUTES.
@@ -94,10 +94,22 @@ export interface ArrivingPeer {
   peerId: string;
   accountId: string;
   name: string;
+  /** The pair the peer announced. Compared at the door, never stored per seat. */
+  versions: Versions;
 }
 
 export interface Room {
   readonly code: string;
+  /**
+   * The pair the authority announced when it opened the room (D-08).
+   *
+   * Every `join` is compared against it, and a mismatch is refused HERE, at
+   * the door, with both values — not forty seconds later, somewhere else, as
+   * a desynchronised world. The server never compares against a version of
+   * its own on the `sim` axis: it has none, since the simulation hash is a
+   * build artifact of the client. The authority's pair is the reference.
+   */
+  readonly versions: Versions;
   /**
    * Who owns the simulation, NAMED rather than derived from a slot.
    *
@@ -117,7 +129,9 @@ export interface Room {
 
 export type JoinResult =
   | { ok: true; room: Room; occupant: Occupant }
-  | { ok: false; reason: RejectReason };
+  /** `mismatch` travels with the two version reasons and with nothing else:
+   *  it is what lets the handler put BOTH numbers in front of the player. */
+  | { ok: false; reason: RejectReason; mismatch?: VersionMismatch };
 
 export interface RoomsDeps {
   /**
@@ -219,14 +233,25 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     const room: Room = {
       code,
       authorityPeerId: peer.peerId,
+      // Copied field by field: the reference a whole room is judged by must
+      // not alias an object the caller could go on mutating.
+      versions: { sim: peer.versions.sim, protocol: peer.versions.protocol },
       occupants: new Map(),
       lastSeen: now(),
       authorityGoneAt: null,
     };
-    room.occupants.set(peer.peerId, { ...peer, slot: SLOTS[0] });
+    room.occupants.set(peer.peerId, seat(peer, SLOTS[0]));
     rooms.set(code, room);
     return room;
   };
+
+  /** An occupant record: the wire fields and the seat, and nothing else. */
+  const seat = (peer: ArrivingPeer, slot: Occupant['slot']): Occupant => ({
+    peerId: peer.peerId,
+    accountId: peer.accountId,
+    name: peer.name,
+    slot,
+  });
 
   const join = (code: string, peer: ArrivingPeer): JoinResult => {
     const room = rooms.get(code);
@@ -241,10 +266,23 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     const seated = room.occupants.get(peer.peerId);
     if (seated) return { ok: true, room, occupant: seated };
 
+    // THE VERSION GATE (D-08), on the axis order checkVersions fixes: the
+    // room's pair is `ours`, the arrival's is `theirs`, so a forged pair can
+    // only get itself refused. Before the seat count on purpose — a build
+    // that cannot pair with the room should not learn whether it is full.
+    const mismatch = checkVersions(room.versions, peer.versions);
+    if (mismatch !== null) {
+      return {
+        ok: false,
+        reason: mismatch.kind === 'sim' ? 'simVersion' : 'protocolVersion',
+        mismatch,
+      };
+    }
+
     const slot = freeSlot(room);
     if (slot === null) return { ok: false, reason: 'roomFull' };
 
-    const occupant: Occupant = { ...peer, slot };
+    const occupant = seat(peer, slot);
     room.occupants.set(peer.peerId, occupant);
     return { ok: true, room, occupant };
   };

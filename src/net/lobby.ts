@@ -66,8 +66,10 @@
 // regex literal — a `/` opening one that contained `//` would silently swallow
 // the rest of the file and the audit would go green over nothing. The validation
 // below is written with explicit comparisons, which is also easier to read.
-import { CLASS_KEY, GAME_MODE, ICE_ROUTE, MSG_KIND, PLAYER_SLOT, REJECT_REASON } from '@dg2/protocol';
-import type { IceRoute, RejectReason } from '@dg2/protocol';
+import {
+  CLASS_KEY, GAME_MODE, ICE_ROUTE, MSG_KIND, PLAYER_SLOT, REJECT_REASON, checkVersions,
+} from '@dg2/protocol';
+import type { IceRoute, RejectReason, Versions } from '@dg2/protocol';
 // Aliased because this file already has three other things called "start": the
 // `startRun` MESSAGE KIND, `startRoom`, and `onStart`. The import is the one
 // that builds a world.
@@ -114,6 +116,22 @@ export const MAX_FORGE_LEVEL = 99;
  * text on it (T-3-14/T-3-34).
  */
 export const MAX_HASH_CHARS = 16;
+
+/**
+ * The longest version string accepted in a `hello`. `SIM_VERSION` is
+ * `sha256:` plus sixteen hex characters and `PROTOCOL_VERSION` is one digit;
+ * the ceiling is the signalling schema's own (MAX_VERSION), so the two doors
+ * of D-08 refuse the same shapes.
+ */
+export const MAX_VERSION_CHARS = 64;
+
+/**
+ * The longest free text a `reject` may carry to the screen. The signalling
+ * schema's MAX_DETAIL, for the same reason: the two refusals a guest can
+ * receive — from the server and from the authority — land on one line of one
+ * screen, and the line has one budget.
+ */
+export const MAX_DETAIL_CHARS = 200;
 
 /** The clothing colour, as it travels: three bytes of presentation (D3-06). */
 export type Rgb = readonly [number, number, number];
@@ -179,6 +197,12 @@ export interface LobbySelf {
   name: string;
   cls: ClassKey;
   forge: ForgeLevels;
+  /**
+   * The pair this build announces in `hello`, and the reference the authority
+   * judges every arrival by (D-08). The server refuses at the door with the
+   * same comparison; this is the other door, between the peers themselves.
+   */
+  versions: Versions;
 }
 
 export interface LobbyDeps {
@@ -208,7 +232,12 @@ export interface Lobby {
   onState(cb: (view: LobbyView) => void): Unsubscribe;
   /** The authority went. There is no migration (D3-02). */
   onRoomDead(cb: () => void): Unsubscribe;
-  onRejected(cb: (reason: RejectReason) => void): Unsubscribe;
+  /**
+   * The authority said no. `detail` is free text for the screen, bounded and
+   * never branched on (D-08): for a version refusal it carries the room's
+   * value, and it is empty for every other reason.
+   */
+  onRejected(cb: (reason: RejectReason, detail: string) => void): Unsubscribe;
   /**
    * The run begins, with the manifest AND the seat this machine was given.
    *
@@ -441,18 +470,41 @@ interface Announce {
   cls: ClassKey;
   color: Rgb;
   forge: ForgeLevels;
+  versions: Versions;
 }
 
+function isVersionText(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_VERSION_CHARS;
+}
+
+function isVersions(v: unknown): v is Versions {
+  return isRecord(v) && isVersionText(v.sim) && isVersionText(v.protocol);
+}
+
+/**
+ * A `hello` WITHOUT a version pair is not an older build to be tolerated; it
+ * is a message that never happened. Tolerating it would be the escape hatch
+ * D-08 forbids, opened from the side that costs nothing to forge.
+ */
 function readAnnounce(body: unknown): Announce | null {
   if (!isRecord(body)) return null;
-  const { accountId, name, cls, color, forge } = body;
+  const { accountId, name, cls, color, forge, versions } = body;
   if (typeof accountId !== 'string') return null;
   if (!isName(name) || !isClassKey(cls) || !isRgb(color) || !isForge(forge)) return null;
+  if (!isVersions(versions)) return null;
   return {
     accountId, name, cls,
     color: [color[0], color[1], color[2]],
     forge: copyForge(forge),
+    versions: { sim: versions.sim, protocol: versions.protocol },
   };
+}
+
+/** The free text of a `reject`, bounded, or '' for anything that is not text. */
+function readDetail(body: unknown): string {
+  if (!isRecord(body)) return '';
+  const { detail } = body;
+  return typeof detail === 'string' && detail.length <= MAX_DETAIL_CHARS ? detail : '';
 }
 
 /**
@@ -534,7 +586,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
 
   const stateCbs = new Set<(view: LobbyView) => void>();
   const deadCbs = new Set<() => void>();
-  const rejectCbs = new Set<(reason: RejectReason) => void>();
+  const rejectCbs = new Set<(reason: RejectReason, detail: string) => void>();
   const startCbs = new Set<(config: RunConfig, slot: PlayerSlot) => void>();
   const desyncCbs = new Set<(ours: string, theirs: string) => void>();
   const subs: Unsubscribe[] = [];
@@ -689,18 +741,34 @@ export function createLobby(deps: LobbyDeps): Lobby {
     transport.send(authorityPeerId, encode(KIND_HELLO, {
       accountId: self.accountId, name: self.name, cls: myCls,
       color: colorFor(myCls), forge: copyForge(self.forge),
+      versions: { sim: self.versions.sim, protocol: self.versions.protocol },
     }), 'reliable');
   }
 
-  function refuse(to: PeerId, reason: RejectReason): void {
+  function refuse(to: PeerId, reason: RejectReason, detail = ''): void {
     if (refused.has(to)) return;
     refused.add(to);
-    transport.send(to, encode(KIND_REJECT, { reason }), 'reliable');
+    transport.send(to, encode(KIND_REJECT, { reason, detail }), 'reliable');
   }
 
   function onAnnounce(from: PeerId, body: unknown): void {
     const hello = readAnnounce(body);
     if (!hello) return;
+    // THE VERSION GATE BETWEEN PEERS (D-08). The server refused at its door
+    // with the same comparison; this is the other door, and it is the one
+    // that still stands if the first is ever bypassed. This machine's pair is
+    // `ours`, so a forged pair can only get itself refused. Judged before the
+    // seat is looked at: a build that cannot pair with this one gets no seat,
+    // no update, and no word about whether the room is full.
+    const mismatch = checkVersions(self.versions, hello.versions);
+    if (mismatch !== null) {
+      refuse(
+        from,
+        mismatch.kind === 'sim' ? 'simVersion' : 'protocolVersion',
+        `A da sala é ${mismatch.ours}.`,
+      );
+      return;
+    }
     const known = occupants.find((o) => o.peerId === from);
     if (known) {
       // A re-announce is how a class change travels: one message, one meaning,
@@ -764,7 +832,9 @@ export function createLobby(deps: LobbyDeps): Lobby {
     if (kind === KIND_LOBBY_STATE) { onLobbyState(from, parsed.body); return; }
     if (kind === KIND_REJECT) {
       const reason = isRecord(parsed.body) ? parsed.body.reason : null;
-      if (isRejectReason(reason)) for (const cb of [...rejectCbs]) cb(reason);
+      if (!isRejectReason(reason)) return;
+      const detail = readDetail(parsed.body);
+      for (const cb of [...rejectCbs]) cb(reason, detail);
       return;
     }
     if (kind === KIND_ACK) {

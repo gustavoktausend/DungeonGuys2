@@ -119,7 +119,15 @@ const REFUSAL_COPY: Record<RejectReason, string> = {
 function versionRefusal(reason: RejectReason, detail: string, ours: Versions): string {
   const mine = reason === 'simVersion' ? ours.sim : ours.protocol;
   const what = reason === 'simVersion' ? 'Versões do jogo diferentes' : 'Versões diferentes';
-  return `${what}: a sua é ${mine}. ${detail} Recarregue a página e tente de novo.`;
+  // `detail` may be empty — a refusal that arrived without the other value
+  // still has to read as a sentence, not as two spaces.
+  const theirs = detail.trim();
+  return `${what}: a sua é ${mine}.${theirs ? ` ${theirs}` : ''} Recarregue a página e tente de novo.`;
+}
+
+/** True for the two reasons whose copy needs both version numbers (D-08). */
+function isVersionReason(reason: RejectReason): boolean {
+  return reason === 'protocolVersion' || reason === 'simVersion';
 }
 
 // ─── The pure half ───────────────────────────────────────────────────────────
@@ -451,7 +459,7 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   function fail(error: unknown, retryable: boolean): void {
     setBusy(false);
     if (error instanceof SignalRefused) {
-      const text = error.reason === 'protocolVersion' || error.reason === 'simVersion'
+      const text = isVersionReason(error.reason)
         ? versionRefusal(error.reason, error.detail, error.ours)
         : REFUSAL_COPY[error.reason] || error.detail;
       say('', text);
@@ -535,6 +543,9 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       self: {
         peerId: joined.peerId, accountId: who.accountId,
         name: who.name, cls: who.cls, forge: who.forge,
+        // The same pair the server was shown at the door, so the two
+        // refusals of D-08 can never disagree about what this build is.
+        versions: deps.versions,
       },
       isAuthority: authority,
       authorityPeerId: joined.authorityPeerId,
@@ -545,9 +556,13 @@ export function initRoom(deps: RoomDeps): RoomFlow {
 
     lobby.onState(paintLobby);
     lobby.onRoomDead(roomDead);
-    lobby.onRejected((reason) => {
+    lobby.onRejected((reason, detail) => {
       teardown();
-      say('', REFUSAL_COPY[reason] || COPY.roomClosed);
+      // The peer-side refusal of D-08 gets the same sentence the server-side
+      // one gets: both numbers, and the instruction to reload.
+      say('', isVersionReason(reason)
+        ? versionRefusal(reason, detail, deps.versions)
+        : REFUSAL_COPY[reason] || COPY.roomClosed);
       deps.showScreen('room');
       el.joinCode.focus();
     });
