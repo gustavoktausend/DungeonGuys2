@@ -202,7 +202,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-04-PLAN.md — O signaling no servidor: `ws` no `upgrade`, salas em memória, rate limit e o ponto nomeado da fase 6
+- [x] 03-04-PLAN.md — O signaling no servidor: `ws` no `upgrade`, salas em memória, rate limit e o ponto nomeado da fase 6
 - [x] 03-05-PLAN.md — O bench de CI: o teto de 16 KiB vira portão (**fecha SYNC-04 e o critério 5**)
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 5/11 | In Progress|  |
+| 3. Sala, transporte e protocolo | 6/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
