@@ -100,6 +100,7 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 |----------|------|--------|-------------|
 | Infra/VPS | 02-04 -- confirmar KVM 2 e regiao, criar bucket B2, chave de deploy, os 4 secrets E a variavel DEPLOY_ENABLED | Aguardando usuario | 2026-08-31 |
 | Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-04 | 2026-08-31 |
+| Infra/VPS | 03-11 -- subir o coturn na VPS, exercitar o relay entre duas redes residenciais e medir o desfecho ICE; fecha o critério 3 (SALA-04). Portão de ação humana da Task 1 apresentado em 2026-09-08; resposta: "a caixa ainda não existe". Falta: KVM 2 em São Paulo, 02-04 e 02-12 executados, decisão ssh-do-Claude vs execução manual, segundo jogador em outra rede | Bloqueado por 02-04 | 2026-09-08 |
 
 ## Nota para o planejamento da fase 3
 
