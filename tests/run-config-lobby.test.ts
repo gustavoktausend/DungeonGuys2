@@ -530,4 +530,16 @@ describe('buildRunConfig e o assento local, auditados no texto', () => {
     expect(src).not.toContain('config.players[0]');
     expect(src).toContain('config.players.find');
   });
+
+  it('o boot de main.ts não depende de uma API só de contexto seguro (WR-07)', () => {
+    // O gerador de UUID do navegador só existe em contexto seguro. Num celular
+    // na LAN abrindo o dev server por endereço — o cenário que os planos
+    // citam para ver o NAT residencial — a página é http num endereço privado,
+    // a função é undefined, e a linha lançava na avaliação do módulo: o jogo
+    // inteiro deixava de carregar, o modo solo incluído. O sorteio de bytes é
+    // o mesmo de `newSeed` e do ULID, e existe em qualquer contexto.
+    const src = code(MAIN_PATH);
+    expect(src).not.toContain('randomUUID');
+    expect(src).toContain('crypto.getRandomValues(new Uint8Array(16))');
+  });
 });

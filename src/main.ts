@@ -233,10 +233,22 @@ const VERSIONS: Versions = { protocol: PROTOCOL_VERSION, sim: __SIM_VERSION__ };
  *
  * Self-declared and deliberately not durable (D3-09): phase 6 replaces it with
  * an authenticated identity at the one named point in the upgrade handler, and
- * nothing in this phase may come to depend on it. Trimmed to 32 characters
- * because that is the cap the signalling schema declares.
+ * nothing in this phase may come to depend on it. Thirty-two hex characters,
+ * which is the cap the signalling schema declares.
+ *
+ * `getRandomValues` and NOT the UUID helper, and the difference is where the
+ * game can boot. The UUID helper exists only in a secure context, and the
+ * scenario every plan of this phase names — a phone on the LAN opening the
+ * dev server by address, which is where the residential NAT actually shows
+ * up — is plain http on a private address, where it is simply undefined. That
+ * line threw during module evaluation and took the whole game down with it,
+ * solo mode included, before any screen existed. `getRandomValues` is the
+ * same draw `newSeed` and the ULID generator already make, in any context.
  */
-const accountId = crypto.randomUUID().replaceAll('-', '');
+const accountId = Array.from(
+  crypto.getRandomValues(new Uint8Array(16)),
+  (byte) => byte.toString(16).padStart(2, '0'),
+).join('');
 
 const room = initRoom({
   el: dom,
