@@ -226,3 +226,7 @@ Nenhuma superfície nova fora do registro do plano. A única entrada de rede cri
 - **Planos 03-08/03-09** estendem o glob de `tests/net-vocabulary.test.ts` com os fontes de ICE e da tela do lobby, **no mesmo commit que criar os diretórios** — a sequência está escrita no cabeçalho daquele arquivo, e a anti-vacuidade por metade de glob já existe para ser copiada.
 - **Fase 6** pluga a sessão no ponto em maiúsculas dentro de `server.on('upgrade')`, depois do rate limit e antes de `handleUpgrade`. Os três guardas de hoje permanecem.
 - **Dívida registrada:** acrescentar `badMessage` ao fim de `REJECT_REASON` num commit que já esteja movendo a tabela congelada e o seu golden.
+
+## Self-Check: PASSED
+
+Os seis arquivos criados existem em disco, os seis commits existem no log, e a árvore de trabalho está limpa. `npm test` (772 testes), `npm run lint`, `npm run typecheck:server` e `npm run server:build` saem 0 no HEAD deste ramo.
