@@ -226,3 +226,189 @@ export const ICE_CANDIDATE_TYPE = [
   'relay',
 ] as const;
 export type IceCandidateType = typeof ICE_CANDIDATE_TYPE[number];
+
+// ─── The eleven tables that mirror the simulation ────────────────────────────
+//
+// Everything below freezes a wire number for something that ALREADY EXISTS in
+// packages/sim as a union type or as the keys of a definition record. The
+// simulation is the source; these are the numbers the codec writes down.
+//
+// NONE OF THEM EXPORTS A DERIVED TYPE, and the omission is the decision. The
+// reason is written once, in full, on CLASS_KEY, and cited by the other ten.
+//
+// tests/protocol-enums.test.ts pins each of them against its source IN ORDER —
+// as a sequence, never as a set. A reordering that a set comparison would call
+// equal is precisely the change that reinterprets every recorded message.
+
+/**
+ * Every enemy the simulation can spawn, mirroring the keys of `ENEMY_DEFS` in
+ * packages/sim/src/defs/enemies.ts, in declaration order.
+ *
+ * THIS TABLE ALSO FREEZES INSIDE EVERY REPLAY STORED FROM PHASE 4 ONWARD.
+ * A replay is an input log re-run against the simulation, and the snapshot
+ * hashes it is checked against contain these indices. Inserting an enemy in
+ * the MIDDLE does not merely break live traffic — it invalidates archived
+ * replays, which cannot be re-recorded, and the failure surfaces as "the
+ * verifier rejects a run that was honest".
+ *
+ * WHAT IS DELIBERATELY ABSENT: there is no ANIM table, no ELITE_NAME and no
+ * ELITE_TINT. All three are derivable from `type` and `elite`, which already
+ * travel: `Enemy.anim` is assigned exactly once, in `makeEnemy`, from
+ * `ENEMY_DEFS[type].anim`, and the two elite fields come only from
+ * `ELITE_TYPES[key]`. Freezing them would add a table of nine values and a
+ * byte per enemy to send data the receiver can look up. The rule this records:
+ * a table earns its place by carrying something not derivable from what is
+ * already on the wire.
+ */
+export const ENEMY_TYPE = [
+  'skeleton',
+  'goblin',
+  'demon',
+  'brute',
+  'mimic',
+  'necromancer',
+  'swampy',
+  'zombie_king',
+  'ogre_warlord',
+  'goblin_chief',
+  'necro_lord',
+] as const;
+
+/**
+ * The elite modifier rolled onto a normal enemy, mirroring the keys of
+ * `ELITE_TYPES` with `'none'` prepended. No derived type — see CLASS_KEY.
+ *
+ * `'none'` IS AT INDEX 0, and the reason is repeated here rather than linked:
+ * an absent or zeroed elite field has to decode to "not elite". The safe
+ * value is the one you get by accident, and an enemy that arrives `swift`
+ * because a byte was missing is a desync that looks like a balance bug.
+ *
+ * The simulation's own record has no `'none'` key — absence is `null` there —
+ * so the pin is against `ELITE_TYPE.slice(1)`.
+ */
+export const ELITE_TYPE = ['none', 'swift', 'brutish', 'vampiric'] as const;
+
+/**
+ * The boss behaviour states, from packages/sim/src/boss.ts. No derived type —
+ * see CLASS_KEY.
+ *
+ * UNLIKE THE OTHER TEN, THIS ONE HAS NO TYPE TO PIN AGAINST: `Enemy.bossState`
+ * is declared `string` in packages/sim/src/types.ts, so these four values are
+ * the string literals the boss module actually assigns and nothing in the
+ * compiler enforces that the set stays closed. Narrowing that field to a union
+ * is a one-line change on the simulation side, but it moves SIM_VERSION — it
+ * changes the shape of the simulation bundle — and the boundary of phase 3
+ * forbids that. Recorded as debt, to be paid by a commit that is already
+ * moving SIM_VERSION for another reason.
+ *
+ * `chase` is index 0 because it is the state a boss is in when it is doing
+ * nothing special, which is the one a zeroed field should mean.
+ */
+export const BOSS_STATE = ['chase', 'telegraph', 'charging', 'recover'] as const;
+
+/**
+ * The lifecycle of a chest, mirroring `Chest['state']`. No derived type — see
+ * CLASS_KEY.
+ *
+ * `closed` at index 0: an uninitialised chest is a chest nobody has touched,
+ * never a looted one. Getting this backwards would make a lost byte read as
+ * "already taken" and quietly delete loot from a run.
+ */
+export const CHEST_STATE = ['closed', 'opening', 'looted'] as const;
+
+/**
+ * The two kinds of arena obstacle, mirroring `Obstacle['kind']`. No derived
+ * type — see CLASS_KEY.
+ *
+ * THIS TABLE IS BORN WITHOUT A CONSUMER, AND THAT IS A JUDGEMENT CALL, not an
+ * oversight. D3-17 takes `obstacles` off the wire entirely: the static layer is
+ * derived from the seed on every client, so nothing encodes an obstacle today.
+ * It is frozen anyway because the pattern is "every networked entity has a
+ * frozen table", and the day the arena stops being derivable from the seed —
+ * destructible cover, a hand-authored mission map — the number will already
+ * exist and will not have to be chosen while something is being shipped.
+ *
+ * The alternative, not freezing what nothing writes, is defensible and was
+ * considered: two entries cost nothing to keep, and an unused table is a small
+ * lie about what the protocol does. Recorded so the next reader knows this was
+ * decided rather than assumed.
+ */
+export const OBSTACLE_KIND = ['column', 'crate'] as const;
+
+/**
+ * How a weapon delivers damage, mirroring `AttackKind`. No derived type — see
+ * CLASS_KEY.
+ */
+export const ATTACK_KIND = ['melee', 'bolt', 'arrow', 'bullet', 'fireball'] as const;
+
+/**
+ * The playable classes, mirroring `CLASS_KEYS` in
+ * packages/sim/src/defs/classes.ts, in declaration order.
+ *
+ * WHY THIS TABLE — AND THE OTHER TEN LIKE IT — EXPORTS NO DERIVED TYPE. The
+ * type already exists: `ClassKey` is declared in packages/sim/src/types.ts,
+ * and the same is true of `AttackKind`, `MutatorKey`, `Phase`, `GameMode` and
+ * `PlayerSlot`. Adding `export type ClassKey = typeof CLASS_KEY[number]` here
+ * would put a SECOND declaration of that name on the public surface of
+ * @dg2/protocol, and a file that imported from both packages would have to
+ * pick one — which is exactly the second spelling these tables exist to
+ * prevent. It is not hypothetical: runEnvelope.ts already exports a type named
+ * `PlayerSlot` that is a `{ id, cls, name }` and not a slot identifier at all,
+ * and the simulation's comment on its own `PlayerSlot` records the collision.
+ *
+ * So the rule is: the wire NUMBER comes from here, the TYPE comes from
+ * @dg2/sim, and a consumer that needs both imports both. The four tables above
+ * (SNAPSHOT_PART, SIGNAL_KIND, ICE_ROUTE, ICE_CANDIDATE_TYPE) do export their
+ * types, because those four names exist nowhere else.
+ *
+ * tests/protocol-enums.test.ts asserts the correspondence in both directions:
+ * value-by-value against `CLASS_KEYS` at runtime, and `ClassKey` against
+ * `typeof CLASS_KEY[number]` at compile time.
+ */
+export const CLASS_KEY = [
+  'mage',
+  'archer',
+  'warrior',
+  'ninja',
+  'priestess',
+  'witch',
+  'coprobo',
+] as const;
+
+/**
+ * The wave modifier, mirroring the keys of `MUTATORS` with `'none'`
+ * prepended. No derived type — see CLASS_KEY.
+ *
+ * `'none'` IS AT INDEX 0, reason repeated rather than linked: the simulation
+ * carries `waveMutator: MutatorKey | null`, so "no mutator" is the common case
+ * and a zeroed field must decode to it. A wave that arrives in `frenzy`
+ * because a byte was lost is a difficulty spike nobody can reproduce.
+ *
+ * The simulation's record has no `'none'` key, so the pin is against
+ * `MUTATOR_KEY.slice(1)`.
+ */
+export const MUTATOR_KEY = ['none', 'swarm', 'frenzy', 'bounty', 'elite', 'fog'] as const;
+
+/**
+ * Which screen the run is on, mirroring `Phase`. No derived type — see
+ * CLASS_KEY.
+ *
+ * `playing` at index 0 because it is the state a run spends its time in, and
+ * because a zeroed phase that reads as `gameover` would end a session that is
+ * still going.
+ */
+export const PHASE = ['playing', 'levelup', 'shop', 'gameover', 'victory'] as const;
+
+/** The two run modes, mirroring `GameMode`. No derived type — see CLASS_KEY. */
+export const GAME_MODE = ['campaign', 'endless'] as const;
+
+/**
+ * The four seats in a room, mirroring the simulation's `PlayerSlot`. No
+ * derived type — see CLASS_KEY, where this table is the worked example: the
+ * name is ALREADY taken twice in this repository, by two different shapes.
+ *
+ * The index is both the wire value and the canonical order, which is what lets
+ * byte 5 of a packed tick be a slot index (D-12) and what makes `step()`
+ * iterate players in an order both machines agree on.
+ */
+export const PLAYER_SLOT = ['p0', 'p1', 'p2', 'p3'] as const;
