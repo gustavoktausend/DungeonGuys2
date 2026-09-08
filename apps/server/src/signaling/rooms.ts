@@ -59,6 +59,20 @@ export const AUTHORITY_GRACE_MS = 60 * 1000;
 export const MAX_OCCUPANTS = 4;
 
 /**
+ * The hard ceiling on live rooms: ONE THOUSAND.
+ *
+ * The same kind of number as `MAX_TRACKED_KEYS` in limiter.ts — not a tuning
+ * knob but the absence of a defect. A room is a `Map` entry that lives for up
+ * to thirty minutes, and without a ceiling the number of them is decided by
+ * whoever sends `create` fastest: at a few hundred bytes each, tens of
+ * thousands a second reach the unit's `MemoryMax=256M` in well under a minute,
+ * and the kernel then kills every legitimate room on the box along with the
+ * flood. A thousand simultaneous rooms is orders of magnitude beyond a game
+ * played among friends by room code, so no real night ever meets this number.
+ */
+export const MAX_ROOMS = 1000;
+
+/**
  * How many times a draw may collide before `create` gives up.
  *
  * With 32^6 codes and a realistic number of live rooms, ten consecutive
@@ -125,9 +139,21 @@ export interface RoomsDeps {
 export interface Rooms {
   /** Draws a code that no live room is using. Throws after MAX_CODE_ATTEMPTS. */
   createCode(): string;
-  /** Opens a room with `peer` as its authority, seated in p0. */
-  create(peer: ArrivingPeer): Room;
-  /** Seats `peer` in an existing room, or says why not. */
+  /**
+   * Opens a room with `peer` as its authority, seated in p0.
+   *
+   * Null at `MAX_ROOMS`, and null rather than a throw: the ceiling is an
+   * ordinary refusal the handler answers with `roomFull`, while the throw
+   * `createCode` keeps is for a broken generator, which is not.
+   */
+  create(peer: ArrivingPeer): Room | null;
+  /**
+   * Seats `peer` in an existing room, or says why not.
+   *
+   * Idempotent by `peerId`: a peer already seated gets its own seat back, not
+   * a second one. The handler refuses a repeated `join` before it gets here;
+   * this is the second lock, so that a repeat can never move a seat mid-lobby.
+   */
   join(code: string, peer: ArrivingPeer): JoinResult;
   get(code: string): Room | undefined;
   /** Records that the authority spoke, deferring the idle TTL. */
@@ -184,7 +210,11 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     return null;
   };
 
-  const create = (peer: ArrivingPeer): Room => {
+  const create = (peer: ArrivingPeer): Room | null => {
+    // Checked BEFORE a code is drawn: at the ceiling the map is exactly where
+    // a draw is likeliest to collide, and spending attempts on a room that
+    // will be refused anyway is work handed to whoever is flooding.
+    if (rooms.size >= MAX_ROOMS) return null;
     const code = createCode();
     const room: Room = {
       code,
@@ -204,6 +234,12 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     // deliberate: telling them apart would confirm to a sweeping script that a
     // code was real, which is exactly the bit the code's secrecy is protecting.
     if (!room) return { ok: false, reason: 'badCode' };
+
+    // Already seated: the same seat, untouched. Without this a repeated join
+    // would find its own seat among the taken ones, be handed the next free
+    // slot, and move mid-lobby — freeing the old one to whoever came next.
+    const seated = room.occupants.get(peer.peerId);
+    if (seated) return { ok: true, room, occupant: seated };
 
     const slot = freeSlot(room);
     if (slot === null) return { ok: false, reason: 'roomFull' };

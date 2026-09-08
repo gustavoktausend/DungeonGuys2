@@ -342,14 +342,39 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
     });
   });
 
+  /**
+   * ONE ROOM PER CONNECTION, and the rule is enforced at both doors.
+   *
+   * A socket already seated that asked for another room would do two things,
+   * both bad. Its old seat would never be freed — `close` only releases the
+   * room the session names at the time — so every hop leaves a ghost occupant
+   * holding a slot until the room dies. And `create` runs through no limiter
+   * at all (the join bucket covers guesses, the upgrade bucket covers
+   * handshakes), so one connection looping on it would mint a room per message
+   * until `MAX_ROOMS` — or, before that ceiling existed, until the kernel
+   * killed the unit. Leaving first is what a peer that wants another room does.
+   */
+  const seatedAlready = (ws: WebSocket, session: Session): boolean => {
+    if (session.code === null) return false;
+    refuse(ws, 'badCode', 'esta conexão já está numa sala — saia antes de entrar em outra');
+    return true;
+  };
+
   function handle(ws: WebSocket, session: Session, message: SignalMessage): void {
     switch (message.kind) {
       case 'create': {
+        if (seatedAlready(ws, session)) return;
         const room = deps.rooms.create({
           peerId: session.peerId,
           accountId: message.accountId,
           name: message.name,
         });
+        if (room === null) {
+          // The ceiling of rooms.ts, answered with the nearest true reason in
+          // the frozen table: there is no seat to be had anywhere on the box.
+          refuse(ws, 'roomFull', 'o servidor está no limite de salas — tente de novo em instantes');
+          return;
+        }
         session.code = room.code;
         const { ice, turn } = deps.iceConfig(room.code, 'p0');
         sendTo(ws, {
@@ -368,6 +393,9 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       }
 
       case 'join': {
+        // Before the bucket: a peer refused for being seated already has not
+        // guessed anything, and the refusal names its real cause.
+        if (seatedAlready(ws, session)) return;
         // THE BUCKET THAT MAKES SIX CHARACTERS ENOUGH (T-3-01). Ten guesses a
         // minute turns sweeping 32^6 into centuries; without it the same code
         // is sweepable in an afternoon.

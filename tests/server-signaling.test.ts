@@ -271,6 +271,49 @@ describe('abrir e entrar numa sala', () => {
     expect(peers.peers.map((p) => p.name).sort()).toEqual(['autoridade', 'convidado']);
   });
 
+  it('um segundo create na mesma conexão é recusado e não abre outra sala (CR-02)', async () => {
+    // `create` runs through no limiter, so one connection looping on it used
+    // to mint a room per message — and each one lived thirty minutes with a
+    // seat nobody could free. One room per connection; leave first.
+    const { ws, created } = await openRoom();
+    const waiting = nextMessage(ws);
+    send(ws, { kind: 'create', accountId: 'conta-a', name: 'autoridade', versions: VERSIONS });
+
+    const answer = await waiting;
+    expect(answer.kind).toBe('error');
+    if (answer.kind === 'error') expect(answer.reason).toBe('badCode');
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    // The first room is still the one this socket is in: a guest can join it,
+    // and the roster it gets names the original authority.
+    const guest = await connect();
+    send(guest, { kind: 'join', code: created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    const joined = await nextMessage(guest);
+    expect(joined.kind).toBe('joined');
+    if (joined.kind === 'joined') expect(joined.authorityPeerId).toBe(created.peerId);
+  });
+
+  it('um join com a sessão já numa sala é recusado, e o assento antigo fica onde está (CR-02)', async () => {
+    const first = await openRoom();
+    const second = await openRoom();
+
+    const guest = await connect();
+    const rosterOnFirst = nextMessage(first.ws);
+    send(guest, { kind: 'join', code: first.created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    expect((await nextMessage(guest)).kind).toBe('joined');
+    await rosterOnFirst;
+
+    // Hopping to the second room without leaving would keep the seat in the
+    // first one occupied for as long as this socket lives — a ghost that
+    // counts against the four the room has.
+    const nothingOnSecond = silence(second.ws, 300);
+    const refusal = nextMessage(guest);
+    send(guest, { kind: 'join', code: second.created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    const answer = await refusal;
+    expect(answer.kind).toBe('error');
+    if (answer.kind === 'error') expect(answer.reason).toBe('badCode');
+    await nothingOnSecond;
+  });
+
   it('join com código inexistente devolve error com badCode', async () => {
     const guest = await connect();
     send(guest, { kind: 'join', code: 'ZZZZZZ', accountId: 'c', name: 'n', versions: VERSIONS });

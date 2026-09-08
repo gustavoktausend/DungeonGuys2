@@ -21,8 +21,11 @@ import {
   AUTHORITY_GRACE_MS,
   MAX_CODE_ATTEMPTS,
   MAX_OCCUPANTS,
+  MAX_ROOMS,
   ROOM_IDLE_TTL_MS,
   createRooms,
+  type Room,
+  type Rooms,
 } from '../apps/server/src/signaling/rooms';
 import {
   JOIN_LIMIT,
@@ -76,6 +79,19 @@ function peer(name = 'jogador') {
   return { peerId: `peer-${nextPeer}`, accountId: `conta-${nextPeer}`, name };
 }
 
+/**
+ * `create` with the ceiling ruled out, for every test that is not about it.
+ *
+ * `create` answers `MAX_ROOMS` with null, and a test that is about codes or
+ * seats has no business handling that: a null here is a failure of the test's
+ * own premise, so it throws with a message that names it.
+ */
+function open(rooms: Rooms, arriving = peer()): Room {
+  const room = rooms.create(arriving);
+  if (room === null) throw new Error('create devolveu null abaixo de MAX_ROOMS');
+  return room;
+}
+
 describe('geração do código de sala', () => {
   it('devolve seis caracteres, todos do alfabeto do protocolo', () => {
     const rooms = createRooms({ randomBytes: realRandomBytes, now: fakeClock().now });
@@ -95,7 +111,7 @@ describe('geração do código de sala', () => {
     const rooms = createRooms({ randomBytes: realRandomBytes, now: fakeClock().now });
 
     const seen = new Set<string>();
-    for (let i = 0; i < 1000; i += 1) seen.add(rooms.create(peer()).code);
+    for (let i = 0; i < 1000; i += 1) seen.add(open(rooms, peer()).code);
 
     // Set size, not a pairwise scan: a duplicate anywhere collapses the count,
     // and the number it collapses to is the number of distinct rooms that
@@ -114,13 +130,36 @@ describe('geração do código de sala', () => {
     const randomBytes = (): Uint8Array => draws[Math.min(i++, draws.length - 1)]!;
 
     const rooms = createRooms({ randomBytes, now: fakeClock().now });
-    const first = rooms.create(peer());
+    const first = open(rooms, peer());
     // Rewind so the second create() draws the colliding value first.
     i = 0;
-    const second = rooms.create(peer());
+    const second = open(rooms, peer());
 
     expect(second.code).not.toBe(first.code);
     expect(rooms.size()).toBe(2);
+  });
+
+  it(`recusa a sala ${MAX_ROOMS + 1} com null em vez de crescer sem teto (CR-02)`, () => {
+    // The same defect limiter.ts refuses with MAX_TRACKED_KEYS: a Map keyed by
+    // remote input with no ceiling is a memory budget handed to whoever sends
+    // `create` fastest, and under MemoryMax=256M it ends with the kernel
+    // killing every legitimate room along with the flood.
+    const clock = fakeClock();
+    const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
+    const first = open(rooms, peer());
+    for (let i = 1; i < MAX_ROOMS; i += 1) open(rooms, peer());
+    expect(rooms.size()).toBe(MAX_ROOMS);
+
+    expect(rooms.create(peer())).toBeNull();
+    expect(rooms.size()).toBe(MAX_ROOMS);
+    // Not a throw, deliberately: the ceiling is an ordinary refusal the handler
+    // answers with `roomFull`, while a throw is what a broken generator gets.
+    // And it is a ceiling, not a lock: a room that dies frees its place.
+    rooms.authorityLeft(first.code);
+    clock.advance(AUTHORITY_GRACE_MS + 1);
+    expect(rooms.sweep()).toEqual([first.code]);
+    expect(rooms.create(peer())).not.toBeNull();
+    expect(rooms.size()).toBe(MAX_ROOMS);
   });
 
   it(`desiste depois de ${MAX_CODE_ATTEMPTS} tentativas em vez de girar para sempre`, () => {
@@ -130,8 +169,8 @@ describe('geração do código de sala', () => {
     // unit, which is the worst shape a failure can take.
     const rooms = createRooms({ randomBytes: constantBytes(), now: fakeClock().now });
 
-    expect(rooms.create(peer()).code).toHaveLength(ROOM_CODE_LENGTH);
-    expect(() => rooms.create(peer())).toThrow(/c[oó]digo/i);
+    expect(open(rooms, peer()).code).toHaveLength(ROOM_CODE_LENGTH);
+    expect(() => open(rooms, peer())).toThrow(/c[oó]digo/i);
     expect(rooms.size()).toBe(1);
   });
 });
@@ -147,7 +186,7 @@ describe('entrar numa sala', () => {
 
   it('atribui p0..p3 em ordem de entrada', () => {
     const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
-    const room = rooms.create(peer('autoridade'));
+    const room = open(rooms, peer('autoridade'));
 
     // The authority takes p0 by arriving first, NOT by being the authority:
     // FORM-12 keeps the slot free of any claim about who is in charge, and
@@ -164,7 +203,7 @@ describe('entrar numa sala', () => {
 
   it(`join numa sala com ${MAX_OCCUPANTS} ocupantes devolve roomFull`, () => {
     const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
     for (let i = 1; i < MAX_OCCUPANTS; i += 1) rooms.join(room.code, peer());
 
     const result = rooms.join(room.code, peer());
@@ -173,9 +212,25 @@ describe('entrar numa sala', () => {
     expect(room.occupants.size).toBe(MAX_OCCUPANTS);
   });
 
+  it('um join repetido do mesmo peer devolve o mesmo assento, sem mudar de slot (CR-02)', () => {
+    // Before this guard a repeated join found its own seat among the taken
+    // ones, was handed the next free slot, and moved mid-lobby — freeing the
+    // old seat to whoever came next. A seat is stable for the run (ADR 0001).
+    const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
+    const room = open(rooms, peer());
+    const guest = peer();
+    const first = rooms.join(room.code, guest);
+    const again = rooms.join(room.code, guest);
+    expect(first.ok && again.ok).toBe(true);
+    if (!first.ok || !again.ok) return;
+    expect(again.occupant.slot).toBe(first.occupant.slot);
+    expect(again.occupant).toBe(first.occupant);
+    expect(room.occupants.size).toBe(2);
+  });
+
   it('um slot vago é reaproveitado quando alguém sai', () => {
     const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
     const guest = rooms.join(room.code, peer());
     expect(guest.ok).toBe(true);
     if (!guest.ok) return;
@@ -193,7 +248,7 @@ describe('quando uma sala morre', () => {
   it(`é varrida depois de ${ROOM_IDLE_TTL_MS / 60_000} minutos sem mensagem da autoridade`, () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
 
     clock.advance(ROOM_IDLE_TTL_MS - 1);
     expect(rooms.sweep()).toEqual([]);
@@ -210,7 +265,7 @@ describe('quando uma sala morre', () => {
     // friends — which is 15 legitimate minutes of doing nothing visible.
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
 
     clock.advance(ROOM_IDLE_TTL_MS - 1_000);
     rooms.touch(room.code);
@@ -228,7 +283,7 @@ describe('quando uma sala morre', () => {
     // on the box at once, mid-game.
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
     rooms.join(room.code, peer());
 
     rooms.authorityLeft(room.code);
@@ -244,7 +299,7 @@ describe('quando uma sala morre', () => {
   it(`é apagada ${AUTHORITY_GRACE_MS / 1000} s depois se a autoridade não volta`, () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
 
     rooms.authorityLeft(room.code);
     clock.advance(AUTHORITY_GRACE_MS + 1);
@@ -256,7 +311,7 @@ describe('quando uma sala morre', () => {
   it('a autoridade que reconecta dentro da graça mantém sala, ocupantes e slot', () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer('autoridade'));
+    const room = open(rooms, peer('autoridade'));
     const guest = rooms.join(room.code, peer());
     expect(guest.ok).toBe(true);
 
@@ -282,7 +337,7 @@ describe('quando uma sala morre', () => {
   it('a autoridade não consegue voltar para uma sala já varrida', () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
-    const room = rooms.create(peer());
+    const room = open(rooms, peer());
 
     rooms.authorityLeft(room.code);
     clock.advance(AUTHORITY_GRACE_MS + 1);
