@@ -38,14 +38,22 @@
   // already outside this program — only its tests had to be carved out, since
   // `tests` is included wholesale.
   //
-  // The list grew by two in phase 3 (server-rooms, server-signaling), and each
-  // one is named in BOTH places in the same commit. Excluding here without
-  // including there is the failure that leaves a test typechecked by nothing.
+  // The list grew by three in phase 3 (server-rooms, server-signaling, turn),
+  // and each one is named in BOTH places in the same commit. Excluding here
+  // without including there is the failure that leaves a test typechecked by
+  // nothing.
+  //
+  // `turn` breaks the naming pattern of its neighbours on purpose: it is not
+  // named `server-turn` because the module it tests is the one piece of this
+  // pair the client half of phase 3 also reasons about, and a name that said
+  // "server" would suggest otherwise. It is here for the ordinary reason — it
+  // imports node:crypto.
   "exclude": [
     "tests/pwa",
     "tests/server-migrate.test.ts",
     "tests/server-health.test.ts",
     "tests/server-rooms.test.ts",
-    "tests/server-signaling.test.ts"
+    "tests/server-signaling.test.ts",
+    "tests/turn.test.ts"
   ]
 }

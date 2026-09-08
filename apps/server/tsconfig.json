@@ -36,13 +36,17 @@
   // excluding it there without naming it here drops it out of both, which is
   // the silent half and the one that costs a phase to notice.
   //
-  // Phase 3 added the last two: server-rooms drives the in-memory room map and
-  // server-signaling drives a real http.Server on a loopback port.
+  // Phase 3 added the last three: server-rooms drives the in-memory room map,
+  // server-signaling drives a real http.Server on a loopback port, and turn
+  // imports node:crypto to recompute the TURN vector by hand — which is the
+  // whole point of that test, since recomputing it through the code under test
+  // would only prove a function equals itself.
   "include": [
     "src",
     "../../tests/server-migrate.test.ts",
     "../../tests/server-health.test.ts",
     "../../tests/server-rooms.test.ts",
-    "../../tests/server-signaling.test.ts"
+    "../../tests/server-signaling.test.ts",
+    "../../tests/turn.test.ts"
   ]
 }

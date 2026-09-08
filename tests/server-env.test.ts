@@ -37,16 +37,28 @@ const GOOD: EnvSource = {
 };
 
 describe('readEnv com o ambiente completo', () => {
-  it('devolve exatamente as quatro chaves, com os valores do arquivo', () => {
+  it('devolve exatamente as seis chaves, com os valores do arquivo', () => {
     const env = readEnv(GOOD);
-    // Set equality and length: a fifth field would be a fifth thing the
+    // Set equality and length: a seventh field would be a seventh thing the
     // operator has to get right, and it must not appear unnoticed.
-    expect(Object.keys(env).sort()).toEqual(['dbPath', 'origin', 'port', 'release']);
+    expect(Object.keys(env).sort()).toEqual([
+      'dbPath',
+      'origin',
+      'port',
+      'release',
+      'turnRealm',
+      'turnSecret',
+    ]);
     expect(env).toEqual({
       dbPath: '/var/lib/dg2/dg2.db',
       port: 8080,
       release: GOOD.DG2_RELEASE,
       origin: 'https://dg2.example',
+      // Absent from GOOD on purpose: the pair is OPTIONAL, and the environment
+      // that is complete without it is the one the local waves of this phase
+      // run against.
+      turnSecret: null,
+      turnRealm: null,
     });
   });
 
@@ -172,5 +184,87 @@ describe('DG2_ORIGIN — o padrão de desenvolvimento é recusado em produção'
     // every real browser fail the check. Only surrounding whitespace is trimmed.
     const env = readEnv({ ...GOOD, DG2_ORIGIN: '  https://dg2.example  ' });
     expect(env.origin).toBe('https://dg2.example');
+  });
+});
+
+// The one pair in this file whose ABSENCE is tolerated, and the tolerance is
+// what lets the local waves of phase 3 run before the box with coturn exists
+// (SALA-04). Everything else here refuses a missing answer; these two refuse a
+// HALF answer, which is a different and worse thing.
+describe('DG2_TURN_SECRET / DG2_TURN_REALM — o par que pode faltar inteiro', () => {
+  const WITH_TURN: EnvSource = {
+    ...GOOD,
+    DG2_TURN_SECRET: 'um-segredo-compartilhado-com-o-coturn',
+    DG2_TURN_REALM: 'dg2.example',
+  };
+
+  it('a ausência do segredo é tolerada: o servidor sobe e emite ICE só com STUN', () => {
+    // The load-bearing test of this block. Refusing here would make the server
+    // unstartable on any machine without a relay — which is every developer's
+    // machine and every wave of this phase that precedes the VPS.
+    const env = readEnv(GOOD);
+    expect(env.turnSecret).toBeNull();
+    expect(env.turnRealm).toBeNull();
+  });
+
+  it('lê o par quando as duas estão presentes', () => {
+    const env = readEnv(WITH_TURN);
+    expect(env.turnSecret).toBe('um-segredo-compartilhado-com-o-coturn');
+    expect(env.turnRealm).toBe('dg2.example');
+  });
+
+  for (const blank of ['', ' ', '\t']) {
+    it(`recusa DG2_TURN_SECRET=${JSON.stringify(blank)} — definida e vazia continua erro`, () => {
+      // Same doctrine as every other key: absent means "I have no relay", blank
+      // means "I wrote this line and meant something by it". Treating blank as
+      // absent would turn a typo into a silently relay-less deployment, and the
+      // symptom is one friend who never gets in.
+      expect(() => readEnv({ ...WITH_TURN, DG2_TURN_SECRET: blank })).toThrow(
+        /\/env\/DG2_TURN_SECRET/,
+      );
+    });
+
+    it(`recusa DG2_TURN_REALM=${JSON.stringify(blank)}`, () => {
+      expect(() => readEnv({ ...WITH_TURN, DG2_TURN_REALM: blank })).toThrow(
+        /\/env\/DG2_TURN_REALM/,
+      );
+    });
+  }
+
+  it('recusa o segredo sem o realm, dizendo que as duas andam juntas', () => {
+    // A secret with no realm produces a credential coturn will not accept, and
+    // the symptom is "the relay never works" with nothing in any log to say so.
+    const half: EnvSource = { ...WITH_TURN };
+    delete half.DG2_TURN_REALM;
+    expect(() => readEnv(half)).toThrow(/DG2_TURN_REALM/);
+    expect(() => readEnv(half)).toThrow(/DG2_TURN_SECRET/);
+  });
+
+  it('recusa o realm sem o segredo, pelo mesmo motivo', () => {
+    // The other half, and it is not symmetry for its own sake: a realm alone is
+    // an operator who configured coturn and forgot the one line that makes this
+    // process able to talk to it.
+    const half: EnvSource = { ...WITH_TURN };
+    delete half.DG2_TURN_SECRET;
+    expect(() => readEnv(half)).toThrow(/DG2_TURN_SECRET/);
+  });
+
+  it('nenhuma das duas tem valor padrão: um segredo padrão é uma vulnerabilidade', () => {
+    // DEFAULTS is the table the process reads. A default secret would be a
+    // secret published in a public repository and shared by every deployment
+    // that never overrode it (T-3-10).
+    expect(Object.keys(DEFAULTS)).not.toContain('DG2_TURN_SECRET');
+    expect(Object.keys(DEFAULTS)).not.toContain('DG2_TURN_REALM');
+    expect(JSON.stringify(DEFAULTS)).not.toContain('TURN');
+  });
+
+  it('apara espaços em volta do par, como em toda outra chave', () => {
+    const env = readEnv({
+      ...WITH_TURN,
+      DG2_TURN_SECRET: '  um-segredo  ',
+      DG2_TURN_REALM: '  dg2.example  ',
+    });
+    expect(env.turnSecret).toBe('um-segredo');
+    expect(env.turnRealm).toBe('dg2.example');
   });
 });
