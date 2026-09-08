@@ -190,7 +190,14 @@ function routeWord(route: IceRoute): string {
 export function slotLine(o: Pick<OccupantView, 'connected' | 'ping' | 'route'>): string {
   if (!o.connected) return COPY.connectingSeat;
   if (o.ping === null) return COPY.silent;
-  return o.route === 'unknown' ? `${o.ping} ms` : `${o.ping} ms · ${routeWord(o.route)}`;
+  // ROUNDED HERE AND NOT IN ping.ts. The round trip is a median of differences
+  // between two `performance.now()` readings, which is a double: on a loopback
+  // connection it prints as `0.7000000029802322 ms`, and on a real one as
+  // `23.400000000000006 ms`. The measurement must stay exact — it is compared
+  // against thresholds and it is what a bug report should carry — so the
+  // rounding belongs to the sentence a person reads, which is this one.
+  const ms = Math.round(o.ping);
+  return o.route === 'unknown' ? `${ms} ms` : `${ms} ms · ${routeWord(o.route)}`;
 }
 
 /**
