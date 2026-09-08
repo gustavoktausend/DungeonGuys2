@@ -315,6 +315,16 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
     // merecem esperas diferentes.
     if (openedAt > 0 && deps.now() - openedAt >= RECONNECT_STABLE_MS) attempt = 0;
     openedAt = 0;
+    // A FILA MORRE COM O SOCKET, INTEIRA. Nada que foi enfileirado antes da
+    // queda pode valer depois dela: o servidor dá um `peerId` NOVO a cada
+    // conexão (ADR 0001), então um `offer` ou um `candidate` guardado
+    // carregaria um remetente que a conexão seguinte não é — e seria recusado
+    // na porta por isso. E um `create` ou `join` guardado seria pior do que
+    // recusado: seria ACEITO, abrindo uma sala (ou ocupando um assento) para
+    // uma tela que já mostrou erro e desistiu — uma sala-fantasma com esta
+    // máquina como autoridade por trinta minutos, e um segundo clique em
+    // "criar sala" abrindo uma segunda.
+    outbox = [];
     // A promessa pendente é REJEITADA, e não deixada aberta. Uma tela de
     // "criando sala…" que espera para sempre é a forma de travamento mais cara
     // de diagnosticar, porque não há erro nenhum em lugar nenhum.

@@ -282,6 +282,29 @@ describe('cliente do signaling', () => {
     await expect(promise).rejects.toMatchObject({ reason: 'roomClosed' });
   });
 
+  it('um create pendente quando o socket cai NÃO é reenviado na reconexão (WR-04)', async () => {
+    const h = harness();
+    const promise = h.client.create(WHO);
+    // O socket cai antes de abrir: o handshake nunca terminou, e o `create`
+    // ainda está na fila de saída.
+    h.last().onclose?.(CLOSE);
+    await expect(promise).rejects.toMatchObject({ reason: 'roomClosed' });
+
+    h.clock.advance(RECONNECT_BASE_MS);
+    expect(h.sockets).toHaveLength(2);
+    h.openIt();
+    // Antes desta correção, o `create` velho saía aqui: o servidor abria uma
+    // sala para uma tela que já tinha mostrado erro, com esta máquina como
+    // autoridade de uma sala-fantasma por trinta minutos.
+    expect(h.outbox()).toEqual([]);
+
+    // E um novo pedido, depois da queda, manda UM create — não dois.
+    void h.client.create(WHO).catch(() => {});
+    expect(h.outbox()).toEqual([
+      { kind: 'create', accountId: '01ABC', name: 'ANA', versions: VERSIONS },
+    ]);
+  });
+
   it('close() encerra o socket e não reabre nada', () => {
     const h = harness();
     void h.client.create(WHO).catch(() => {});
