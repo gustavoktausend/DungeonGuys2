@@ -241,9 +241,14 @@ describe('o que o snapshot NÃO carrega (D3-17)', () => {
     ]);
     // A camada estática (3,3 KiB constantes) é derivada da seed em cada
     // cliente, pelo mesmo caminho do replay. Não existe no fio.
+    //
+    // A busca é por CHAVE EXATA (`"play":`), e não por prefixo: `"play` é
+    // prefixo de `"players"`, que é um campo legítimo, e a primeira versão
+    // deste teste ficou vermelha por isso. Um critério que não distingue os
+    // dois só pode ser satisfeito renomeando um campo correto.
     const text = JSON.stringify(record);
-    for (const forbidden of ['obstacle', 'trap', 'play', 'config', 'seed', 'name']) {
-      expect(`${forbidden}: ${text.includes(`"${forbidden}`)}`).toBe(`${forbidden}: false`);
+    for (const forbidden of ['obstacles', 'traps', 'play', 'config', 'seed', 'name', 'events']) {
+      expect(`${forbidden}: ${text.includes(`"${forbidden}":`)}`).toBe(`${forbidden}: false`);
     }
   });
 });

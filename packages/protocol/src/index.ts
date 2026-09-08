@@ -14,4 +14,5 @@ export * from './inputCodec';
 export * from './roomCode';
 export * from './runEnvelope';
 export * from './signaling';
+export * from './snapshotCodec';
 export * from './version';
