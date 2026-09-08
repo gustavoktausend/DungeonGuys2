@@ -30,17 +30,19 @@
 // glob quebrado devolveria string vazia e todos os `not.toContain` passariam
 // sobre nada, que é a forma mais silenciosa de um portão morrer.
 import { describe, it, expect } from 'vitest';
-import { CLASS_KEY, PLAYER_SLOT } from '@dg2/protocol';
+import { CLASS_KEY, MSG_KIND, PLAYER_SLOT } from '@dg2/protocol';
 import {
   createPlayer, createWorld, hashWorld, startRun,
 } from '@dg2/sim';
 import type {
   ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig, RunPlayer, World,
 } from '@dg2/sim';
-import { createLobby, type Lobby, type LobbyView, type Rgb } from '../src/net/lobby';
+import {
+  createLobby, tickZeroHash, type Lobby, type LobbyView, type Rgb,
+} from '../src/net/lobby';
 import type { PeerId, Transport } from '../src/net/transport';
 import { scan } from './scan';
-import { fakeClock, flush, makeStar } from './net/helpers';
+import { fakeClock, flush, makeStar, recordingTransport } from './net/helpers';
 
 // ─── A sequência canônica de início de run ───────────────────────────────────
 
@@ -91,12 +93,72 @@ function paletteFor(peerId: string): (cls: ClassKey) => Rgb {
   };
 }
 
+// ─── O quadro, montado à mão a partir de MSG_KIND ────────────────────────────
+//
+// O mesmo motivo escrito em `tests/lobby.test.ts`: quando o FORMATO é o que
+// está sendo especificado, usar o codec do módulo para verificar o módulo passa
+// com qualquer formato consistente consigo mesmo.
+
+const KIND_START_RUN = MSG_KIND.indexOf('startRun');
+const KIND_ACK = MSG_KIND.indexOf('ack');
+
+function frame(kind: number, body: unknown): ArrayBuffer {
+  const json = new TextEncoder().encode(JSON.stringify(body));
+  const out = new Uint8Array(1 + json.length);
+  out[0] = kind;
+  out.set(json, 1);
+  return out.buffer;
+}
+
+/** O corpo JSON de um quadro, para inspecionar o que viajou. */
+function bodyOf(payload: ArrayBuffer): Record<string, unknown> {
+  const bytes = new Uint8Array(payload);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(1)));
+}
+
+function kindOf(payload: ArrayBuffer): number {
+  return new Uint8Array(payload)[0];
+}
+
+/**
+ * Um transporte que ADULTERA o `startRun` no caminho até este lado.
+ *
+ * É assim que a divergência é forçada, e não trocando a função de hash de um
+ * dos lados: o que o portão do tick 0 existe para pegar é uma máquina que
+ * construiu OUTRO MUNDO, e a forma real disso é um manifesto que chegou
+ * diferente — um bug de codec, uma versão da sim que interpreta um campo de
+ * outro jeito, um byte trocado. Um hash falsificado provaria só que a
+ * comparação compara.
+ */
+function tamperStartRun(inner: Transport, mutate: (config: RunConfig) => void): Transport {
+  return {
+    send: (to, payload, ch) => { inner.send(to, payload, ch); },
+    onMessage(cb) {
+      return inner.onMessage((from, payload, ch) => {
+        if (payload.byteLength > 1 && kindOf(payload) === KIND_START_RUN) {
+          const config = bodyOf(payload) as unknown as RunConfig;
+          mutate(config);
+          cb(from, frame(KIND_START_RUN, config), ch);
+          return;
+        }
+        cb(from, payload, ch);
+      });
+    },
+    onPeerJoin: (cb) => inner.onPeerJoin(cb),
+    onPeerLeave: (cb) => inner.onPeerLeave(cb),
+    rtt: (peer) => inner.rtt(peer),
+    close: () => { inner.close(); },
+  };
+}
+
 interface Room {
   clock: ReturnType<typeof fakeClock>;
   net: ReturnType<typeof makeStar>['net'];
   authority: Lobby;
   guests: Map<PeerId, Lobby>;
   transports: Map<PeerId, Transport>;
+  /** `(ours, theirs)` por peer, na ordem em que a divergência foi vista. */
+  desyncs: Map<PeerId, [string, string][]>;
 }
 
 function openRoom(name: string, cls: ClassKey, levels = forge()): Room {
@@ -111,17 +173,31 @@ function openRoom(name: string, cls: ClassKey, levels = forge()): Room {
     now: clock.now,
     schedule: clock.schedule,
   });
-  return {
+  const room: Room = {
     clock, net: star.net, authority,
     guests: new Map(), transports: new Map([[AUTHORITY, star.authority]]),
+    desyncs: new Map(),
   };
+  watchDesync(room, AUTHORITY, authority);
+  return room;
 }
 
-/** Um convidado entra, e o `hello` dele chega antes de o próximo entrar. */
+function watchDesync(room: Room, id: PeerId, lobby: Lobby): void {
+  room.desyncs.set(id, []);
+  lobby.onDesync((ours, theirs) => { room.desyncs.get(id)!.push([ours, theirs]); });
+}
+
+/**
+ * Um convidado entra, e o `hello` dele chega antes de o próximo entrar.
+ *
+ * `wrap` embrulha o transporte DESTE convidado antes de o lobby o ver, que é o
+ * que permite adulterar o `startRun` só de um lado da sala.
+ */
 async function join(
-  room: Room, id: PeerId, name: string, cls: ClassKey, levels = forge(),
+  room: Room, id: PeerId, name: string, cls: ClassKey,
+  levels = forge(), wrap: (t: Transport) => Transport = (t) => t,
 ): Promise<Lobby> {
-  const transport = room.net.open(id);
+  const transport = wrap(room.net.open(id));
   room.net.link(AUTHORITY, id);
   const lobby = createLobby({
     transport,
@@ -134,6 +210,7 @@ async function join(
   });
   room.guests.set(id, lobby);
   room.transports.set(id, transport);
+  watchDesync(room, id, lobby);
   await flush();
   return lobby;
 }
@@ -278,6 +355,136 @@ describe('o RunConfig que a sala monta (SALA-02, ADR 0001)', () => {
 
     expect(config.players).toHaveLength(1);
     expect(config.players[0].id).toBe('p0');
+    closeRoom(room);
+  });
+});
+
+describe('a prova do tick 0 (SALA-03, D3-05)', () => {
+  it('tickZeroHash é a sequência canônica — igual ao mundo construído à mão', () => {
+    // Anti-vacuidade da comparação inteira: se o lobby fingerprintasse outra
+    // coisa que não o mundo do tick 0, todos os testes de "os dois lados
+    // concordam" continuariam verdes e nenhum deles estaria medindo o mundo.
+    const config = manifest([player('p0', 'ANA', 'mage'), player('p1', 'BIA', 'archer')]);
+    expect(tickZeroHash(config)).toBe(tickZero(config));
+  });
+
+  it('a autoridade e o convidado concordam no hash do tick 0, e nenhum vê divergência', async () => {
+    const room = openRoom('ANA', 'mage');
+    const guest = await join(room, 'peer-b', 'BIA', 'archer');
+    const started: RunConfig[] = [];
+    const seats: PlayerSlot[] = [];
+    guest.onStart((config, slot) => { started.push(config); seats.push(slot); });
+
+    room.authority.startRoom({ seed: 4242, mode: 'endless' });
+    await flush();
+
+    expect(started).toHaveLength(1);
+    expect(seats).toEqual(['p1']);
+    expect(room.desyncs.get(AUTHORITY)).toEqual([]);
+    expect(room.desyncs.get('peer-b')).toEqual([]);
+    closeRoom(room);
+  });
+
+  it('um RunConfig adulterado no caminho faz os DOIS lados verem a divergência', async () => {
+    const room = openRoom('ANA', 'mage');
+    // Um bit trocado na seed é o menor manifesto diferente que existe, e produz
+    // uma arena inteiramente diferente já no tick 0.
+    await join(room, 'peer-b', 'BIA', 'archer', forge(), (t) =>
+      tamperStartRun(t, (config) => { config.seed = config.seed ^ 1; }));
+
+    room.authority.startRoom({ seed: 4242, mode: 'endless' });
+    await flush();
+
+    const here = room.desyncs.get(AUTHORITY)!;
+    const there = room.desyncs.get('peer-b')!;
+    expect(here, 'quem criou a sala tem de ver a divergência').toHaveLength(1);
+    expect(there, 'o convidado divergente também vê, na própria tela').toHaveLength(1);
+    // Os dois hashes chegam à tela, e são diferentes — a tela pede que o
+    // jogador copie os dois, e dois valores iguais tornariam o pedido inútil.
+    expect(here[0][0]).not.toBe(here[0][1]);
+    // O que um lado chama de "o seu" é o que o outro chama de "o da sala".
+    expect(here[0][0]).toBe(there[0][1]);
+    expect(here[0][1]).toBe(there[0][0]);
+    closeRoom(room);
+  });
+
+  it('o startRun leva SÓ o RunConfig — a camada estática não viaja (D3-17)', async () => {
+    const rec = recordingTransport();
+    const clock = fakeClock();
+    const lobby = createLobby({
+      transport: rec.transport,
+      self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: forge() },
+      isAuthority: true, authorityPeerId: AUTHORITY,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+    });
+    rec.deliver('peer-b', frame(MSG_KIND.indexOf('hello'), {
+      accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: forge(),
+    }), 'reliable');
+    lobby.startRoom({ seed: 9, mode: 'endless' });
+
+    const sent = rec.sent.filter((s) => kindOf(s.payload) === KIND_START_RUN);
+    expect(sent, 'o convidado recebeu exatamente um startRun').toHaveLength(1);
+    expect(sent[0].ch, 'o manifesto viaja no canal confiável (D3-01)').toBe('reliable');
+    expect(Object.keys(bodyOf(sent[0].payload)).sort()).toEqual(['mode', 'players', 'seed']);
+    lobby.close();
+  });
+
+  it('o hash do tick 0 volta no canal confiável, e só ele', async () => {
+    const rec = recordingTransport();
+    const clock = fakeClock();
+    const lobby = createLobby({
+      transport: rec.transport,
+      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge() },
+      isAuthority: false, authorityPeerId: AUTHORITY,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
+    });
+    // O convidado precisa do lobbyState fechado antes: é dele que sai o assento.
+    rec.deliver(AUTHORITY, frame(MSG_KIND.indexOf('lobbyState'), {
+      authorityPeerId: AUTHORITY, closed: true,
+      occupants: [{
+        peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer',
+        color: [1, 2, 3], slot: 'p0', connected: true, ping: null, route: 'unknown',
+      }],
+    }), 'reliable');
+    const config = manifest([player('p0', 'BIA', 'archer')], 77);
+    rec.deliver(AUTHORITY, frame(KIND_START_RUN, config), 'reliable');
+
+    const acks = rec.sent.filter((s) => kindOf(s.payload) === KIND_ACK);
+    expect(acks).toHaveLength(1);
+    expect(acks[0].to).toBe(AUTHORITY);
+    expect(acks[0].ch).toBe('reliable');
+    expect(bodyOf(acks[0].payload)).toEqual({ hash: tickZeroHash(config) });
+    lobby.close();
+  });
+
+  it('um startRun que chega de um peer que não é a autoridade é descartado (T-3-35)', async () => {
+    const rec = recordingTransport();
+    const clock = fakeClock();
+    const lobby = createLobby({
+      transport: rec.transport,
+      self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge() },
+      isAuthority: false, authorityPeerId: AUTHORITY,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
+    });
+    const started: RunConfig[] = [];
+    lobby.onStart((config) => { started.push(config); });
+
+    rec.deliver('peer-c', frame(KIND_START_RUN, manifest([player('p0', 'MAL', 'witch')])), 'reliable');
+
+    expect(started, 'um convidado não inicia a run de outro convidado').toEqual([]);
+    lobby.close();
+  });
+
+  it('a rota medida entra no lobbyState e chega ao convidado (D3-13, D3-16)', async () => {
+    const room = openRoom('ANA', 'mage');
+    const guest = await join(room, 'peer-b', 'BIA', 'archer');
+    room.authority.setRoute('peer-b', 'relay');
+    // A rota entra na próxima emissão do resumo, não numa mensagem própria.
+    room.clock.advance(1000);
+    await flush();
+
+    const mine = guest.state().occupants.find((o) => o.peerId === 'peer-b');
+    expect(mine?.route).toBe('relay');
     closeRoom(room);
   });
 });
