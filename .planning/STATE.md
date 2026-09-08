@@ -138,10 +138,18 @@ SUMMARYs e em `deferred-items.md`: `REJECT_REASON` sem `badMessage`; `VERSIONS.s
 (o hash do tick 0 cobre a divergência na prática); `BOSS_STATE` pinado só por valor; vetor HMAC e
 `DEV_STUN_DOMAIN` por provar contra um coturn real.
 
+**Revisão de código (`03-REVIEW.md`, 2026-09-08): 3 críticos, 10 avisos, 10 informativos — não corrigidos.**
+Três achados conferidos à mão pelo orquestrador contradizem parte da verificação: **CR-01** o relay
+do signaling repassa `from` sem conferir (spoofing na negociação WebRTC); **CR-03** o portão de
+versão D-08 (`checkVersions`) não é chamado em nenhum lugar; **WR-01** nenhum cliente envia
+`iceOutcome`, então a tabela `ice_outcome` nunca recebe linha — a metade "desfecho ICE fica
+registrado" do critério 4 está implementada só do lado do servidor. Caminho sugerido:
+`/gsd-code-review 3 --fix` (críticos + avisos) e depois reverificar antes de abrir a fase 4.
+
 ## Session Continuity
 
 Last session: 2026-09-08
 Stopped at: Phase 3 executed 10/11 — 03-11 deferred until the VPS exists
 Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-VERIFICATION.md
 
-Next: `/gsd-discuss-phase 4` (ou `/gsd-plan-phase 4`); `/gsd-execute-phase 3` de novo quando a VPS existir, para o 03-11
+Next: `/gsd-code-review 3 --fix` e reverificar; depois `/gsd-discuss-phase 4`; `/gsd-execute-phase 3` de novo quando a VPS existir (03-11)
