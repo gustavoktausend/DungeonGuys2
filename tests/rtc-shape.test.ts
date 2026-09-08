@@ -125,6 +125,23 @@ describe('forma do transporte WebRTC (teste estrutural)', () => {
     expect(code()).toContain('channel.onclose');
   });
 
+  it('uma perna que cai é fechada e removida do mapa, não deixada como cadáver (WR-08)', () => {
+    // Uma conexão falha que ficasse em `legs` reservaria portas até o fim da
+    // sessão, responderia a `getStats()` uma vez por segundo e seria o que um
+    // `accept()` seguinte para o mesmo peer encontraria — morta e sem uso.
+    const src = code();
+    const start = src.indexOf('function fireLeave(');
+    const end = src.indexOf('function bindChannel(');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const body = src.slice(start, end);
+    expect(body).toContain('leg.pc.close()');
+    expect(body).toContain('legs.delete(leg.peer)');
+    // E na ordem certa: quem ouve a saída ainda encontra a conexão — é a única
+    // chance de ler o último par tentado para o reporte de desfecho (D3-14).
+    expect(body.indexOf('cb(leg.peer, reason)')).toBeLessThan(body.indexOf('leg.pc.close()'));
+  });
+
   it('o lado do convidado existe: os canais também chegam de fora', () => {
     // Sem este manipulador, só a autoridade teria canais e a conexão abriria
     // sem que o convidado pudesse falar — a falha aparece como uma sala em que

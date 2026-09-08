@@ -178,7 +178,20 @@ export function createRtcTransport(deps: RtcDeps): RtcTransport {
     // FALHA É INDIVIDUAL (D3-08). Uma perna que cai avisa sobre ELA e não toca
     // em mais nada: a sala nunca cai porque um convidado ficou sem rota, e é
     // isso que separa "um jogador perdeu a conexão" de "a partida acabou".
+    //
+    // AVISA PRIMEIRO, FECHA DEPOIS. Quem ouve a saída ainda encontra a conexão
+    // em `connectionOf` durante o callback — é a única chance de ler as
+    // estatísticas do último par tentado para o reporte de desfecho (D3-14).
     for (const cb of [...leaveCbs]) cb(leg.peer, reason);
+    // E ENTÃO A PERNA MORRE DE VERDADE. Uma conexão que falhou e ficasse no
+    // mapa continuaria reservando portas e candidatos até o fim da sessão,
+    // responderia a `getStats()` uma vez por segundo enquanto o assento
+    // constasse como conectado, e seria a perna que um `accept()` seguinte
+    // para o mesmo peer encontraria — morta, e sem como ser reaproveitada. A
+    // reconexão da fase 5 precisa encontrar AUSÊNCIA, não um cadáver.
+    for (const channel of leg.channels.values()) channel.close();
+    leg.pc.close();
+    legs.delete(leg.peer);
   }
 
   function bindChannel(leg: Leg, ch: ChannelClass, channel: RTCDataChannel): void {
@@ -210,7 +223,9 @@ export function createRtcTransport(deps: RtcDeps): RtcTransport {
 
   function openLeg(peer: PeerId): Leg {
     const existing = legs.get(peer);
-    if (existing) return existing;
+    // `fireLeave` remove a perna que caiu, então uma perna encontrada aqui é
+    // viva por construção; a guarda é o cinto para o dia em que isso mudar.
+    if (existing && !existing.gone) return existing;
 
     const pc = deps.createConnection({
       iceServers: [...deps.iceServers],
@@ -386,11 +401,8 @@ export function createRtcTransport(deps: RtcDeps): RtcTransport {
     close() {
       if (shut) return;
       shut = true;
-      for (const leg of legs.values()) {
-        for (const channel of leg.channels.values()) channel.close();
-        leg.pc.close();
-        fireLeave(leg, REASON_CLOSED);
-      }
+      // Uma cópia, porque `fireLeave` remove cada perna do mapa ao fechá-la.
+      for (const leg of [...legs.values()]) fireLeave(leg, REASON_CLOSED);
       legs.clear();
       messageCbs.clear();
       joinCbs.clear();
