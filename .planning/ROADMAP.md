@@ -192,8 +192,8 @@ Plans:
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — O vocabulário do fio: as 15 tabelas congeladas, `ping`/`pong`, os tipos de signaling e o código de sala
-- [ ] 03-07-PLAN.md — coturn em `ops/`: `turnserver.conf`, drop-in de memória, a decisão da porta 443 e o runbook §12
+- [x] 03-01-PLAN.md — O vocabulário do fio: as 15 tabelas congeladas, `ping`/`pong`, os tipos de signaling e o código de sala
+- [x] 03-07-PLAN.md — coturn em `ops/`: `turnserver.conf`, drop-in de memória, a decisão da porta 443 e o runbook §12
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -480,7 +480,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
 | 2. Migração para a VPS | 10/12 | In Progress|  |
-| 3. Sala, transporte e protocolo | 0/4 | Not started | - |
+| 3. Sala, transporte e protocolo | 2/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
 | 6. Contas, nuvem e offline | 0/4 | Not started | - |
