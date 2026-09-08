@@ -191,6 +191,13 @@ Nenhuma superfície nova fora do `<threat_model>` do plano. As três mitigaçõe
 
 Nenhum. Todo símbolo exportado por este plano tem implementação ou é um tipo puro por desenho — `signaling.ts` não tem runtime **de propósito** (D3-14/C-3), e os consumidores dele são os planos 03-04 a 03-06 desta mesma fase.
 
+## Self-Check: PASSED
+
+- Arquivos criados, conferidos no disco: `packages/protocol/src/roomCode.ts`, `packages/protocol/src/signaling.ts`, `tests/room-code.test.ts`, `.planning/phases/03-sala-transporte-e-protocolo/03-01-SUMMARY.md` — todos presentes.
+- Commits conferidos em `git log`: `9b0dc70`, `ebee883`, `c4490be`, `ac601b1`, `e66ff25` — todos presentes.
+- Portões do plano: `npm run lint` 0, `npm test` 0 (619 testes), `npx tsc --noEmit` 0, `npm run typecheck:protocol` 0.
+- Fronteira respeitada: `git diff --name-only` da base até HEAD não lista nenhum arquivo sob `packages/sim/`, e nenhum arquivo foi apagado.
+
 ---
 *Phase: 03-sala-transporte-e-protocolo*
 *Completed: 2026-09-08*
