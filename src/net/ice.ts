@@ -121,7 +121,16 @@ const CANDIDATE_TYPES: ReadonlySet<string> = new Set<string>(ICE_CANDIDATE_TYPE)
 const PAIR_TRANSPORTS: ReadonlySet<string> = new Set(['udp', 'tcp']);
 const RELAY_TRANSPORTS: ReadonlySet<string> = new Set(['udp', 'tcp', 'tls']);
 
-const EMPTY: IceRouteReport = {
+/**
+ * O relatório de quando não deu para saber: nenhum par vencedor, estatísticas
+ * ilegíveis, ou uma conexão que já não existe para ser perguntada.
+ *
+ * Exportado porque é também o que o reporte de desfecho envia quando a leitura
+ * falha — uma linha com rota `unknown` ainda conta a sessão, e uma sessão que
+ * não fosse contada por não ter estatística enviesaria a taxa que a tabela
+ * existe para medir.
+ */
+export const UNKNOWN_ROUTE: IceRouteReport = {
   // 'unknown' é o índice 0 da tabela congelada, escolhido para que dado ausente
   // jamais decodifique como 'direct'. O viés de um erro aqui iria para baixo —
   // a direção tranquilizadora, que é a que ninguém investiga.
@@ -185,7 +194,7 @@ function winnerOf(stats: Stats): Record<string, unknown> | null {
 export async function routeOf(pc: StatsSource): Promise<IceRouteReport> {
   const stats = await pc.getStats();
   const pair = winnerOf(stats);
-  if (!pair) return { ...EMPTY };
+  if (!pair) return { ...UNKNOWN_ROUTE };
 
   const localId = text(pair.localCandidateId);
   const remoteId = text(pair.remoteCandidateId);

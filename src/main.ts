@@ -7,6 +7,7 @@ import { createInput } from './app/input';
 import { createEventSink } from './app/events';
 import { Sfx } from './app/audio';
 import { Save } from './app/save';
+import { ulid } from './app/ulid';
 import { buildRunConfig, finishRun, localForge } from './app/forge';
 import { createCamera, updateCamera, type Camera } from './render/camera';
 import { ANIMS, loadSprites, OUTFIT_COLORS, recolorSheet } from './render/sprites';
@@ -275,6 +276,9 @@ const room = initRoom({
   // The same draw the solo path uses, from the same function: two spellings of
   // "a fresh seed" is one edit away from two different distributions.
   newSeed,
+  // The same generator the gold ledger uses, for the same reason: the id is
+  // the idempotency key of an append-only table (ADR 0002).
+  ulid,
   log: (event, fields) => { console.debug(event, fields ?? {}); },
   // THE MANIFEST BECOMES A RUN, HERE AND NOWHERE ELSE. Both halves of the game
   // land on the same `beginRun`: solo builds a one-seat manifest below, a room

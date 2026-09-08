@@ -24,11 +24,13 @@
 // what keeps the pure half of this screen testable without a browser, and it is
 // why nobody should "tidy" those parameters into a top-level import.
 import { describe, it, expect } from 'vitest';
+import type { IceOutcome } from '@dg2/protocol';
 import {
-  avatarKey, badgeLine, clipName, inviteLink, modeLabel, NAME_MAX_CODE_POINTS, pingBand,
-  relayAllowed, slotLine,
+  armOutcomeReports, avatarKey, badgeLine, clipName, inviteLink, modeLabel,
+  NAME_MAX_CODE_POINTS, pingBand, relayAllowed, slotLine,
 } from '../src/ui/room';
 import type { LobbyView } from '../src/net/lobby';
+import { REASON_CLOSED, REASON_FAILED } from '../src/net/rtc';
 
 // Vite's raw glob, not node:fs — tsconfig's `types` is ["vite/client"] only.
 const ROOM = import.meta.glob<string>('../src/ui/room.ts', {
@@ -198,6 +200,55 @@ describe('o texto da tela de sala', () => {
     // An empty roster admits nobody — the state the authority is in before
     // the first `peers`, when there is nobody to negotiate with yet.
     expect(relayAllowed('peer-b', true, 'peer-a', new Set())).toBe(false);
+  });
+
+  it('cada perna reporta o desfecho de ICE uma vez, e a falha também (SALA-05, WR-01)', async () => {
+    // A transport double in the shape armOutcomeReports reads: it hands back
+    // the callbacks so the test can fire a join and a leave, and a connection
+    // whose statistics name a srflx pair, so 'direct' proves the route was
+    // READ and not assumed.
+    const joins: ((peer: string) => void)[] = [];
+    const leaves: ((peer: string, reason: string) => void)[] = [];
+    const stats = new Map<string, Record<string, unknown>>([
+      ['pair-1', { type: 'candidate-pair', state: 'succeeded', localCandidateId: 'l', remoteCandidateId: 'r' }],
+      ['l', { type: 'local-candidate', candidateType: 'srflx', protocol: 'udp' }],
+      ['r', { type: 'remote-candidate', candidateType: 'srflx', protocol: 'udp' }],
+    ]);
+    const pc = { getStats: () => Promise.resolve(stats) } as unknown as RTCPeerConnection;
+    const rtc = {
+      onPeerJoin: (cb: (peer: string) => void) => { joins.push(cb); return () => {}; },
+      onPeerLeave: (cb: (peer: string, reason: string) => void) => { leaves.push(cb); return () => {}; },
+      connectionOf: () => pc,
+    };
+    const sent: IceOutcome[] = [];
+    let n = 0;
+    armOutcomeReports(rtc, (m) => { sent.push(m); }, () => `01ULID${n++}`, 'ABC123', 'p1');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    for (const cb of joins) cb('peer-a');
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: 'iceOutcome', id: '01ULID0', code: 'ABC123', slot: 'p1',
+      route: 'direct', localCandidate: 'srflx', result: 'connected', rttMs: null,
+    });
+
+    // Once per leg: a second announcement of the same peer files nothing.
+    for (const cb of joins) cb('peer-a');
+    await settle();
+    expect(sent).toHaveLength(1);
+
+    // A leg that never connected and failed is the other half of the table
+    // (D3-14): route unknown by construction, the last pair tried kept.
+    for (const cb of leaves) cb('peer-b', REASON_FAILED);
+    await settle();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({ id: '01ULID1', route: 'unknown', localCandidate: 'srflx', result: 'failed' });
+
+    // A closed leg is not a failure; and peer-a already counted.
+    for (const cb of leaves) { cb('peer-c', REASON_CLOSED); cb('peer-a', REASON_FAILED); }
+    await settle();
+    expect(sent).toHaveLength(2);
   });
 
   it('não constrói markup a partir de texto (T-3-14)', () => {

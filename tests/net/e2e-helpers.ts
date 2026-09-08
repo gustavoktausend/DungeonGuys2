@@ -24,12 +24,16 @@
 // every one of those to be wrong — so `serveDir` grew one field, `upgradable`,
 // and this file attaches to it.
 //
-// NOTHING IS PERSISTED. `recordOutcome` and `forgetOutcomes` are no-ops: the
-// ICE telemetry recorder is the only part of the server that wants a database,
-// and a spec that opened one would leave a file behind in a repository that has
-// none. They are separate arguments from `iceConfig` precisely so a caller with
-// nothing to store can pass a pair of no-ops — signaling/index.ts says so.
+// NOTHING IS PERSISTED. `recordOutcome` collects into an array and
+// `forgetOutcomes` is a no-op: the ICE telemetry recorder is the only part of
+// the server that wants a database, and a spec that opened one would leave a
+// file behind in a repository that has none. They are separate arguments from
+// `iceConfig` precisely so a caller with nothing to store can pass something
+// of its own — signaling/index.ts says so. The array is exposed because the
+// spec asserts on it: that each peer FILES a report is the half of SALA-05
+// only a real browser can prove.
 import { randomBytes } from 'node:crypto';
+import type { IceOutcome } from '@dg2/protocol';
 import { attachSignalling, HEARTBEAT_MS } from '../../apps/server/src/signaling/index';
 import {
   createLimiter, JOIN_LIMIT, LIMIT_WINDOW_MS, UPGRADE_LIMIT,
@@ -43,6 +47,13 @@ export interface GameServer {
   readonly origin: string;
   /** Every structured line the signalling leg logged, for a failure report. */
   readonly log: { event: string; fields: Record<string, unknown> }[];
+  /**
+   * Every ICE outcome a peer filed, in arrival order, instead of a database
+   * row. Collected and not dropped, because "the client sends it" is the half
+   * of SALA-05 that only a real browser can prove — the server's half is
+   * proved in tests/server-signaling.test.ts.
+   */
+  readonly outcomes: IceOutcome[];
   /** Stops the listener, drops open sockets, and disarms the heartbeat. */
   close(): Promise<void>;
 }
@@ -61,6 +72,7 @@ export interface GameServer {
 export async function serveGame(dir = 'dist'): Promise<GameServer> {
   const statics = await serveDir(dir);
   const log: GameServer['log'] = [];
+  const outcomes: IceOutcome[] = [];
   let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   attachSignalling(statics.upgradable, {
@@ -81,7 +93,8 @@ export async function serveGame(dir = 'dist'): Promise<GameServer> {
     // assertion that failed.
     log: (event, fields) => { log.push({ event, fields: fields ?? {} }); },
     now: () => Date.now(),
-    recordOutcome: () => {},
+    // Collected in memory — see the header: nothing here opens a database.
+    recordOutcome: (row) => { outcomes.push(row); },
     forgetOutcomes: () => {},
     iceConfig: () => ({ ice: { iceServers: [] }, turn: NO_TURN }),
     startHeartbeat: (tick) => {
@@ -96,6 +109,7 @@ export async function serveGame(dir = 'dist'): Promise<GameServer> {
   return {
     origin: statics.origin,
     log,
+    outcomes,
     async close(): Promise<void> {
       if (heartbeat !== null) { clearInterval(heartbeat); heartbeat = null; }
       await statics.close();

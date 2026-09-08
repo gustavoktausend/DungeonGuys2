@@ -53,7 +53,7 @@
 // no timer here at all: four idle-frame-0 avatars communicate everything the
 // lobby has to say, and animating them would communicate nothing more.
 import { normalizeRoomCode } from '@dg2/protocol';
-import type { IceRoute, RejectReason, SignalMessage, Versions } from '@dg2/protocol';
+import type { IceOutcome, IceRoute, RejectReason, SignalMessage, Versions } from '@dg2/protocol';
 import { CLASS_KEY } from '@dg2/protocol';
 import type { ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig } from '@dg2/sim';
 import {
@@ -65,7 +65,7 @@ import {
   type RoomEntry, type SignalingClient, type SocketLike,
 } from '../net/signaling';
 import { createRtcTransport, REASON_FAILED, type RtcSignal, type RtcTransport } from '../net/rtc';
-import { clearRelayFlag, routeOf, type StorageLike } from '../net/ice';
+import { buildOutcome, clearRelayFlag, routeOf, UNKNOWN_ROUTE, type StorageLike } from '../net/ice';
 import type { Schedule } from '../net/transport';
 // Namespace import on purpose, and it must stay one: the acceptance criterion of
 // plan 03-09 allows the name of the keyboard-click guard to appear exactly once
@@ -277,6 +277,54 @@ export function relayAllowed(
   return isAuthority ? knownPeers.has(from) : from === authorityPeerId;
 }
 
+/**
+ * Reports how each leg's ICE negotiation ended — once per leg, on the
+ * signalling socket that is still open (SALA-05, D3-11, D3-14).
+ *
+ * THIS IS THE LINE THAT FILLS THE TABLE. Everything downstream of it existed
+ * before it did: `buildOutcome`, the `iceOutcome` handler, the quota, the
+ * migration — and nothing called it, so the table that exists to replace an
+ * estimate with a measurement would have stayed empty in production, and the
+ * relay would have gone on being sized from a borrowed number.
+ *
+ * `connected` is reported when both channels of a leg are open, which is when
+ * the transport announces the peer, and the route is read from the connection
+ * at that moment. `failed` is reported when the transport gives the leg up with
+ * its failure word, and the connection is still there to be asked — the
+ * transport notifies before it closes, on purpose — so the last pair tried
+ * survives as the one clue to why. A closed leg is not a failure and files
+ * nothing. One report per leg either way: a leg that connected and later
+ * failed is the session the first row already counted.
+ *
+ * A reading that fails files `UNKNOWN_ROUTE` rather than nothing, because a
+ * session left out of the table for want of a statistic would bias the one
+ * rate the table measures — and bias it in the reassuring direction.
+ */
+export function armOutcomeReports(
+  rtc: Pick<RtcTransport, 'onPeerJoin' | 'onPeerLeave' | 'connectionOf'>,
+  send: (message: IceOutcome) => void,
+  ulid: () => string,
+  code: string,
+  slot: PlayerSlot,
+): void {
+  const reported = new Set<string>();
+  const report = (peer: string, result: 'connected' | 'failed'): void => {
+    if (reported.has(peer)) return;
+    reported.add(peer);
+    const pc = rtc.connectionOf(peer);
+    const read = pc ? routeOf(pc).catch(() => UNKNOWN_ROUTE) : Promise.resolve(UNKNOWN_ROUTE);
+    void read.then((route) => {
+      // `rttMs` stays null on purpose: the game's round trip is the pinger's
+      // number (D3-13), which has not been measured when a leg opens, and the
+      // statistics' round trip is a different quantity that would be filed
+      // under the wrong name.
+      send(buildOutcome(ulid, { code, slot, report: route, rttMs: null, result }));
+    });
+  };
+  rtc.onPeerJoin((peer) => { report(peer, 'connected'); });
+  rtc.onPeerLeave((peer, reason) => { if (reason === REASON_FAILED) report(peer, 'failed'); });
+}
+
 // ─── The wiring ──────────────────────────────────────────────────────────────
 
 /** The elements this module paints. `ui/dom.ts` satisfies it structurally. */
@@ -352,6 +400,11 @@ export interface RoomDeps {
    * out loud (main.ts draws it from `crypto.getRandomValues`).
    */
   newSeed: () => number;
+  /**
+   * The idempotency key of an ICE outcome row (ADR 0002), from src/app/ulid.ts.
+   * Injected for the same reason `newSeed` is: it reads a clock and a CSPRNG.
+   */
+  ulid: () => string;
   log: (event: string, fields?: Record<string, unknown>) => void;
   /**
    * The run manifest AND the seat this machine was given, once the room starts.
@@ -611,6 +664,11 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     // Whoever notices shows it, and both ends can be the one that notices.
     lobby.onDesync(showDesync);
     armRouteProbe(rtc, lobby);
+    // The seat is the one the server gave, and the server resolves both the
+    // room and the seat from the socket anyway (T-3-24) — this only has to be
+    // honest, not authoritative. `c.send` is a no-op once the client is shut,
+    // so a report that lands after teardown is dropped and never thrown.
+    armOutcomeReports(rtc, (message) => { c.send(message); }, deps.ulid, joined.code, joined.slot);
 
     /** Everyone the server has seated beside us, as of the last roster. */
     const knownPeers = new Set<string>();

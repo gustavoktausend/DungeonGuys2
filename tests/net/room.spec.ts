@@ -91,6 +91,20 @@ const ACTIVE = /(^|\s)active(\s|$)/;
 /** As cadeiras que têm alguém — a vazia carrega a classe `empty`. */
 const FILLED = '#lobby-slots .lobby-slot:not(.empty)';
 
+/**
+ * Quantos desfechos de ICE o servidor recebeu, esperando até `count` ou até
+ * o prazo. Devolve a contagem em vez de lançar, para que a asserção que a lê
+ * possa ser `soft` como as demais — uma execução vermelha desta spec é um
+ * relatório, não uma pista.
+ */
+async function outcomesReported(count: number, ms = 10_000): Promise<number> {
+  const deadline = Date.now() + ms;
+  while (server.outcomes.length < count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return server.outcomes.length;
+}
+
 test('uma sala por loopback: código, entrada, ping, classe, run com o mesmo tick 0, e as duas saídas', async ({ browser }) => {
   server = await serveGame();
 
@@ -126,6 +140,19 @@ test('uma sala por loopback: código, entrada, ping, classe, run com o mesmo tic
     .toHaveText(measured, { timeout: 30_000 });
   await expect(b.locator('#lobby-slots'), 'a mesma perna, relatada, aparece em B')
     .toHaveText(measured, { timeout: 30_000 });
+
+  // ── 3b. Cada ponta da perna reportou o desfecho de ICE (SALA-05) ─────────
+  //
+  // A tabela existe para trocar uma estimativa por uma medição (D3-14), e até
+  // esta asserção nenhum cliente a alimentava: o servidor tinha o handler, a
+  // migração e a cota, e recebia zero linhas. Uma perna, duas pontas, dois
+  // reportes — cada um atribuído pelo servidor ao socket que o mandou.
+  const filed = await outcomesReported(2);
+  expect.soft(filed, 'as duas pontas da perna A–B reportaram o desfecho de ICE').toBeGreaterThanOrEqual(2);
+  for (const outcome of server.outcomes) {
+    expect.soft(outcome.result, 'a perna fechou, então o desfecho é connected').toBe('connected');
+    expect.soft(outcome.route, 'por loopback, a rota reportada é direct').toBe('direct');
+  }
 
   // ── 4. A classe escolhida por B muda o card NOS DOIS lados ────────────────
   const chosen = b.locator('#lobby-class .lobby-class-card').nth(3);
