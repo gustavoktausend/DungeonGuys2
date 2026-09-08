@@ -187,6 +187,13 @@ export interface LobbyView {
   isAuthority: boolean;
   /** True once `startRoom` has handed out the seats. */
   closed: boolean;
+  /**
+   * The mode the AUTHORITY will start — the one that travels in `startRun`
+   * (D3-04) — and not whatever this machine has selected on its own screen.
+   * Null on a guest until the first roster arrives: the screen has nothing
+   * honest to say before that, and saying the local selection was the bug.
+   */
+  mode: GameMode | null;
   occupants: readonly OccupantView[];
 }
 
@@ -217,6 +224,15 @@ export interface LobbyDeps {
   authorityPeerId: PeerId;
   /** `Save.data.settings.colors[cls]`, injected so this module reads no store. */
   colorFor: (cls: ClassKey) => Rgb;
+  /**
+   * The mode this machine would start with, read at every `publish()`.
+   *
+   * Only the authority's answer travels: it is the selection that becomes
+   * `startRun`, so relaying it is what lets every seat see the run they are
+   * about to play. A guest's answer is read by nobody and this module never
+   * shows it — the screen it feeds paints the roster's value, not the local one.
+   */
+  mode: () => GameMode;
   /** Handed to the pingers this module owns; see ping.ts. */
   now: () => number;
   schedule: Schedule;
@@ -401,6 +417,10 @@ function isRoute(v: unknown): v is IceRoute {
   return typeof v === 'string' && (ICE_ROUTE as readonly string[]).includes(v);
 }
 
+function isGameMode(v: unknown): v is GameMode {
+  return typeof v === 'string' && (GAME_MODE as readonly string[]).includes(v);
+}
+
 function isByte(v: unknown): boolean {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 255;
 }
@@ -453,13 +473,16 @@ function readLobbyState(
   from: PeerId,
   authorityPeerId: PeerId,
   body: unknown,
-): { closed: boolean; occupants: OccupantView[] } | null {
+): { closed: boolean; mode: GameMode; occupants: OccupantView[] } | null {
   // The sender must be the peer named as the authority when this machine
   // entered the room — never the peer sitting in p0 (T-3-07b).
   if (from !== authorityPeerId) return null;
   if (!isRecord(body)) return null;
   if (body.authorityPeerId !== from) return null;
   if (typeof body.closed !== 'boolean') return null;
+  // All-or-nothing, like every field here: a roster without a legible mode
+  // is discarded whole, and the previous one stands.
+  if (!isGameMode(body.mode)) return null;
   const list = body.occupants;
   if (!Array.isArray(list) || list.length > MAX_OCCUPANTS) return null;
   const occupants: OccupantView[] = [];
@@ -468,7 +491,7 @@ function readLobbyState(
     if (!parsed) return null;
     occupants.push(parsed);
   }
-  return { closed: body.closed, occupants };
+  return { closed: body.closed, mode: body.mode, occupants };
 }
 
 interface Announce {
@@ -526,7 +549,7 @@ function readRunConfig(body: unknown): RunConfig | null {
   if (!isRecord(body)) return null;
   const { seed, mode, players } = body;
   if (typeof seed !== 'number' || !Number.isInteger(seed)) return null;
-  if (typeof mode !== 'string' || !(GAME_MODE as readonly string[]).includes(mode)) return null;
+  if (!isGameMode(mode)) return null;
   if (!Array.isArray(players) || players.length < 1 || players.length > MAX_OCCUPANTS) return null;
   const out: RunPlayer[] = [];
   for (const entry of players) {
@@ -535,7 +558,7 @@ function readRunConfig(body: unknown): RunConfig | null {
     if (!isSlot(id) || !isName(name) || !isClassKey(cls) || !isForge(forge)) return null;
     out.push({ id, name, cls, forge: copyForge(forge) });
   }
-  return { seed, mode: mode as GameMode, players: out };
+  return { seed, mode, players: out };
 }
 
 function isRejectReason(v: unknown): v is RejectReason {
@@ -560,13 +583,15 @@ function readHash(body: unknown): string | null {
 // ─── The machine ─────────────────────────────────────────────────────────────
 
 export function createLobby(deps: LobbyDeps): Lobby {
-  const { transport, self, isAuthority, authorityPeerId, colorFor, now, schedule } = deps;
+  const { transport, self, isAuthority, authorityPeerId, colorFor, mode, now, schedule } = deps;
 
   /** The authority's roster, IN ORDER OF ENTRY. That order becomes p0..p3. */
   const occupants: Occupant[] = [];
   /** A guest's copy of the last accepted roster. */
   let remote: OccupantView[] = [];
   let remoteClosed = false;
+  /** A guest's copy of the mode the authority will start. Null until told. */
+  let remoteMode: GameMode | null = null;
   let closed = false;
   let dead = false;
   let disposed = false;
@@ -653,6 +678,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
       selfPeerId: self.peerId,
       isAuthority,
       closed: isAuthority ? closed : remoteClosed,
+      mode: isAuthority ? mode() : remoteMode,
       occupants: list,
     };
   }
@@ -722,8 +748,10 @@ export function createLobby(deps: LobbyDeps): Lobby {
   function publish(): void {
     if (disposed) return;
     refreshPings();
+    // `mode` read fresh at every emission, so a change on the authority's
+    // selection screen reaches every seat within the second (D3-16).
     const frame = encode(KIND_LOBBY_STATE, {
-      authorityPeerId, closed, occupants: occupants.map(toView),
+      authorityPeerId, closed, mode: mode(), occupants: occupants.map(toView),
     });
     for (const o of occupants) {
       if (o.peerId === self.peerId || !o.connected) continue;
@@ -804,6 +832,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
     const next = readLobbyState(from, authorityPeerId, body);
     if (!next) return;
     remoteClosed = next.closed;
+    remoteMode = next.mode;
     remote = next.occupants;
     const mine = next.occupants.find((o) => o.peerId === self.peerId);
     if (echo !== null && mine && mine.cls === echo) echo = null;

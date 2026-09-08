@@ -23,7 +23,7 @@
 //    em vez de continuarem passando contra o codec do próprio lobby.
 import { describe, it, expect } from 'vitest';
 import { CLASS_KEY, MSG_KIND } from '@dg2/protocol';
-import type { ClassKey, ForgeLevels, PlayerSlot } from '@dg2/sim';
+import type { ClassKey, ForgeLevels, GameMode, PlayerSlot } from '@dg2/sim';
 import {
   createLobby, MAX_OCCUPANTS, type Lobby, type LobbyView, type Rgb,
 } from '../src/net/lobby';
@@ -69,6 +69,8 @@ interface Room {
   rejected: Map<string, RejectReason[]>;
   /** The free text beside each refusal, in the same order. */
   details: Map<string, string[]>;
+  /** The authority's selection screen, as a cell a test can flip. */
+  modeRef: { value: GameMode };
 }
 
 function attach(room: Room, id: string, lobby: Lobby): void {
@@ -85,13 +87,14 @@ function attach(room: Room, id: string, lobby: Lobby): void {
 function openRoom(cls: ClassKey = 'mage'): Room {
   const clock = fakeClock();
   const star = makeStar(AUTHORITY, []);
+  const modeRef = { value: 'campaign' as GameMode };
   const room: Room = {
-    clock, net: star.net,
+    clock, net: star.net, modeRef,
     authority: createLobby({
       transport: star.authority,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls, forge: FORGE, versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule, mode: () => modeRef.value,
     }),
     authorityTransport: star.authority,
     guests: new Map(), guestTransports: new Map(),
@@ -117,7 +120,7 @@ async function join(
     transport,
     self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: FORGE, versions },
     isAuthority: false, authorityPeerId: AUTHORITY,
-    colorFor: paletteFor(id), now: room.clock.now, schedule: room.clock.schedule,
+    colorFor: paletteFor(id), now: room.clock.now, schedule: room.clock.schedule, mode: () => 'campaign',
   });
   room.guests.set(id, lobby);
   room.guestTransports.set(id, transport);
@@ -162,10 +165,13 @@ function occupant(over: Partial<WireOccupant> = {}): WireOccupant {
   };
 }
 
-function lobbyState(over: Partial<{ authorityPeerId: string; closed: boolean; occupants: WireOccupant[] }> = {}) {
+function lobbyState(
+  over: Partial<{ authorityPeerId: string; closed: boolean; mode: string; occupants: WireOccupant[] }> = {},
+) {
   return {
     authorityPeerId: AUTHORITY,
     closed: false,
+    mode: 'campaign',
     occupants: [occupant({ peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage' })],
     ...over,
   };
@@ -179,7 +185,7 @@ function lonelyGuest() {
     transport: rec.transport,
     self: { peerId: 'peer-z', accountId: 'conta-z', name: 'ZED', cls: 'ninja', forge: FORGE, versions: VERSIONS },
     isAuthority: false, authorityPeerId: AUTHORITY,
-    colorFor: paletteFor('peer-z'), now: clock.now, schedule: clock.schedule,
+    colorFor: paletteFor('peer-z'), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
   });
   // Um estado válido primeiro: toda guarda abaixo é "o anterior PERMANECE",
   // e sem um anterior o teste passaria por vacuidade.
@@ -208,6 +214,36 @@ describe('máquina de estado do lobby', () => {
 
     expect(room.rejected.get('peer-e')).toEqual(['roomFull']);
     expect(names(room.authority.state())).toEqual(['ANA', 'BIA', 'CID', 'DUL']);
+  });
+
+  it('o convidado vê o modo que a AUTORIDADE vai iniciar, não o que ele selecionou (WR-06)', async () => {
+    // Before this the guest's screen read its own selection: "SEM FIM" while
+    // the authority was about to start a campaign — the wrong label on the
+    // one screen that exists to align expectations before the run.
+    const room = openRoom();
+    const guest = await join(room, 'peer-b', 'BIA', 'archer');
+    // Nothing claimed before the first roster arrived; now, the room's value.
+    expect(guest.state().mode).toBe('campaign');
+    expect(room.authority.state().mode).toBe('campaign');
+
+    // The authority changes its mind; the next emission carries it (D3-16).
+    room.modeRef.value = 'endless';
+    room.clock.advance(1000);
+    await flush();
+    expect(guest.state().mode).toBe('endless');
+  });
+
+  it('um lobbyState sem mode legível é descartado inteiro (WR-06)', () => {
+    const { rec, lobby } = lonelyGuest();
+    expect(lobby.state().mode).toBe('campaign');
+
+    rec.deliver(AUTHORITY, frame(KIND_LOBBY_STATE, lobbyState({
+      mode: 'hardcore', occupants: [occupant({ peerId: AUTHORITY, name: 'MAL' })],
+    })), 'reliable');
+
+    // All-or-nothing: neither the mode nor the roster moved.
+    expect(lobby.state().mode).toBe('campaign');
+    expect(names(lobby.state())).toEqual(['ANA']);
   });
 
   it('um convidado de outra build é recusado com simVersion e não ocupa assento (D-08)', async () => {
@@ -242,7 +278,7 @@ describe('máquina de estado do lobby', () => {
       transport: rec.transport,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE, versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     rec.deliver('peer-b', frame(KIND_HELLO, {
       accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: FORGE,
@@ -484,13 +520,13 @@ describe('máquina de estado do lobby', () => {
       transport: a,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE, versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     const guest = createLobby({
       transport: b,
       self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: FORGE, versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     await flush();
 

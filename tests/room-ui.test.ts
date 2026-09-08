@@ -25,8 +25,8 @@
 // why nobody should "tidy" those parameters into a top-level import.
 import { describe, it, expect } from 'vitest';
 import {
-  avatarKey, badgeLine, clipName, inviteLink, NAME_MAX_CODE_POINTS, pingBand, relayAllowed,
-  slotLine,
+  avatarKey, badgeLine, clipName, inviteLink, modeLabel, NAME_MAX_CODE_POINTS, pingBand,
+  relayAllowed, slotLine,
 } from '../src/ui/room';
 import type { LobbyView } from '../src/net/lobby';
 
@@ -60,7 +60,7 @@ function seat(over: Partial<LobbyView['occupants'][number]> = {}): LobbyView['oc
 function view(over: Partial<LobbyView> = {}): LobbyView {
   return {
     authorityPeerId: 'peer-a', selfPeerId: 'peer-a', isAuthority: true,
-    closed: false, occupants: [seat()],
+    closed: false, mode: 'campaign', occupants: [seat()],
     ...over,
   };
 }
@@ -161,6 +161,17 @@ describe('o texto da tela de sala', () => {
       occupants: [seat({ peerId: 'peer-a', ping: null }), seat({ peerId: 'peer-b', ping: null })],
     });
     expect(badgeLine(beforeFirstPong)).toBe('—');
+  });
+
+  it('a linha do modo vem do roster, e fica vazia até o convidado ser informado (WR-06)', () => {
+    expect(modeLabel('campaign')).toBe('MODO · CAMPANHA');
+    expect(modeLabel('endless')).toBe('MODO · SEM FIM');
+    // Not the local selection and not a default: before the first roster a
+    // guest has been told nothing, and the honest line says nothing.
+    expect(modeLabel(null)).toBe('');
+    // And the screen reads it from the view, never from `identity()`.
+    expect(roomSrc).toContain('modeLabel(view.mode)');
+    expect(roomSrc).not.toContain("identity().mode === 'endless'");
   });
 
   it('o link de convite é montado do código da sala, nunca do endereço atual', () => {

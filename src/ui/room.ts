@@ -180,6 +180,17 @@ export function pingBand(ping: number | null): string {
   return ping <= 150 ? '' : 'fx-neg';
 }
 
+/**
+ * The mode line of the lobby, from the ROSTER's value and never from the
+ * local selection: a guest with "SEM FIM" selected on its own start screen
+ * used to read "MODO · SEM FIM" while the authority was about to start a
+ * campaign. Empty until a guest has been told, which is the honest state.
+ */
+export function modeLabel(mode: GameMode | null): string {
+  if (mode === null) return '';
+  return mode === 'endless' ? COPY.modeEndless : COPY.modeCampaign;
+}
+
 /** "direto" / "relay" in full words. Relay is not an error — it is the path
  *  working — so neither gets an icon or a colour of its own. */
 function routeWord(route: IceRoute): string {
@@ -567,6 +578,9 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       isAuthority: authority,
       authorityPeerId: joined.authorityPeerId,
       colorFor: deps.colorFor,
+      // The selection screen's value, read at every emission: it is what
+      // `startRoom` will send, so it is what every seat should be reading.
+      mode: () => deps.identity().mode,
       now: deps.now,
       schedule: deps.schedule,
     });
@@ -632,12 +646,17 @@ export function initRoom(deps: RoomDeps): RoomFlow {
 
     knownNames.clear();
     openLobbyScreen(joined);
+    // Painted at once from what the lobby already knows, instead of waiting
+    // for the first emission a second later: the authority's own seat and
+    // its mode, or a guest's four empty chairs with no mode claimed yet.
+    paintLobby(lobby.state());
   }
 
   function openLobbyScreen(joined: RoomEntry): void {
     el.lobbyCode.textContent = joined.code;
     el.lobbyLink.value = inviteLink(deps.inviteBase, joined.code);
-    el.lobbyMode.textContent = deps.identity().mode === 'endless' ? COPY.modeEndless : COPY.modeCampaign;
+    // The mode line is painted by `paintLobby`, from the roster (WR-06).
+    el.lobbyMode.textContent = '';
     el.lobbyStatus.textContent = '';
     buildSlots();
     buildClassCards();
@@ -886,6 +905,7 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       if (o) paintSeat(slotCards[i], o, view); else paintEmpty(slotCards[i]);
     }
     el.lobbyEmptyHint.classList.toggle('hidden', view.occupants.length > 1);
+    el.lobbyMode.textContent = modeLabel(view.mode);
     const mine = view.occupants.find((o) => o.peerId === view.selfPeerId);
     for (const [key, card] of classCards) {
       card.classList.toggle('selected', mine ? mine.cls === key : false);

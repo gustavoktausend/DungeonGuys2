@@ -174,7 +174,7 @@ function openRoom(name: string, cls: ClassKey, levels = forge()): Room {
     authorityPeerId: AUTHORITY,
     colorFor: paletteFor(AUTHORITY),
     now: clock.now,
-    schedule: clock.schedule,
+    schedule: clock.schedule, mode: () => 'campaign',
   });
   const room: Room = {
     clock, net: star.net, authority,
@@ -209,7 +209,7 @@ async function join(
     authorityPeerId: AUTHORITY,
     colorFor: paletteFor(id),
     now: room.clock.now,
-    schedule: room.clock.schedule,
+    schedule: room.clock.schedule, mode: () => 'campaign',
   });
   room.guests.set(id, lobby);
   room.transports.set(id, transport);
@@ -418,7 +418,7 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
       transport: rec.transport,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: forge(), versions: VERSIONS },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     rec.deliver('peer-b', frame(MSG_KIND.indexOf('hello'), {
       accountId: 'conta-b', name: 'BIA', cls: 'archer', color: [1, 2, 3], forge: forge(), versions: VERSIONS,
@@ -439,11 +439,11 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
       transport: rec.transport,
       self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge(), versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     // O convidado precisa do lobbyState fechado antes: é dele que sai o assento.
     rec.deliver(AUTHORITY, frame(MSG_KIND.indexOf('lobbyState'), {
-      authorityPeerId: AUTHORITY, closed: true,
+      authorityPeerId: AUTHORITY, closed: true, mode: 'endless',
       occupants: [{
         peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer',
         color: [1, 2, 3], slot: 'p0', connected: true, ping: null, route: 'unknown',
@@ -467,7 +467,7 @@ describe('a prova do tick 0 (SALA-03, D3-05)', () => {
       transport: rec.transport,
       self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: forge(), versions: VERSIONS },
       isAuthority: false, authorityPeerId: AUTHORITY,
-      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule, mode: () => 'campaign',
     });
     const started: RunConfig[] = [];
     lobby.onStart((config) => { started.push(config); });
