@@ -7,7 +7,9 @@
     "startRun",
     "input",
     "snapshot",
-    "ack"
+    "ack",
+    "ping",
+    "pong"
   ],
   "REJECT_REASON": [
     "simVersion",
@@ -27,5 +29,110 @@
     "purge",
     "fetch",
     "extract"
+  ],
+  "SNAPSHOT_PART": [
+    "actors",
+    "projectiles",
+    "pickups"
+  ],
+  "SIGNAL_KIND": [
+    "create",
+    "created",
+    "join",
+    "joined",
+    "peers",
+    "offer",
+    "answer",
+    "candidate",
+    "leave",
+    "closed",
+    "iceOutcome",
+    "error"
+  ],
+  "ICE_ROUTE": [
+    "unknown",
+    "direct",
+    "relay"
+  ],
+  "ICE_CANDIDATE_TYPE": [
+    "host",
+    "srflx",
+    "prflx",
+    "relay"
+  ],
+  "ENEMY_TYPE": [
+    "skeleton",
+    "goblin",
+    "demon",
+    "brute",
+    "mimic",
+    "necromancer",
+    "swampy",
+    "zombie_king",
+    "ogre_warlord",
+    "goblin_chief",
+    "necro_lord"
+  ],
+  "ELITE_TYPE": [
+    "none",
+    "swift",
+    "brutish",
+    "vampiric"
+  ],
+  "BOSS_STATE": [
+    "chase",
+    "telegraph",
+    "charging",
+    "recover"
+  ],
+  "CHEST_STATE": [
+    "closed",
+    "opening",
+    "looted"
+  ],
+  "OBSTACLE_KIND": [
+    "column",
+    "crate"
+  ],
+  "ATTACK_KIND": [
+    "melee",
+    "bolt",
+    "arrow",
+    "bullet",
+    "fireball"
+  ],
+  "CLASS_KEY": [
+    "mage",
+    "archer",
+    "warrior",
+    "ninja",
+    "priestess",
+    "witch",
+    "coprobo"
+  ],
+  "MUTATOR_KEY": [
+    "none",
+    "swarm",
+    "frenzy",
+    "bounty",
+    "elite",
+    "fog"
+  ],
+  "PHASE": [
+    "playing",
+    "levelup",
+    "shop",
+    "gameover",
+    "victory"
+  ],
+  "GAME_MODE": [
+    "campaign",
+    "endless"
+  ],
+  "PLAYER_SLOT": [
+    "p0",
+    "p1",
+    "p2",
+    "p3"
   ]
 }

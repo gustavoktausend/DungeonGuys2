@@ -21,12 +21,20 @@
  * Bumped by hand, and only when the meaning of bytes on the wire changes:
  * a new message kind, a changed field layout, a changed framing rule.
  *
- * Typed as `string` rather than the literal `'1'` on purpose. This value is
+ * Typed as `string` rather than the literal `'2'` on purpose. This value is
  * compared against strings that arrived from a remote machine, so narrowing it
  * to a literal would let the compiler "prove" things about a runtime-variable
  * comparison and reject perfectly correct future code with "no overlap".
+ *
+ * 1 → 2, PHASE 3. Three changes, one bump: `ping` and `pong` appended to the
+ * end of MSG_KIND (D3-13), the binary framing of the snapshot with its
+ * partition by entity class (D3-19), and the signalling vocabulary with the
+ * message bodies in signaling.ts. ONE BUMP COVERS THE WHOLE PHASE — the plans
+ * that follow this one extend the same wire format, and bumping again per plan
+ * would refuse pairings between two builds that are in fact compatible, which
+ * teaches everyone to distrust the refusal.
  */
-export const PROTOCOL_VERSION: string = '1';
+export const PROTOCOL_VERSION: string = '2';
 
 /** The pair of versions that has to agree before two machines may talk. */
 export type Versions = {
