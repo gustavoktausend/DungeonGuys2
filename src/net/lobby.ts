@@ -54,6 +54,7 @@
 import { CLASS_KEY, GAME_MODE, ICE_ROUTE, MSG_KIND, PLAYER_SLOT, REJECT_REASON } from '@dg2/protocol';
 import type { IceRoute, RejectReason } from '@dg2/protocol';
 import type { ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig, RunPlayer } from '@dg2/sim';
+import { createPinger, type Pinger } from './ping';
 import type { PeerId, Schedule, Transport, Unsubscribe } from './transport';
 
 // The wire NUMBER comes from @dg2/protocol and the TYPE comes from @dg2/sim.
@@ -133,7 +134,7 @@ export interface LobbyDeps {
   authorityPeerId: PeerId;
   /** `Save.data.settings.colors[cls]`, injected so this module reads no store. */
   colorFor: (cls: ClassKey) => Rgb;
-  /** Present for the pingers this module owns; see ping.ts. */
+  /** Handed to the pingers this module owns; see ping.ts. */
   now: () => number;
   schedule: Schedule;
 }
@@ -194,12 +195,26 @@ function encode(kind: number, body: unknown): ArrayBuffer {
   return out.buffer;
 }
 
-function decode(payload: ArrayBuffer): { kind: number; body: unknown } | null {
+/** Byte 0, or -1 for an empty frame. Never parses the rest. */
+function kindOf(payload: ArrayBuffer): number {
   const bytes = new Uint8Array(payload);
-  if (bytes.length < 1) return null;
-  if (bytes.length === 1) return { kind: bytes[0], body: null };
+  return bytes.length === 0 ? -1 : bytes[0];
+}
+
+/**
+ * The JSON after byte 0, wrapped so that "parsed to null" and "did not parse"
+ * are different answers.
+ *
+ * Read only AFTER the kind has been recognised. The `ping` and `pong` frames of
+ * ping.ts share this transport and are seven binary bytes; running them through
+ * JSON.parse would throw once per second per peer, and a caught throw in a hot
+ * path is still work plus a stack.
+ */
+function parseBody(payload: ArrayBuffer): { body: unknown } | null {
+  const bytes = new Uint8Array(payload);
+  if (bytes.length <= 1) return { body: null };
   try {
-    return { kind: bytes[0], body: JSON.parse(new TextDecoder().decode(bytes.subarray(1))) };
+    return { body: JSON.parse(new TextDecoder().decode(bytes.subarray(1))) };
   } catch {
     // Malformed JSON from a peer is a message that never happened, not a
     // throw: this runs inside a transport callback, where an exception would
@@ -369,7 +384,7 @@ function isRejectReason(v: unknown): v is RejectReason {
 // ─── The machine ─────────────────────────────────────────────────────────────
 
 export function createLobby(deps: LobbyDeps): Lobby {
-  const { transport, self, isAuthority, authorityPeerId, colorFor, schedule } = deps;
+  const { transport, self, isAuthority, authorityPeerId, colorFor, now, schedule } = deps;
 
   /** The authority's roster, IN ORDER OF ENTRY. That order becomes p0..p3. */
   const occupants: Occupant[] = [];
@@ -408,6 +423,33 @@ export function createLobby(deps: LobbyDeps): Lobby {
    */
   const refused = new Set<PeerId>();
 
+  /**
+   * One pinger per link this machine has (D3-13, D3-16).
+   *
+   * THE AUTHORITY KEEPS ONE PER GUEST AND RELAYS THE SUMMARY, because in a star
+   * a guest can only measure its own leg — without the relay nobody can see
+   * WHICH player is lagging, only that someone is. The guest keeps one toward
+   * the authority for two reasons: something has to answer the authority's
+   * pings, and the guest needs its own number for the in-run indicator (D3-15).
+   *
+   * On the authority a pinger is created when a peer is ADMITTED, not when its
+   * connection opens: a peer that is about to be refused should not get a
+   * measurement loop, and one that never announces itself is not in the room.
+   */
+  const pingers = new Map<PeerId, Pinger>();
+
+  function startPinger(peer: PeerId): void {
+    if (pingers.has(peer)) return;
+    pingers.set(peer, createPinger({ transport, peer, now, schedule }));
+  }
+
+  function stopPinger(peer: PeerId): void {
+    const pinger = pingers.get(peer);
+    if (!pinger) return;
+    pinger.close();
+    pingers.delete(peer);
+  }
+
   const toView = (o: Occupant): OccupantView => ({
     peerId: o.peerId, accountId: o.accountId, name: o.name, cls: o.cls,
     color: o.color, slot: o.slot, connected: o.connected, ping: o.ping, route: o.route,
@@ -435,9 +477,31 @@ export function createLobby(deps: LobbyDeps): Lobby {
     for (const cb of [...stateCbs]) cb(view);
   }
 
+  /**
+   * Copies the measurements into the roster right before it is relayed (D3-16).
+   *
+   * The authority's own row carries no ping, and null rather than zero: a
+   * machine has no round trip to itself, and a zero there would read on screen
+   * as the best connection in the room instead of as the absence of one.
+   *
+   * `route` stays `'unknown'` in this wave, which is the value the frozen table
+   * puts at index 0 for exactly this reason — an absent measurement must never
+   * decode as `direct`, because that biases the one number the telemetry exists
+   * to produce in the reassuring direction. Plan 03-08 fills it from
+   * `getStats()`, which is the only source of the route (D3-13).
+   */
+  function refreshPings(): void {
+    for (const o of occupants) {
+      if (o.peerId === self.peerId) { o.ping = null; continue; }
+      const pinger = pingers.get(o.peerId);
+      o.ping = pinger ? pinger.rtt() : null;
+    }
+  }
+
   /** The authority's one write of the truth: relay it, then tell the screen. */
   function publish(): void {
     if (disposed) return;
+    refreshPings();
     const frame = encode(KIND_LOBBY_STATE, {
       authorityPeerId, closed, occupants: occupants.map(toView),
     });
@@ -496,6 +560,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
       color: hello.color, forge: hello.forge,
       slot: null, connected: true, ping: null, route: 'unknown',
     });
+    startPinger(from);
     publish();
   }
 
@@ -511,27 +576,31 @@ export function createLobby(deps: LobbyDeps): Lobby {
 
   subs.push(transport.onMessage((from, payload) => {
     if (disposed || dead) return;
-    const msg = decode(payload);
-    if (!msg) return;
+    // Dispatch on the kind byte FIRST. `ping` and `pong` share this transport
+    // and belong to the pingers, which subscribe on their own; they must not
+    // reach the parser below.
+    const kind = kindOf(payload);
     if (isAuthority) {
       // An authority accepts exactly one kind from a peer in this phase.
-      // `ping` and `pong` belong to the pinger, which subscribes separately.
-      if (msg.kind === KIND_HELLO) onAnnounce(from, msg.body);
+      if (kind !== KIND_HELLO) return;
+      const parsed = parseBody(payload);
+      if (parsed) onAnnounce(from, parsed.body);
       return;
     }
     if (from !== authorityPeerId) return;
-    if (msg.kind === KIND_LOBBY_STATE) { onLobbyState(from, msg.body); return; }
-    if (msg.kind === KIND_REJECT) {
-      const reason = isRecord(msg.body) ? msg.body.reason : null;
+    if (kind !== KIND_LOBBY_STATE && kind !== KIND_REJECT && kind !== KIND_START_RUN) return;
+    const parsed = parseBody(payload);
+    if (!parsed) return;
+    if (kind === KIND_LOBBY_STATE) { onLobbyState(from, parsed.body); return; }
+    if (kind === KIND_REJECT) {
+      const reason = isRecord(parsed.body) ? parsed.body.reason : null;
       if (isRejectReason(reason)) for (const cb of [...rejectCbs]) cb(reason);
       return;
     }
-    if (msg.kind === KIND_START_RUN) {
-      const config = readRunConfig(msg.body);
-      if (!config) return;
-      started = config;
-      for (const cb of [...startCbs]) cb(config);
-    }
+    const config = readRunConfig(parsed.body);
+    if (!config) return;
+    started = config;
+    for (const cb of [...startCbs]) cb(config);
   }));
 
   subs.push(transport.onPeerLeave((peer) => {
@@ -546,6 +615,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
       return;
     }
     refused.delete(peer);
+    stopPinger(peer);
     const i = occupants.findIndex((o) => o.peerId === peer);
     if (i < 0) return;
     if (closed) {
@@ -580,6 +650,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
     // that lands. The alternative — picking one — is a guest that sometimes
     // never appears in the room, which costs incomparably more.
     announce();
+    startPinger(authorityPeerId);
   }
 
   return {
@@ -635,6 +706,8 @@ export function createLobby(deps: LobbyDeps): Lobby {
       if (disposed) return;
       disposed = true;
       if (cancelTick) { cancelTick(); cancelTick = null; }
+      for (const pinger of pingers.values()) pinger.close();
+      pingers.clear();
       for (const un of subs) un();
       subs.length = 0;
       stateCbs.clear();
