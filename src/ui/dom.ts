@@ -29,6 +29,13 @@ export const dom = {
     levelup: document.getElementById('levelup-screen')!,
     forge: document.getElementById('forge-screen')!,
     stats: document.getElementById('stats-screen')!,
+    // Phase 3's three new screens. They are the first entries here that are NOT
+    // reachable from `world.phase` — SCREEN_FOR_PHASE in screens.ts maps phases
+    // to screens, and there is no World at all while these are up. ui/room.ts
+    // shows them from network state instead (03-UI-SPEC § Screens & States).
+    room: document.getElementById('room-screen')!,
+    lobby: document.getElementById('lobby-screen')!,
+    desync: document.getElementById('desync-screen')!,
   },
 
   hud: document.getElementById('hud')!,
@@ -140,4 +147,51 @@ export const dom = {
   // reused here rather than re-resolved under a second name.
   btnTouchSprint: document.getElementById('btn-touch-sprint')!,
   btnTouchPause: document.getElementById('btn-touch-pause')!,
+
+  // ─── Room flow (phase 3) ───────────────────────────────────────────────
+  // The way in (03-UI-SPEC § Screens & States #5). Wired in main.ts next to
+  // #btn-start, because opening the room screen is a lifecycle decision and
+  // main.ts is what owns those.
+  btnCoop: document.getElementById('btn-coop')!,
+
+  // Room screen — create / join (SALA-01, D3-07). `joinCode` is cast to the
+  // input type here rather than at each use, exactly like `heroNameInput`.
+  btnCreateRoom: document.getElementById('btn-create-room')! as HTMLButtonElement,
+  joinCode: document.getElementById('join-code')! as HTMLInputElement,
+  btnJoinRoom: document.getElementById('btn-join-room')! as HTMLButtonElement,
+  // D3-08: WebRTC failing is a retry, not a dead end. Hidden until it fails.
+  btnRetryJoin: document.getElementById('btn-retry-join')! as HTMLButtonElement,
+  roomStatus: document.getElementById('room-status')!,
+  roomError: document.getElementById('room-error')!,
+  btnRoomBack: document.getElementById('btn-room-back')!,
+
+  // Lobby screen (SALA-02, SALA-03, SALA-05). The seat cards and the class
+  // cards are built by ui/room.ts inside these two containers and have no ids,
+  // the same arrangement as `shopSlots` and `levelupChoices` above.
+  lobbyCode: document.getElementById('lobby-code')!,
+  lobbyLink: document.getElementById('lobby-link')! as HTMLInputElement,
+  btnCopyLink: document.getElementById('btn-copy-link')!,
+  lobbySlots: document.getElementById('lobby-slots')!,
+  lobbyEmptyHint: document.getElementById('lobby-empty-hint')!,
+  lobbyClass: document.getElementById('lobby-class')!,
+  lobbyMode: document.getElementById('lobby-mode')!,
+  lobbyStatus: document.getElementById('lobby-status')!,
+  // Resolved here even though ui/room.ts REMOVES the node for a guest (D3-04):
+  // the reference survives removal, which is what lets the same element go back
+  // in if this machine ever creates a room later in the session.
+  btnStartRun: document.getElementById('btn-start-run')!,
+  btnLeaveRoom: document.getElementById('btn-leave-room')!,
+
+  // Divergence screen (D3-05). Both hashes are selectable — style.css:69 sets
+  // `user-select: none` on the whole document, which would make "copie os dois
+  // códigos" a lie.
+  desyncOurs: document.getElementById('desync-ours')!,
+  desyncTheirs: document.getElementById('desync-theirs')!,
+  btnDesyncClose: document.getElementById('btn-desync-close')!,
+
+  // Network indicator (D3-15) — one element, alive from the moment a room
+  // session exists until it ends. Phase 4 inherits it as is.
+  netBadge: document.getElementById('net-badge')!,
+  netRoute: document.getElementById('net-route')!,
+  btnRelayFlag: document.getElementById('btn-relay-flag')!,
 };
