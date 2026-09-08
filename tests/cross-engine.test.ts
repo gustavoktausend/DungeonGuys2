@@ -29,13 +29,30 @@
 // means nothing. Change one, change the other.
 import { describe, it, expect } from 'vitest';
 import { createWorld, createPlayer, startRun } from '@dg2/sim';
+import { decodeSnapshot, encodeSnapshot, extractSnapshot } from '@dg2/protocol';
 import { createStepper } from '../src/app/stepper';
 import { hashWorld } from './helpers';
 import { decodeInputLog, type GoldenFixture } from './inputLog';
+import { wave16SwarmElite } from './worlds';
 import type { World } from '@dg2/sim';
 import FIXTURE from './golden/campaign-mage-3000.json';
+import SNAPSHOT_FIXTURE from './snapshots/snapshot-codec.json';
 
 const GOLDEN = FIXTURE as unknown as GoldenFixture;
+
+/**
+ * The snapshot codec's golden bytes, recorded from Node.
+ *
+ * It lives in tests/snapshots/ and NOT in tests/golden/: that directory is
+ * reserved for SIMULATION hashes, and the header of tools/golden/rebaseline.mjs
+ * explains why. A file of protocol bytes sitting among them would make the
+ * rebaseline tool look like it maintains this too, which it does not.
+ */
+const SNAPSHOT_GOLDEN = SNAPSHOT_FIXTURE as {
+  tick: number;
+  byteLengths: number[];
+  parts: number[][];
+};
 
 /**
  * Checkpoint cadence. These intermediate hashes are TEST DATA and are NOT
@@ -91,5 +108,55 @@ describe('determinismo entre motores', () => {
         + `(ouro ${bad[0].gold}, este motor ${bad[0].mark.hash}); `
         + `último no tick ${bad[bad.length - 1].mark.t}`;
     expect(verdict).toBe('nenhuma divergência');
+  });
+});
+
+// The codec leg, in the SAME file rather than a new one, and that is a
+// constraint and not a preference: vitest.browser.config.ts:10 has an `include`
+// of exactly one file. Adding a second test file would mean widening that
+// `include`, which is a second decision — about what the browser gate covers —
+// riding along in a commit about a codec. The describe goes here; the config
+// does not move.
+//
+// What this adds over the Node suite: tests/snapshot-codec.test.ts already
+// round-trips the codec, but in ONE process on ONE engine, so by construction
+// it cannot see two engines disagree. The bytes below were recorded from Node,
+// and the three browsers have to reproduce them exactly.
+//
+// If this goes red while the Node leg stays green, the meaning is narrow and
+// specific: something in the path from World to bytes started depending on
+// arithmetic the specification only approximates. The likely suspects are the
+// fixture's own construction (packages/sim, which the hash test above already
+// guards) and float32 rounding in the player positions. Do NOT fix it by
+// loosening the comparison.
+describe('codec de snapshot entre motores (SYNC-04)', () => {
+  it('a wave 16 produz os mesmos bytes que o ouro gravado do Node', () => {
+    const parts = encodeSnapshot(extractSnapshot(wave16SwarmElite()));
+    expect(parts.map(p => p.byteLength)).toEqual(SNAPSHOT_GOLDEN.byteLengths);
+    parts.forEach((part, index) => {
+      expect(Array.from(new Uint8Array(part)), `parte ${index}`)
+        .toEqual(SNAPSHOT_GOLDEN.parts[index]);
+    });
+  });
+
+  it('o round-trip duplo fecha neste motor', () => {
+    const record = extractSnapshot(wave16SwarmElite());
+    const parts = encodeSnapshot(record);
+
+    // Ida e volta pelo registro: decodificar e recodificar devolve os mesmos
+    // bytes. Comparado como bytes, que é a única comparação que não pode ser
+    // enganada por um campo que sobreviveu ao formato por acaso.
+    const again = encodeSnapshot(decodeSnapshot(parts));
+    parts.forEach((part, index) => {
+      expect(Array.from(new Uint8Array(again[index])), `parte ${index}`)
+        .toEqual(Array.from(new Uint8Array(part)));
+    });
+
+    // E o ouro decodifica no que este motor extraiu, o que fecha o círculo: os
+    // bytes do Node descrevem o mesmo mundo que este motor construiu.
+    const fromGolden = decodeSnapshot(SNAPSHOT_GOLDEN.parts.map(b => Uint8Array.from(b).buffer));
+    expect(fromGolden.tick).toBe(record.tick);
+    expect(fromGolden.enemies.length).toBe(record.enemies.length);
+    expect(fromGolden.players.length).toBe(record.players.length);
   });
 });
