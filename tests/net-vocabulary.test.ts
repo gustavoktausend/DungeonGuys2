@@ -19,14 +19,25 @@
 //                      is the exemption block at the bottom, which stopped
 //                      being "nobody here may claim the marker" and became the
 //                      same three-lock arrangement the protocol audit uses.
-//   plan 03-09         + the lobby-screen sources, which live under src/ui and
-//                      therefore DO need a third pattern
+//   this plan (03-09)  + src/ui/room.ts, which lives under src/ui and therefore
+//                      DID need a third pattern.
 //
 // Writing tomorrow's glob today would be worse than useless: an
 // `import.meta.glob` over a directory that does not exist yet returns an empty
 // record, every check below would pass over nothing, and the anti-vacuity test
 // is precisely what would go red to say so. So the glob widens when the
 // directory lands, in the same commit — which is what happened here.
+//
+// WHY ONLY ONE FILE OF src/ui/ IS AUDITED, and not the directory. FORM-12 is
+// about the vocabulary of the wire: authority, peers, slots in the code, and
+// "quem criou a sala" on the screen. src/ui/room.ts is the only module under
+// src/ui/ that speaks about rooms, peers and seats at all — every other file
+// there paints a `World`, and a pattern of `src/ui/**` would drag in a hundred
+// mentions of things this rule has no opinion about, while making the audit
+// slower and its failures harder to read. The narrow pattern is also a claim
+// that gets checked: if a second room-facing module is ever added under src/ui/
+// and not listed here, the reviewer of THAT plan is the one who has to widen
+// this line, in the commit that creates it.
 //
 // A wave whose files fall inside an existing pattern gets the OTHER half of the
 // same discipline instead: an explicit assertion, below, that this wave's three
@@ -81,13 +92,16 @@ import { scan } from './scan';
 // takes an array and returns one record, so the checks below iterate a single
 // set and cannot be extended for one side and forgotten for the other.
 const FILES = import.meta.glob<string>(
-  ['../src/net/**/*.ts', '../apps/server/src/signaling/**/*.ts'],
+  ['../src/net/**/*.ts', '../apps/server/src/signaling/**/*.ts', '../src/ui/room.ts'],
   { query: '?raw', import: 'default', eager: true },
 );
 
-/** The prefixes each half of the glob produces, for the anti-vacuity checks. */
+/** The prefixes each part of the glob produces, for the anti-vacuity checks. */
 const CLIENT_PREFIX = '../src/net/';
 const SERVER_PREFIX = '../apps/server/src/signaling/';
+/** The single view module of this phase — see the header for why it is one
+ *  file and not a directory. */
+const VIEW_FILE = '../src/ui/room.ts';
 
 /**
  * Matches "host" at the start of an identifier segment, in any casing —
@@ -154,6 +168,17 @@ describe('vocabulário do transporte e do signaling (FORM-12)', () => {
     // would silently return to if the directory were ever renamed.
     const server = Object.keys(FILES).filter(path => path.startsWith(SERVER_PREFIX));
     expect(server.length).toBeGreaterThan(0);
+  });
+
+  it('o glob encontrou a view da sala em src/ui', () => {
+    // Asserted by NAME and separately from the two counts above, for the same
+    // reason those two are separate: a combined "more than zero" stays green
+    // when one pattern matches nothing at all. This is the pattern that would
+    // silently stop matching if the module were ever renamed or split, and it
+    // covers the file where the temptation to say the forbidden word is
+    // strongest on this side — the screen is where the player has to be told
+    // WHO is in charge, and the contract's answer is "quem criou a sala".
+    expect(FILES[VIEW_FILE], `o glob não encontrou ${VIEW_FILE}`).toBeTypeOf('string');
   });
 
   it('o glob cobre os três fontes da onda 4 desta fase', () => {

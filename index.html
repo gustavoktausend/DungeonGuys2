@@ -116,6 +116,10 @@
           <div class="inst-row"><span class="key">❚❚</span><span>PAUSE</span></div>
         </div>
         <button id="btn-start" class="btn-pixel">▶ START GAME</button>
+        <!-- The way into the room flow (03-UI-SPEC § Screens & States #5): right after
+             the primary action and before the update offer. Name, colour and class are
+             already chosen above; the lobby only lets the class change. -->
+        <button id="btn-coop" class="btn-pixel secondary">◆ JOGAR COM AMIGOS</button>
         <button id="btn-update" class="btn-pixel secondary hidden">⟳ RECARREGAR AGORA</button>
         <div class="footer-hint">Survive the waves. Collect gold. Die gloriously.</div>
       </div>
@@ -226,6 +230,72 @@
         </div>
       </div>
     </div>
+
+    <!-- ROOM SCREEN — create / join (SALA-01, D3-07) -->
+    <!-- Copy is verbatim from 03-UI-SPEC § Copywriting Contract. These screens are in
+         Brazilian Portuguese while the legacy ones stay in English: translating those
+         is explicitly out of this phase's scope, not debt it leaves behind. -->
+    <div id="room-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="shop-title">SALA</div>
+        <button id="btn-create-room" class="btn-pixel">▶ CRIAR SALA</button>
+        <div class="room-sep">───────  ou  ───────</div>
+        <div class="room-join">
+          <div class="color-label">— CÓDIGO DA SALA —</div>
+          <!-- type="text" is load-bearing, not decoration: ui/events.ts's isTextInput()
+               only swallows keystrokes for a text input, so any other type would make
+               typing a room code fire the game's own shortcuts. -->
+          <input type="text" id="join-code" maxlength="6" placeholder="ABC123" autocapitalize="characters" autocomplete="off" spellcheck="false" />
+          <button id="btn-join-room" class="btn-pixel">▶ ENTRAR</button>
+          <button id="btn-retry-join" class="btn-pixel hidden">↺ TENTAR DE NOVO</button>
+        </div>
+        <div id="room-status" role="status" aria-live="polite"></div>
+        <div id="room-error" role="alert"></div>
+        <button id="btn-room-back" class="btn-pixel secondary">✕ VOLTAR</button>
+      </div>
+    </div>
+
+    <!-- LOBBY SCREEN (SALA-02, SALA-03, SALA-05) -->
+    <!-- The four seat cards and the class cards have no ids of their own: ui/room.ts
+         builds them inside #lobby-slots / #lobby-class, the same way #shop-slots,
+         #forge-list and #levelup-choices are filled. -->
+    <div id="lobby-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="shop-title">LOBBY</div>
+        <div class="color-label">— CÓDIGO —</div>
+        <div id="lobby-code">——————</div>
+        <div class="lobby-link-row">
+          <input type="text" id="lobby-link" readonly />
+          <button id="btn-copy-link" class="btn-pixel secondary">COPIAR LINK</button>
+        </div>
+        <div id="lobby-slots"></div>
+        <div id="lobby-empty-hint" class="hidden">Você está sozinho na sala. Pode iniciar assim mesmo.</div>
+        <div class="color-label">— SUA CLASSE —</div>
+        <div id="lobby-class"></div>
+        <div class="lobby-foot">
+          <div id="lobby-mode">MODO · CAMPANHA</div>
+          <div id="lobby-status" role="status" aria-live="polite"></div>
+        </div>
+        <div class="lobby-actions">
+          <!-- ▶ INICIAR is ABSENT from the DOM for a guest, not disabled (D3-04): the
+               markup ships it and ui/room.ts removes the node for whoever did not
+               create the room. A disabled button invites a click and a question. -->
+          <button id="btn-start-run" class="btn-pixel">▶ INICIAR</button>
+          <button id="btn-leave-room" class="btn-pixel secondary">✕ SAIR DA SALA</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DESYNC SCREEN — tick-0 hash divergence (D3-05) -->
+    <div id="desync-screen" class="screen">
+      <div class="screen-inner compact">
+        <div class="shop-title desync-title">MUNDOS DIFERENTES</div>
+        <div class="desync-body">Os dois lados montaram mundos diferentes no tick 0. A run não vale. Copie os dois códigos e avise.</div>
+        <div class="desync-row"><span class="desync-label">o seu:</span><span id="desync-ours"></span></div>
+        <div class="desync-row"><span class="desync-label">o da sala:</span><span id="desync-theirs"></span></div>
+        <button id="btn-desync-close" class="btn-pixel secondary">✕ SAIR DA SALA</button>
+      </div>
+    </div>
   </div>
 
   <!-- HUD (visible during gameplay) -->
@@ -264,6 +334,15 @@
     <button id="btn-touch-special">✦</button>
     <button id="btn-touch-sprint">»</button>
     <button id="btn-touch-pause">❚❚</button>
+  </div>
+
+  <!-- Network indicator (D3-15). OUTSIDE #ui-overlay and AFTER #touch-ui, both on
+       purpose: z-index 11 puts it above the overlay so the forced-relay badge is
+       visible with the lobby open, and the sibling combinator that moves it out from
+       under the left thumb needs #touch-ui to come first in the document. -->
+  <div id="net-badge" class="hidden">
+    <span id="net-route">—</span>
+    <button id="btn-relay-flag" class="hidden">RELAY FORÇADO (DEBUG) ✕</button>
   </div>
 
   <!-- Wave announcement -->

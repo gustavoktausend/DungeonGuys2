@@ -134,21 +134,36 @@ export let playerSheet: HTMLImageElement | HTMLCanvasElement = SHEET;
 export const lum = ([r, g, b]: readonly [number, number, number]): number => 0.299 * r + 0.587 * g + 0.114 * b;
 
 /**
- * Rebuilds `playerSheet`, swapping the class's baked-in outfit pair for
- * `rgb`. The original read the chosen color from `Save.data.settings.colors`
- * (ORIG/config.js:193); render/ must not depend on app/'s Save, so the
- * caller passes the color in directly.
+ * A recolored copy of the class's own atlas, RETURNED rather than installed.
+ *
+ * Extracted from `recolorPlayerSheet` for phase 3, and the defect the split
+ * prevents is worth naming: the lobby paints four seats in four different
+ * colors, and four calls to a function that writes the module-global
+ * `playerSheet` would each overwrite the last — the four avatars would end up
+ * identical and the run would start wearing whichever color painted last, which
+ * is the sheet the WHOLE run then draws from. A function that returns its
+ * result has no such coupling, and `recolorPlayerSheet` below is one line on
+ * top of it, with exactly the effect it always had.
+ *
+ * The original read the chosen color from `Save.data.settings.colors`
+ * (ORIG/config.js:193); render/ must not depend on app/'s Save, so the caller
+ * passes the color in directly.
+ *
+ * Falls back to the untouched source sheet on every failure path, including the
+ * tainted-canvas throw that a `file://` double-click produces: a lobby that
+ * shows the default outfit is a cosmetic loss, and a lobby that throws while
+ * painting is a blank screen.
  */
-export function recolorPlayerSheet(cls: ClassKey, rgb: [number, number, number]): void {
+export function recolorSheet(cls: ClassKey, rgb: readonly [number, number, number]): HTMLImageElement | HTMLCanvasElement {
   // each class recolors a copy of ITS OWN atlas (0x72 sheet or a mixer sheet)
   const srcSheet = ANIMS[CLASS_DEFS[cls].anim].sheet ?? SHEET;
-  if (!srcSheet.complete || srcSheet.naturalWidth === 0) { playerSheet = srcSheet; return; }
+  if (!srcSheet.complete || srcSheet.naturalWidth === 0) return srcSheet;
   try {
     const oc = document.createElement('canvas');
     oc.width  = srcSheet.naturalWidth;
     oc.height = srcSheet.naturalHeight;
     const c = oc.getContext('2d');
-    if (!c) { playerSheet = srcSheet; return; }
+    if (!c) return srcSheet;
     c.drawImage(srcSheet, 0, 0);
 
     const { light, dark } = OUTFIT_COLORS[cls];
@@ -167,10 +182,20 @@ export function recolorPlayerSheet(cls: ClassKey, rgb: [number, number, number])
       }
     }
     c.putImageData(img, rx, ry);
-    playerSheet = oc;
+    return oc;
   } catch {
-    playerSheet = srcSheet; // canvas tainted (file:// double-click) — keep defaults
+    return srcSheet; // canvas tainted (file:// double-click) — keep defaults
   }
+}
+
+/**
+ * Installs the recolored sheet as the one the run draws the player from.
+ *
+ * The one and only writer of `playerSheet`, which is what the lobby must not
+ * call — see the helper above.
+ */
+export function recolorPlayerSheet(cls: ClassKey, rgb: [number, number, number]): void {
+  playerSheet = recolorSheet(cls, rgb);
 }
 
 /** Resolves once SHEET and COP_SHEET have finished loading (or failed to). */

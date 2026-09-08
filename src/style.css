@@ -205,7 +205,11 @@ html, body {
   justify-content: center;
 }
 
-.class-card {
+/* `.lobby-slot` and `.lobby-class-card` ride along on this declaration instead of
+   copying it, and they carry names of their own instead of reusing `.class-card`
+   because ui/settings.ts:55-57 queries `.class-card` GLOBALLY — reusing the name
+   would make refreshClassCards() reach into the lobby. */
+.class-card, .lobby-slot, .lobby-class-card {
   font-family: var(--pixel-font);
   display: flex;
   flex-direction: column;
@@ -222,12 +226,12 @@ html, body {
   transition: transform 0.08s, border-color 0.15s, box-shadow 0.15s;
 }
 
-.class-card:hover {
+.class-card:hover, .lobby-class-card:hover {
   transform: translateY(-3px);
   border-color: var(--gold);
 }
 
-.class-card.selected {
+.class-card.selected, .lobby-class-card.selected {
   border-color: var(--gold);
   outline-color: rgba(232,201,106,0.6);
   box-shadow: 0 0 18px rgba(201,162,39,0.35), inset 0 0 14px rgba(201,162,39,0.12);
@@ -293,7 +297,7 @@ html, body {
   width: 100%;
 }
 
-#hero-name {
+#hero-name, #join-code {
   font-family: var(--display-font);
   font-size: clamp(17px, 2.4vw, 22px);
   letter-spacing: 0.12em;
@@ -308,12 +312,12 @@ html, body {
   cursor: text;
 }
 
-#hero-name:focus {
+#hero-name:focus, #join-code:focus {
   border-color: var(--gold);
   outline-color: rgba(232,201,106,0.5);
 }
 
-#hero-name::placeholder { color: rgba(232,220,200,0.3); }
+#hero-name::placeholder, #join-code::placeholder { color: rgba(232,220,200,0.3); }
 
 /* ─── Mode Select ──────────────────────────────────────── */
 .mode-select {
@@ -538,7 +542,7 @@ html, body {
   color: rgba(232,220,200,0.75);
 }
 
-.key {
+.key, .lobby-chip {
   font-family: var(--display-font);
   background: linear-gradient(180deg, #2d2013, #1a120a);
   border: 1px solid var(--bronze);
@@ -1305,13 +1309,13 @@ html, body {
   box-shadow: inset 0 3px 0 var(--cp-wood-hi), inset 0 -4px 0 #7a5020, 0 3px 0 rgba(0,0,0,0.4); }
 
 /* ═══ Craftpix skin · Task 2: start screen ═══ */
-.class-card {
+.class-card, .lobby-slot, .lobby-class-card {
   background: var(--cp-panel-edge); color: var(--cp-ink-dark);
   border: 3px solid var(--cp-wood-dark);
   box-shadow: inset 2px 2px 0 rgba(0,0,0,0.22), inset -2px -2px 0 rgba(255,255,255,0.25);
   border-radius: 0;
 }
-.class-card.selected { background: var(--cp-btn); color: var(--cp-ink-light);
+.class-card.selected, .lobby-class-card.selected { background: var(--cp-btn); color: var(--cp-ink-light);
   box-shadow: inset 0 3px 0 var(--cp-btn-hi), inset 0 -3px 0 var(--cp-btn-dark); }
 .class-card.locked { opacity: .5; filter: none; }
 .mode-btn, .aim-toggle {
@@ -1322,7 +1326,7 @@ html, body {
 }
 .mode-btn.selected, .aim-toggle.on { background: var(--cp-btn);
   box-shadow: inset 0 3px 0 var(--cp-btn-hi), inset 0 -3px 0 var(--cp-btn-dark); }
-#hero-name {
+#hero-name, #join-code {
   background: var(--cp-panel); color: var(--cp-ink-dark);
   border: 3px solid var(--cp-wood-dark); border-radius: 0; font-family: var(--pixel-font);
 }
@@ -1336,7 +1340,7 @@ html, body {
 .title-glow, .title-main { color: #9a9af0 !important; text-shadow: 0 3px 0 rgba(0,0,0,0.5) !important; animation: none !important; }
 .class-select-label, .color-label, .cval, .ch, .footer-hint, .inst-row,
 #class-record, .name-picker .color-label, .levelup-sub { color: var(--cp-ink-dark) !important; }
-.inst-row .key { color: var(--cp-ink-light) !important; background: var(--cp-header); border-color: var(--cp-wood-dark); }
+.inst-row .key, .lobby-chip { color: var(--cp-ink-light) !important; background: var(--cp-header); border-color: var(--cp-wood-dark); }
 .class-card .class-name { color: var(--cp-ink-light) !important; }
 .class-card .class-desc { color: var(--cp-ink-dark) !important; }
 .class-card.selected .class-name, .class-card.selected .class-desc { color: var(--cp-ink-light) !important; }
@@ -1386,3 +1390,136 @@ html, body {
 .stat-line { border-bottom: 2px dotted rgba(199,195,224,0.2); }
 .stat-line span:last-child { color: #8fbf6a; }
 .shop-price::after { content: ' G'; opacity: 1; } /* pixel font lacks the ¤ glyph */
+
+/* ═══ Phase 3 · room, lobby, divergence, network badge ═══════════════════════
+   Nothing below invents a colour token, a font family or a media query —
+   03-UI-SPEC forbids all three, and the responsive behaviour of this project is
+   clamp() + flex-wrap + `.screen-inner { max-height: 92vh; overflow-y: auto }`.
+   Every component whose base visual already exists was added to that rule's
+   SELECTOR LIST higher up in this file instead of copied down here. What is left
+   is only what genuinely had no rule. */
+
+/* The one new interactive STATE of this phase: while a room is being created or
+   joined, the two actions go disabled, and until now nothing said so on screen. */
+.btn-pixel:disabled, .btn-pixel.secondary:disabled {
+  opacity: 0.5; cursor: not-allowed; filter: none; transform: none;
+}
+
+/* There is no focus style anywhere else in this file. The room flow is the first
+   part of the game meant to be driven by Tab, and ui/settings.ts:32-35 blurs
+   every button that is clicked — without an outline the keyboard navigates
+   blind (03-UI-SPEC § Accessibility). */
+#room-screen :focus-visible, #lobby-screen :focus-visible,
+#desync-screen :focus-visible, #btn-coop:focus-visible, #btn-relay-flag:focus-visible {
+  outline: 2px solid var(--cp-ink-light); outline-offset: 2px;
+}
+
+/* Touch-target floor, spelled out rather than assumed: `.btn-pixel` at its
+   smallest clamp lands near 41px. Measured precedent: #btn-touch-pause is 44x44. */
+#btn-coop, #btn-create-room, #btn-join-room, #btn-retry-join, #btn-room-back,
+#btn-copy-link, #btn-start-run, #btn-leave-room, #btn-desync-close,
+#btn-relay-flag, #join-code, .lobby-class-card { min-height: 44px; }
+
+/* No global `.hidden` exists (see the note at style.css:590) — every element
+   that hides itself declares it, and these are this phase's. */
+#btn-retry-join.hidden, #btn-join-room.hidden, #btn-start-run.hidden,
+#lobby-empty-hint.hidden, #net-badge.hidden, #btn-relay-flag.hidden { display: none; }
+
+/* ─── Room screen ─────────────────────────────────────────────────────────── */
+.room-sep { color: var(--cp-ink-dark); font-size: clamp(11px, 1.5vw, 14px); letter-spacing: 0.2em; }
+.room-join { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+#join-code { text-transform: uppercase; letter-spacing: 0.3em; width: min(260px, 80%); }
+
+#room-status, #lobby-status {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); line-height: 1.5;
+  color: var(--cp-ink-dark); text-align: center;
+  min-height: 1.5em; /* reserved, so a status line appearing does not shove the layout */
+}
+#room-error {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); line-height: 1.5;
+  color: var(--cp-accent-hi); text-align: center; max-width: 34ch; min-height: 1.5em;
+}
+
+/* ─── Lobby ───────────────────────────────────────────────────────────────── */
+#lobby-code {
+  font-family: var(--display-font); font-size: clamp(20px, 5vw, 38px); line-height: 1.15;
+  color: var(--cp-ink-light); letter-spacing: 0.18em;
+}
+.lobby-link-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; width: 100%; }
+#lobby-link {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px);
+  background: var(--cp-panel); color: var(--cp-ink-dark);
+  border: 3px solid var(--cp-wood-dark); border-radius: 0; padding: 8px 10px;
+  width: min(280px, 60%); text-overflow: ellipsis; user-select: text; cursor: text;
+}
+
+/* Four cards that wrap on their own is the whole responsive story here. */
+#lobby-slots, #lobby-class { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.lobby-slot { gap: 8px; min-width: 96px; }
+.lobby-slot.empty { background: var(--cp-slot-empty); }
+/* 48x56 is #color-preview exactly, so the s = 1.7 scale of settings.ts:113-124
+   is reused without recalibrating anything. */
+.lobby-avatar { width: 48px; height: 56px; image-rendering: pixelated; }
+.lobby-slot.connecting .lobby-avatar { opacity: 0.5; }
+.lobby-name {
+  font-family: var(--display-font); font-size: clamp(11px, 1.8vw, 15px); color: var(--cp-ink-light);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 12ch;
+}
+.lobby-class-name, .lobby-ping {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); color: var(--cp-ink-dark);
+}
+.lobby-chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+/* `.key` carries min-width: 76px for the instruction table; a chip is not that. */
+.lobby-chip { min-width: 0; padding: 2px 8px; font-size: clamp(9px, 1.2vw, 11px); }
+/* Same override for the seven class cards, which must fit a phone in two rows. */
+.lobby-class-card {
+  min-width: 0; padding: 8px 12px; gap: 4px;
+  font-family: var(--display-font); font-size: clamp(11px, 1.8vw, 15px);
+}
+.lobby-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px; width: 100%; }
+#lobby-mode { font-family: var(--display-font); font-size: clamp(11px, 1.8vw, 15px); color: var(--cp-ink-dark); }
+#lobby-empty-hint {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); line-height: 1.5;
+  color: var(--cp-ink-dark); text-align: center; max-width: 34ch;
+}
+.lobby-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+
+/* ─── Divergence (D3-05) ──────────────────────────────────────────────────── */
+.desync-title { background: var(--cp-accent) !important; }
+.desync-body {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); line-height: 1.5;
+  color: var(--cp-ink-dark); text-align: center; max-width: 40ch;
+}
+.desync-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+.desync-label { font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); color: var(--cp-ink-dark); }
+/* `html, body { user-select: none }` (style.css:69) would make "copie os dois
+   códigos e avise" a lie. Weight 600 is the Pixelify Sans axis, reserved by
+   03-UI-SPEC for the value inside a sentence — here, the two hashes. */
+#desync-ours, #desync-theirs {
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); font-weight: 600;
+  color: var(--cp-ink-light); user-select: text; cursor: text; overflow-wrap: anywhere;
+}
+
+/* ─── Network badge (D3-15) ───────────────────────────────────────────────── */
+/* z-index 11 sits above #ui-overlay (10) so the forced-relay badge is visible
+   with the lobby open too — one element for both, which is what RESEARCH #6
+   asks for. `pointer-events: none` keeps it from eating clicks aimed at the
+   game underneath; only the button below takes them back. */
+#net-badge {
+  position: fixed; left: 12px; bottom: 12px; z-index: 11;
+  display: flex; align-items: center; gap: 8px; pointer-events: none;
+  background: var(--cp-panel); border: 3px solid var(--cp-wood-dark);
+  padding: 8px 10px;
+  font-family: var(--pixel-font); font-size: clamp(11px, 1.5vw, 14px); color: var(--cp-ink-dark);
+}
+#btn-relay-flag {
+  pointer-events: auto; cursor: pointer;
+  font-family: var(--display-font); font-size: clamp(9px, 1.2vw, 11px);
+  color: var(--cp-ink-light); background: var(--cp-accent);
+  border: 3px solid var(--cp-wood-dark); border-radius: 0; padding: 6px 10px;
+}
+/* The general sibling combinator, deliberately: style.css:981 pairs #hud.hidden
+   with the element next to it and matches nothing since #hurt-flash landed
+   between them. With the touch controls on, the left thumb lives where this
+   badge sits, so it moves to the middle of the footer. */
+#touch-ui.enabled ~ #net-badge { left: 50%; bottom: 12px; transform: translateX(-50%); }

@@ -1,13 +1,17 @@
 import './style.css';
-import { createWorld, drainEvents, DT_MS, createPlayer, startRun } from '@dg2/sim';
+import { normalizeRoomCode, PROTOCOL_VERSION } from '@dg2/protocol';
+import type { Versions } from '@dg2/protocol';
+import { CLASS_DEFS, createWorld, drainEvents, DT_MS, createPlayer, startRun } from '@dg2/sim';
 import { startLoop } from './app/loop';
 import { createInput } from './app/input';
 import { createEventSink } from './app/events';
 import { Sfx } from './app/audio';
 import { Save } from './app/save';
-import { buildRunConfig, finishRun } from './app/forge';
+import { buildRunConfig, finishRun, forgeLevel } from './app/forge';
 import { createCamera, updateCamera, type Camera } from './render/camera';
-import { loadSprites } from './render/sprites';
+import { ANIMS, loadSprites, OUTFIT_COLORS, recolorSheet } from './render/sprites';
+import { readRelayFlag } from './net/ice';
+import { initRoom } from './ui/room';
 import { buildTilemap } from './render/tilemap';
 import { createFx } from './render/fx';
 import { render } from './render/index';
@@ -29,6 +33,40 @@ function resize() {
 }
 resize();
 addEventListener('resize', resize);
+
+// ─── The boot query, read exactly once ────────────────────────────────────
+// Two parameters arrive on the address bar and neither may survive a reload.
+// `?ice=relay` is the debug flag (RESEARCH #6): it persists to storage, so
+// leaving it in the URL would make it look like a property of the link rather
+// than of this browser, and the badge is what makes the state visible instead.
+// `?sala=CODIGO` is the invite (D3-07): reloading must not try to re-enter a
+// room that may already be dead, and a PWA installed from `/?sala=X` must not
+// pin a room into its start_url — which is why the query is consumed here and
+// public/ is untouched by this plan (`start_url` and `scope` stay `"."`, and
+// sw.js already lets /api/ and /ws through; the proof is plan 03-10's spec).
+//
+// ORDER MATTERS. `readRelayFlag` rebuilds the URL without `ice` and KEEPS
+// everything else, which is exactly why it takes the whole URL (03-08); the
+// room code is read from what it left behind.
+const forceRelay = readRelayFlag({
+  url: location.href,
+  storage: localStorage,
+  replaceUrl: url => { history.replaceState(null, '', url); },
+});
+
+/** The invite code, normalised, with the query removed from the bar. */
+function takeRoomCode(): string | null {
+  const url = new URL(location.href);
+  const raw = url.searchParams.get('sala');
+  if (raw === null) return null;
+  url.searchParams.delete('sala');
+  history.replaceState(null, '', url.toString());
+  // Normalised here so the field shows the canonical spelling: `abc-123` and
+  // `ABC123` are the same room, and only one of them is a room code.
+  return normalizeRoomCode(raw);
+}
+
+const inviteCode = takeRoomCode();
 
 // ─── PWA (Step 6, task-20-brief.md) ───────────────────────────────────────
 // `import.meta.env.BASE_URL` is Vite's `base`, now '/' everywhere since the
@@ -155,6 +193,100 @@ const touch = setupTouch(canvas);
 
 await loadSprites();
 initStartScreen(); // paints the class-select color preview now that SHEET/COP_SHEET are decoded
+
+// ─── The room flow (phase 3) ──────────────────────────────────────────────
+// ui/room.ts paints the three new screens and owns the session; everything it
+// cannot reach on its own arrives here, which is what keeps that module
+// loadable under Node (see its header).
+
+/**
+ * Where the signalling socket lives.
+ *
+ * Same origin in production — Caddy proxies /ws to the unit on 8080 — and the
+ * unit directly in development, because Vite serves the page on 5173 and does
+ * not know about /ws. The server's own default for DG2_ORIGIN is the Vite
+ * origin (apps/server/src/env.ts), so the two halves of that arrangement were
+ * written to match; the port is that file's DG2_PORT default.
+ */
+const SIGNALING_URL = import.meta.env.DEV
+  ? `ws://${location.hostname}:8080/ws`
+  : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+
+/**
+ * The pair every peer announces, and the door refuses on (D-08).
+ *
+ * `protocol` is real. The sim half is the sha256 of the built sim bundle (D-07)
+ * and it lives in packages/sim/dist/sim-version.json, a BUILD ARTIFACT that is
+ * gitignored: nothing wires it into the client yet, and inventing that wiring
+ * inside a screen plan would be making a build decision in the wrong place. So
+ * every build announces the same string here, which means the sim half of the
+ * gate currently refuses nothing. Recorded as a known stub of plan 03-09.
+ */
+const VERSIONS: Versions = { protocol: PROTOCOL_VERSION, sim: 'unwired' };
+
+/**
+ * Who this machine says it is, for as long as the tab is open.
+ *
+ * Self-declared and deliberately not durable (D3-09): phase 6 replaces it with
+ * an authenticated identity at the one named point in the upgrade handler, and
+ * nothing in this phase may come to depend on it. Trimmed to 32 characters
+ * because that is the cap the signalling schema declares.
+ */
+const accountId = crypto.randomUUID().replaceAll('-', '');
+
+const room = initRoom({
+  el: dom,
+  // The PURE recolor, never `recolorPlayerSheet`: that one writes the sheet the
+  // whole run draws from, and four seats in four colours would fight over it.
+  recolorSheet,
+  idleFrame: cls => ANIMS[CLASS_DEFS[cls].anim].idle[0],
+  showScreen,
+  announce,
+  identity: () => {
+    const { classKey, mode, playerName } = getSelection();
+    return {
+      accountId,
+      name: playerName,
+      cls: classKey,
+      // Per player, and it travels in `hello`: a RunConfig assembled without it
+      // would silently give everyone a zeroed forge (03-03).
+      forge: {
+        vigor: forgeLevel('vigor'), honed: forgeLevel('honed'), fleet: forgeLevel('fleet'),
+        startgold: forgeLevel('startgold'), merchant: forgeLevel('merchant'),
+        wise: forgeLevel('wise'), golden: forgeLevel('golden'),
+      },
+      mode,
+    };
+  },
+  colorFor: cls => Save.data.settings.colors[cls] ?? OUTFIT_COLORS[cls].light,
+  versions: VERSIONS,
+  signalingUrl: SIGNALING_URL,
+  openSocket: url => new WebSocket(url),
+  createConnection: config => new RTCPeerConnection(config),
+  storage: localStorage,
+  forceRelay,
+  // The invite link is built from this base plus the ROOM CODE, never from the
+  // address bar — which is what stops the debug flag travelling in a shared
+  // link (T-3-29).
+  inviteBase: location.origin + import.meta.env.BASE_URL,
+  now: () => performance.now(),
+  schedule: (fn, ms) => { const id = setTimeout(fn, ms); return () => { clearTimeout(id); }; },
+  log: (event, fields) => { console.debug(event, fields ?? {}); },
+  // Plan 03-10 turns this manifest into a run: `LOCAL_SLOT` stops being a
+  // constant, each machine builds the world from the seed, and the two compare
+  // the tick-0 hash before anything else happens.
+  onStart: config => { console.debug('sala-iniciou', { seed: config.seed, jogadores: config.players.length }); },
+  reload: () => { location.reload(); },
+});
+
+// No keyboard-click guard here, unlike its neighbours on this screen: there is
+// no run behind the room flow, so Space is not the attack key yet, and the
+// accessibility contract of phase 3 requires Enter and Space to work.
+dom.btnCoop.addEventListener('click', () => { room.open(); });
+
+// A link opens straight into the join flow with the code already in the field —
+// and does NOT fire the join by itself. The player confirms (D3-07).
+if (inviteCode) room.open(inviteCode);
 // No buildTilemap() here: nothing renders until beginRun(), which builds a
 // fresh tilemap itself (line ~112). Painting a 2400x1600 offscreen canvas at
 // module load only to discard it on the first run was pure waste.
@@ -195,6 +327,9 @@ const LOCAL_SLOT: PlayerSlot = 'p0';
 function frame(w: World, alpha: number): void {
   updateHud(w, LOCAL_SLOT);
   syncScreens(w, LOCAL_SLOT);
+  // The badge follows the HUD: DOM, one write per frame, and it never reads
+  // `world` — the number it shows came from the room, not from the simulation.
+  room.paintBadge();
   updateCamera(cam, player, canvas.width, canvas.height);
   render(w, cam, alpha, ctx, fx, LOCAL_SLOT);
 }
