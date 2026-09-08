@@ -13,4 +13,5 @@ export * from './enums';
 export * from './inputCodec';
 export * from './roomCode';
 export * from './runEnvelope';
+export * from './signaling';
 export * from './version';

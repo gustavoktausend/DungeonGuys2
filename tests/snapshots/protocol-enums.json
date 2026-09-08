@@ -7,7 +7,9 @@
     "startRun",
     "input",
     "snapshot",
-    "ack"
+    "ack",
+    "ping",
+    "pong"
   ],
   "REJECT_REASON": [
     "simVersion",
@@ -27,5 +29,35 @@
     "purge",
     "fetch",
     "extract"
+  ],
+  "SNAPSHOT_PART": [
+    "actors",
+    "projectiles",
+    "pickups"
+  ],
+  "SIGNAL_KIND": [
+    "create",
+    "created",
+    "join",
+    "joined",
+    "peers",
+    "offer",
+    "answer",
+    "candidate",
+    "leave",
+    "closed",
+    "iceOutcome",
+    "error"
+  ],
+  "ICE_ROUTE": [
+    "unknown",
+    "direct",
+    "relay"
+  ],
+  "ICE_CANDIDATE_TYPE": [
+    "host",
+    "srflx",
+    "prflx",
+    "relay"
   ]
 }

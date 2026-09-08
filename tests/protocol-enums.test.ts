@@ -24,6 +24,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MSG_KIND, REJECT_REASON, CHANNEL_CLASS, OBJECTIVE_KIND,
+  SNAPSHOT_PART, SIGNAL_KIND, ICE_ROUTE, ICE_CANDIDATE_TYPE,
   PROTOCOL_VERSION, checkVersions, type Versions,
 } from '@dg2/protocol';
 import GOLD from './snapshots/protocol-enums.json';
@@ -35,6 +36,7 @@ import GOLD from './snapshots/protocol-enums.json';
  */
 const TABLES: Record<string, readonly string[]> = {
   MSG_KIND, REJECT_REASON, CHANNEL_CLASS, OBJECTIVE_KIND,
+  SNAPSHOT_PART, SIGNAL_KIND, ICE_ROUTE, ICE_CANDIDATE_TYPE,
 };
 
 const GOLDEN: Record<string, readonly string[]> = GOLD;
@@ -98,6 +100,44 @@ describe('tabelas de enum do protocolo (FORM-11)', () => {
     // 'none' at index 0 so that a zeroed/absent objective field decodes to
     // "no objective" rather than to a real one.
     expect(OBJECTIVE_KIND[0]).toBe('none');
+  });
+
+  it('ping e pong são os índices 8 e 9 de MSG_KIND (D3-13)', () => {
+    // Pinned by INDEX and not merely by presence. The append is only safe
+    // because 0..7 kept their numbers, and this assertion is what says so:
+    // 'ping' anywhere else would mean something recorded as 'ack' now reads
+    // as a latency probe.
+    expect(MSG_KIND[8]).toBe('ping');
+    expect(MSG_KIND[9]).toBe('pong');
+    expect(MSG_KIND.length).toBe(10);
+  });
+
+  it('SNAPSHOT_PART tem as três partes de D3-19, começando em actors', () => {
+    expect(SNAPSHOT_PART[0]).toBe('actors');
+    expect(SNAPSHOT_PART).toEqual(['actors', 'projectiles', 'pickups']);
+  });
+
+  it('SIGNAL_KIND tem doze verbos e é uma tabela separada de MSG_KIND', () => {
+    expect(SIGNAL_KIND.length).toBe(12);
+    // Two wires, two vocabularies. An overlap would not break anything today,
+    // but it is the first step towards one handler serving both legs — and the
+    // day that happens, a peer can address the signalling server.
+    const overlap = SIGNAL_KIND.filter((k) => (MSG_KIND as readonly string[]).includes(k));
+    expect(overlap, 'um verbo do signaling também é um MSG_KIND').toEqual([]);
+  });
+
+  it('ICE_ROUTE começa em unknown, nunca em direct', () => {
+    // A zeroed route field has to decode to "I do not know". Decoding it as
+    // 'direct' would bias the relay-need measurement downward, which is the
+    // direction nobody investigates.
+    expect(ICE_ROUTE[0]).toBe('unknown');
+    expect(ICE_ROUTE).toEqual(['unknown', 'direct', 'relay']);
+  });
+
+  it('ICE_CANDIDATE_TYPE usa os nomes do W3C / RFC 8445', () => {
+    // Read straight off getStats() and stored: renaming any of them here would
+    // mean translating at every call site and mistranslating at one of them.
+    expect(ICE_CANDIDATE_TYPE).toEqual(['host', 'srflx', 'prflx', 'relay']);
   });
 });
 
