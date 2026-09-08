@@ -13,14 +13,26 @@
 // THE SCOPE OF THIS FILE GROWS IN A FIXED SEQUENCE, and the sequence matters:
 //
 //   plan 03-03         src/net/**/*.ts
-//   this plan (03-04)  + apps/server/src/signaling/**/*.ts
-//   plans 03-08/03-09  + the ICE and lobby-screen sources of those waves
+//   plan 03-04         + apps/server/src/signaling/**/*.ts
+//   this plan (03-08)  signaling.ts, rtc.ts and ice.ts — ALREADY COVERED by the
+//                      first pattern, so the glob did not move. What DID move
+//                      is the exemption block at the bottom, which stopped
+//                      being "nobody here may claim the marker" and became the
+//                      same three-lock arrangement the protocol audit uses.
+//   plan 03-09         + the lobby-screen sources, which live under src/ui and
+//                      therefore DO need a third pattern
 //
 // Writing tomorrow's glob today would be worse than useless: an
 // `import.meta.glob` over a directory that does not exist yet returns an empty
 // record, every check below would pass over nothing, and the anti-vacuity test
 // is precisely what would go red to say so. So the glob widens when the
 // directory lands, in the same commit — which is what happened here.
+//
+// A wave whose files fall inside an existing pattern gets the OTHER half of the
+// same discipline instead: an explicit assertion, below, that this wave's three
+// sources are in the record. A pattern that already matches is not the same
+// thing as a pattern that matched THESE files, and only the second is worth
+// anything to the next reader.
 //
 // THE RULE APPLIES TO THE SERVER FOR A SHARPER REASON THAN IT DOES TO THE
 // CLIENT. src/net/ is one machine's view of a wire; apps/server/src/signaling/
@@ -39,10 +51,20 @@
 // WHAT THIS FILE ADDS THAT ITS SIBLING DOES NOT: two assertions about
 // src/net/transport.ts specifically. `broadcast` must not survive comment
 // stripping — the word appears twice in that file's header, explaining its own
-// absence, and that is the only place it is allowed to be. And no source under
-// src/net/ may carry the per-line FORM-12 exemption marker: the one legitimate
-// occurrence in this repository is RFC 8445's candidate type in
-// packages/protocol/src/enums.ts, and it has no business on this side.
+// absence, and that is the only place it is allowed to be. And the exemption
+// marker is confined to a literal list of files, which plan 03-08 grew from
+// nothing to exactly one entry.
+//
+// WHY src/net/ice.ts EARNED THE EXEMPTION. That module reads the candidate type
+// off the connection's statistics, and the RFC 8445 name of the
+// local-interface candidate is the forbidden word — the standards body's noun
+// for a NETWORK INTERFACE, not a claim about whose machine is in charge. The
+// one line that compares against it says so, cites the RFC, and carries the
+// marker; the three locks are the same ones tests/protocol-vocabulary.test.ts
+// uses, and they are three separate tests so that a failure names which one
+// gave way. Loosening FORBIDDEN instead would have been the cheap fix and the
+// wrong one: the regex is written the way it is precisely to catch `hostId` and
+// `authorityHost`, and widening it to admit this entry would readmit those.
 //
 // WHAT IS NOT REPEATED HERE: the "substitute vocabulary lives in the NAMES"
 // assertion. tests/protocol-vocabulary.test.ts makes it over the package that
@@ -81,11 +103,38 @@ const SERVER_PREFIX = '../apps/server/src/signaling/';
  */
 const FORBIDDEN = /(?<![A-Za-z])[Hh][Oo][Ss][Tt]|(?<=[a-z0-9])H(?:ost|OST)/;
 
-/** The marker the protocol audit honours. Nothing here may claim it. */
+/** The per-line marker. Locked three ways — see the header. */
 const EXEMPT_MARKER = 'FORM-12-EXEMPT';
+
+/**
+ * The complete list of files on this side of the wire allowed to carry the
+ * marker. Grows by review, and grew by exactly one in plan 03-08.
+ */
+const EXEMPT_FILES = ['ice.ts'];
+
+/** What a marked line must also cite, so the exemption carries its reason. */
+const EXEMPT_CITATION = 'RFC 8445';
+
+/**
+ * The raw lines of one source that carry the marker.
+ *
+ * Reads the RAW text and not `scan`'s output, because the marker lives in a
+ * trailing comment and `scan` removes comments — which is the whole point of
+ * `scan` and the reason this cannot be one pass.
+ */
+function markedLines(src: string): string[] {
+  return src.split('\n').filter((line) => line.includes(EXEMPT_MARKER));
+}
 
 /** The file whose whole job is to not have a certain method. */
 const TRANSPORT = '../src/net/transport.ts';
+
+/** The three sources this wave added, asserted present rather than assumed. */
+const WAVE_FOUR = [
+  '../src/net/signaling.ts',
+  '../src/net/rtc.ts',
+  '../src/net/ice.ts',
+];
 
 describe('vocabulário do transporte e do signaling (FORM-12)', () => {
   it('o glob encontrou os fontes de src/net', () => {
@@ -107,13 +156,30 @@ describe('vocabulário do transporte e do signaling (FORM-12)', () => {
     expect(server.length).toBeGreaterThan(0);
   });
 
+  it('o glob cobre os três fontes da onda 4 desta fase', () => {
+    // A pattern that already matches is not the same thing as a pattern that
+    // matched THESE files. Named one by one because a renamed module would
+    // otherwise leave this audit silently reading two files instead of three.
+    for (const path of WAVE_FOUR) {
+      expect(FILES[path], `o glob não encontrou ${path}`).toBeTypeOf('string');
+    }
+  });
+
   it('nenhum fonte de src/net nem do signaling contém "host" fora de comentário', () => {
     const bad: string[] = [];
     for (const [path, src] of Object.entries(FILES)) {
+      // Drop the marked lines from the RAW source BEFORE scanning, rather than
+      // trying to match scanned lines against raw ones by index: `scan` deletes
+      // block comments whole, newlines included, so line N of its output is not
+      // line N of the input. Removing a complete raw line is safe here because
+      // a marked line is a code line with a trailing `//` comment — it opens
+      // and closes no block — and the two tests below are what keep it that
+      // way by pinning which files and which content may carry the marker.
+      const kept = src.split('\n').filter((line) => !line.includes(EXEMPT_MARKER)).join('\n');
       // keepStrings: true — comments go, string bodies stay. A literal 'host'
       // travels on the wire exactly like an identifier would, so it breaks the
       // rule exactly as much.
-      for (const line of scan(src, true).split('\n')) {
+      for (const line of scan(kept, true).split('\n')) {
         if (FORBIDDEN.test(line)) bad.push(`${path}: ${line.trim()}`);
       }
     }
@@ -135,16 +201,37 @@ describe('vocabulário do transporte e do signaling (FORM-12)', () => {
     expect(src!.toLowerCase(), 'o parágrafo que explica a ausência sumiu').toContain('broadcast');
   });
 
-  it('nenhum fonte de src/net nem do signaling reivindica o marcador de exceção', () => {
-    // The single legitimate occurrence in this repository is RFC 8445's
-    // candidate type in packages/protocol/src/enums.ts, and the exemption there
-    // is locked three ways. Neither side of the wire has such a case — the
-    // signalling server never reads a candidate's type, it copies the string —
-    // and a file that quietly grew one should have to come through review.
+  it("a lista de arquivos exemptos é exatamente ['ice.ts']", () => {
+    // An exemption that any file may claim is not an exemption, it is an
+    // opt-out. The signalling server still has no such case — it never reads a
+    // candidate's type, it copies the string — and neither do transport.ts,
+    // local.ts, lossy.ts, lobby.ts, ping.ts, signaling.ts or rtc.ts. Only
+    // ice.ts classifies a candidate, so only ice.ts may say the word.
+    expect(EXEMPT_FILES).toEqual(['ice.ts']);
     const claimants = Object.entries(FILES)
-      .filter(([, src]) => src.includes(EXEMPT_MARKER))
-      .map(([path]) => path);
-    expect(claimants).toEqual([]);
+      .filter(([, src]) => markedLines(src).length > 0)
+      .map(([path]) => path.slice(path.lastIndexOf('/') + 1));
+    expect(claimants.sort(), `arquivo fora da lista usando ${EXEMPT_MARKER}`)
+      .toEqual(EXEMPT_FILES);
+  });
+
+  it('toda linha com FORM-12-EXEMPT cita a RFC que a justifica', () => {
+    // The citation is what makes the marker a claim someone can check. Without
+    // it the marker degrades into "I needed this to pass", which is precisely
+    // the failure mode that retires guards.
+    const uncited: string[] = [];
+    let marked = 0;
+    for (const [path, src] of Object.entries(FILES)) {
+      for (const line of markedLines(src)) {
+        marked++;
+        if (!line.includes(EXEMPT_CITATION)) uncited.push(`${path}: ${line.trim()}`);
+      }
+    }
+    // Anti-vacuity: the exemption exists on this side from plan 03-08 on, so
+    // zero marked lines would mean the marker was renamed and this test
+    // silently stopped checking anything.
+    expect(marked, 'nenhuma linha marcada — o marcador foi renomeado?').toBe(1);
+    expect(uncited).toEqual([]);
   });
 
   it('o detector pega as formas reais e ignora as inocentes', () => {
