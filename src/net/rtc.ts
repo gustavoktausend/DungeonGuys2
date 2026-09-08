@@ -188,6 +188,14 @@ export function createRtcTransport(deps: RtcDeps): RtcTransport {
     channel.binaryType = 'arraybuffer';
     leg.channels.set(ch, channel);
     channel.onopen = () => { fireJoin(leg); };
+    // O SINAL RÁPIDO DE QUE O OUTRO LADO FOI EMBORA. Quando o par remoto fecha
+    // a conexão de propósito — aba fechada, "sair da sala" — a associação é
+    // encerrada de forma limpa e os canais fecham em milissegundos; o estado
+    // `failed` da conexão, que é o outro detector, só chega segundos depois,
+    // pela expiração das checagens de consentimento. Sem esta linha um
+    // convidado descobria que a sala acabou pelo caminho lento, e a diferença
+    // entre os dois é a diferença entre "saiu" e "a conexão falhou".
+    channel.onclose = () => { fireLeave(leg, REASON_CLOSED); };
     channel.onmessage = (ev: MessageEvent) => {
       if (shut || leg.gone) return;
       const data: unknown = ev.data;

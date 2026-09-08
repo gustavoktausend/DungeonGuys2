@@ -31,7 +31,7 @@ import type {
 import { parseSignal } from './schema';
 import { clientIp, type Limiter, type RemoteSocket } from './limiter';
 import type { OutcomeSource } from './outcome';
-import type { Rooms } from './rooms';
+import type { Room, Rooms } from './rooms';
 
 /**
  * A seat identifier.
@@ -248,6 +248,33 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       if (peer.peerId === exceptPeerId) continue;
       const target = byPeerId.get(peer.peerId);
       if (target) sendTo(target, { kind: 'peers', peers });
+    }
+  };
+
+  /**
+   * The room is gone: says so to everyone still in it, and unbinds them.
+   *
+   * THE ONLY PLACE `closed` IS SENT, and it is sent from exactly two events —
+   * the authority leaving ON PURPOSE, and the sweep deleting a room whose
+   * grace or idle time ran out. NOT from the authority's socket closing: that
+   * is the detector and not the event (rooms.ts, AUTHORITY_GRACE_MS), and a
+   * `closed` sent there would end four working DataChannel sessions over a
+   * Caddy reload that touched nothing but the signalling leg. Between those
+   * two events a guest learns the authority is gone the way the game itself
+   * does — the DataChannel closing under it (net/rtc.ts).
+   *
+   * Unbinding the sessions is not tidiness: a session still naming a deleted
+   * room would be refused a fresh `create` or `join` for being seated already
+   * (CR-02), in a room that no longer exists.
+   */
+  const closeRoom = (room: Room, exceptPeerId: string | null): void => {
+    for (const occupant of room.occupants.values()) {
+      if (occupant.peerId === exceptPeerId) continue;
+      const target = byPeerId.get(occupant.peerId);
+      if (!target) continue;
+      const seated = sessions.get(target);
+      if (seated && seated.code === room.code) seated.code = null;
+      sendTo(target, { kind: 'closed', code: room.code, reason: 'roomClosed' });
     }
   };
 
@@ -504,14 +531,23 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
 
       case 'leave': {
         if (session.code === null) return;
-        const room = deps.rooms.get(session.code);
+        const code = session.code;
+        // Unbound FIRST, whichever branch follows: a `leave` is the one exit
+        // that says the peer means it, and a session that kept naming the
+        // room would be refused its next `create` for being seated (CR-02).
+        session.code = null;
+        const room = deps.rooms.get(code);
         if (room && room.authorityPeerId === session.peerId) {
-          deps.rooms.authorityLeft(session.code);
+          // ON PURPOSE, so no grace: the grace exists for a socket that went
+          // away without a word, and this is the word. The room is deleted
+          // now and everyone still in it is told (D3-02).
+          const removed = deps.rooms.remove(code);
+          if (removed) closeRoom(removed, session.peerId);
+          deps.log('room-closed', { code, by: 'leave' });
           return;
         }
-        deps.rooms.leave(session.code, session.peerId);
-        announce(session.code, session.peerId);
-        session.code = null;
+        deps.rooms.leave(code, session.peerId);
+        announce(code, session.peerId);
         return;
       }
 
@@ -587,7 +623,10 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       ws.ping();
     }
 
-    for (const code of deps.rooms.sweep()) {
+    // Each room the sweep deletes is announced to whoever is still in it,
+    // with the authority itself skipped by nobody: its socket is the reason
+    // the room expired, so it is not in `byPeerId` to be told.
+    for (const code of deps.rooms.sweep((room) => closeRoom(room, null))) {
       deps.log('room-swept', { code });
     }
   });

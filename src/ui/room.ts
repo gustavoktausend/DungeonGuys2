@@ -406,6 +406,8 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   let transport: RtcTransport | null = null;
   let lobby: Lobby | null = null;
   let lastView: LobbyView | null = null;
+  /** This connection's handle in the room, for the `leave` teardown sends. */
+  let sessionPeerId: string | null = null;
   /** Names by peer, so "{NOME} saiu." can be said about someone already gone. */
   const knownNames = new Map<string, string>();
   let cancelStatus: (() => void) | null = null;
@@ -524,6 +526,7 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     const c = client;
     if (!c) return;
     setBusy(false);
+    sessionPeerId = joined.peerId;
 
     const rtc = createRtcTransport({
       authority,
@@ -675,11 +678,19 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   function teardown(): void {
     lobby?.close();
     transport?.close();
+    // SAID, NOT MERELY DONE. Closing the socket alone leaves the server to
+    // tell "left on purpose" from "vanished" by a silence, and the two are
+    // answered differently: a `leave` from whoever created the room ends it
+    // for everyone NOW (D3-02), while a socket that merely closed starts the
+    // sixty-second grace written for a Caddy reload. Queued if the socket is
+    // not open, and dropped with the outbox when the client closes below.
+    if (client && sessionPeerId !== null) client.send({ kind: 'leave', peerId: sessionPeerId });
     client?.close();
     lobby = null;
     transport = null;
     client = null;
     lastView = null;
+    sessionPeerId = null;
     // The badge goes with the session — EXCEPT while the debug flag is on, when
     // it is the only thing telling the player that every connection they make is
     // being forced through the relay. Hiding it with the room is what would turn

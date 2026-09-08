@@ -343,6 +343,45 @@ describe('quando uma sala morre', () => {
     expect(rooms.get(room.code)).toBeDefined();
   });
 
+  it('durante a graça, join é recusado com roomClosed (WR-02)', () => {
+    // A seat handed out now would name an authority whose socket is gone, and
+    // nothing in this phase brings it back: a lobby that never fills, with no
+    // message saying why. The refusal is the one the room earns a minute later.
+    const clock = fakeClock();
+    const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
+    const room = open(rooms, peer());
+    rooms.authorityLeft(room.code);
+
+    const result = rooms.join(room.code, peer());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('roomClosed');
+    expect(room.occupants.size).toBe(1);
+  });
+
+  it('sweep entrega cada sala removida ao callback, com os ocupantes, antes de apagar', () => {
+    // What lets the server tell whoever is still inside that the room is
+    // gone. The codes it returns stay the plain list they always were.
+    const clock = fakeClock();
+    const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });
+    const dying = open(rooms, peer('autoridade'));
+    rooms.join(dying.code, peer('convidado'));
+    const living = open(rooms, peer());
+
+    rooms.authorityLeft(dying.code);
+    clock.advance(AUTHORITY_GRACE_MS + 1);
+    const seen: string[] = [];
+    const removed = rooms.sweep((room) => {
+      seen.push(`${room.code}:${room.occupants.size}`);
+      // Already out of the map when the callback runs, so nothing the
+      // callback does can put it back by accident.
+      expect(rooms.get(room.code)).toBeUndefined();
+    });
+
+    expect(removed).toEqual([dying.code]);
+    expect(seen).toEqual([`${dying.code}:2`]);
+    expect(rooms.get(living.code)).toBeDefined();
+  });
+
   it(`é apagada ${AUTHORITY_GRACE_MS / 1000} s depois se a autoridade não volta`, () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });

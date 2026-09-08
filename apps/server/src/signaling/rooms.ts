@@ -183,10 +183,24 @@ export interface Rooms {
   remove(code: string): Room | undefined;
   /** Starts the grace period. Does NOT delete — see AUTHORITY_GRACE_MS. */
   authorityLeft(code: string): void;
-  /** Ends the grace period, rebinding the authority to its new handle. */
+  /**
+   * Ends the grace period, rebinding the authority to its new handle.
+   *
+   * NOT WIRED TO ANY MESSAGE IN THIS PHASE. The `rejoin` that would call it
+   * belongs to phase 5's reconnection; until then the grace only defers the
+   * deletion, and `join` refuses a room in grace so that nobody is handed an
+   * authority whose socket is gone.
+   */
   authorityReturned(code: string, peerId: string): boolean;
-  /** Deletes what has expired and returns the codes removed. */
-  sweep(): string[];
+  /**
+   * Deletes what has expired and returns the codes removed.
+   *
+   * `onRemove` sees each room BEFORE it is deleted, occupants included, so the
+   * caller can tell whoever is still in it that it is gone. A callback rather
+   * than a richer return value so that the codes — what the journal logs and
+   * what the tests assert — stay the plain list they always were.
+   */
+  sweep(onRemove?: (room: Room) => void): string[];
   size(): number;
 }
 
@@ -267,6 +281,13 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     // code was real, which is exactly the bit the code's secrecy is protecting.
     if (!room) return { ok: false, reason: 'badCode' };
 
+    // IN GRACE IS CLOSED TO NEWCOMERS. The authority's socket is gone and
+    // nothing in this phase brings it back (see `authorityReturned`), so a
+    // seat handed out now would come with an `authorityPeerId` nobody can
+    // reach — a lobby that never fills, with no message saying why. The
+    // refusal is the one the room will earn for real a minute later.
+    if (room.authorityGoneAt !== null) return { ok: false, reason: 'roomClosed' };
+
     // Already seated: the same seat, untouched. Without this a repeated join
     // would find its own seat among the taken ones, be handed the next free
     // slot, and move mid-lobby — freeing the old one to whoever came next.
@@ -337,7 +358,7 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     return true;
   };
 
-  const sweep = (): string[] => {
+  const sweep = (onRemove?: (room: Room) => void): string[] => {
     const at = now();
     const removed: string[] = [];
     for (const [code, room] of rooms) {
@@ -347,6 +368,7 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
       if (graceExpired || idleExpired) {
         rooms.delete(code);
         removed.push(code);
+        onRemove?.(room);
       }
     }
     return removed;

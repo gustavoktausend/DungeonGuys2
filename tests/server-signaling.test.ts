@@ -21,7 +21,7 @@ import { isRoomCode } from '@dg2/protocol';
 import type { IceOutcome, SignalMessage } from '@dg2/protocol';
 import { attachSignalling, type SignallingDeps } from '../apps/server/src/signaling';
 import type { OutcomeSource } from '../apps/server/src/signaling/outcome';
-import { createRooms, type Rooms } from '../apps/server/src/signaling/rooms';
+import { AUTHORITY_GRACE_MS, createRooms, type Rooms } from '../apps/server/src/signaling/rooms';
 import { createLimiter, JOIN_LIMIT, LIMIT_WINDOW_MS, UPGRADE_LIMIT } from '../apps/server/src/signaling/limiter';
 
 const ORIGIN = 'http://localhost:5173';
@@ -39,6 +39,13 @@ let recordThrows: boolean;
 let iceThrows: boolean;
 /** The room map behind the server, so a test can look at it directly. */
 let rooms: Rooms;
+/**
+ * Milliseconds added to the room map's clock. The sockets run on real time —
+ * a WebSocket handshake cannot be faked — but the grace and the idle TTL are
+ * judged by `rooms.now`, and this is what lets a test expire a minute without
+ * waiting one.
+ */
+let skew: number;
 let open: WebSocket[];
 
 beforeEach(async () => {
@@ -47,9 +54,10 @@ beforeEach(async () => {
   forgotten = [];
   recordThrows = false;
   iceThrows = false;
+  skew = 0;
   open = [];
   server = createServer();
-  rooms = createRooms({ randomBytes: (n) => randomish(n), now: () => Date.now() });
+  rooms = createRooms({ randomBytes: (n) => randomish(n), now: () => Date.now() + skew });
 
   const deps: SignallingDeps = {
     origin: ORIGIN,
@@ -644,11 +652,107 @@ describe('o heartbeat e a saída da autoridade', () => {
 
     // The room is still there right after the socket goes: rooms.ts owns the
     // 60-second grace, and this handler must not pre-empt it by deleting.
-    await waitFor(async () => {
+    await waitFor(() => rooms.get(created.code)?.authorityGoneAt !== null);
+    expect(rooms.get(created.code)).toBeDefined();
+
+    // But it is closed to newcomers while in grace (WR-02): a seat handed out
+    // now would name an authority whose socket is gone, in a lobby that never
+    // fills. The refusal is the one the room earns for real a minute later.
+    const guest = await connect();
+    send(guest, { kind: 'join', code: created.code, accountId: 'c', name: 'n', versions: VERSIONS });
+    const answer = await nextMessage(guest);
+    expect(answer.kind).toBe('error');
+    if (answer.kind === 'error') expect(answer.reason).toBe('roomClosed');
+  });
+
+  it('a varredura da graça manda closed a quem ficou e libera a sessão dele (WR-02)', async () => {
+    const { ws: authority, created } = await openRoom();
+    const guest = await connect();
+    const rosterOnAuthority = nextMessage(authority);
+    send(guest, { kind: 'join', code: created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    expect((await nextMessage(guest)).kind).toBe('joined');
+    await rosterOnAuthority;
+
+    authority.close();
+    await waitFor(() => rooms.get(created.code)?.authorityGoneAt !== null);
+
+    // Before this the guest was told nothing, ever: the room was deleted in
+    // silence and the guest found out from its DataChannel, seconds later.
+    const told = nextMessage(guest);
+    skew = AUTHORITY_GRACE_MS + 1_000;
+    heartbeat();
+    const closed = await told;
+    expect(closed.kind).toBe('closed');
+    if (closed.kind !== 'closed') return;
+    expect(closed.code).toBe(created.code);
+    expect(closed.reason).toBe('roomClosed');
+    expect(rooms.get(created.code)).toBeUndefined();
+
+    // And the guest's session was unbound with it: the same socket can open a
+    // room of its own, which a session still naming the dead room would be
+    // refused for (CR-02).
+    send(guest, { kind: 'create', accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    expect((await nextMessage(guest)).kind).toBe('created');
+  });
+});
+
+describe('sair de propósito (WR-02)', () => {
+  it('leave da autoridade apaga a sala na hora, manda closed a cada convidado e libera as sessões', async () => {
+    const { ws: authority, created } = await openRoom();
+    const guests: WebSocket[] = [];
+    for (const name of ['bia', 'cid']) {
       const guest = await connect();
-      send(guest, { kind: 'join', code: created.code, accountId: 'c', name: 'n', versions: VERSIONS });
-      return (await nextMessage(guest)).kind === 'joined';
-    });
+      const rosterOnAuthority = nextMessage(authority);
+      const rostersOnGuests = guests.map((g) => nextMessage(g));
+      send(guest, { kind: 'join', code: created.code, accountId: `conta-${name}`, name, versions: VERSIONS });
+      expect((await nextMessage(guest)).kind).toBe('joined');
+      await Promise.all([rosterOnAuthority, ...rostersOnGuests]);
+      guests.push(guest);
+    }
+
+    // ON PURPOSE, so no grace: the grace exists for a socket that went away
+    // without a word, and `leave` is the word (D3-02).
+    const told = guests.map((g) => nextMessage(g));
+    send(authority, { kind: 'leave', peerId: created.peerId });
+    for (const closed of await Promise.all(told)) {
+      expect(closed.kind).toBe('closed');
+      if (closed.kind === 'closed') expect(closed.reason).toBe('roomClosed');
+    }
+    expect(rooms.get(created.code)).toBeUndefined();
+
+    // Every session is free again — the authority's included, whose `leave`
+    // used to keep `session.code` and so refuse its very next `create`.
+    for (const ws of [authority, ...guests]) {
+      send(ws, { kind: 'create', accountId: 'c', name: 'n', versions: VERSIONS });
+      expect((await nextMessage(ws)).kind).toBe('created');
+    }
+  });
+
+  it('leave de um convidado libera o assento e a sessão: o mesmo socket entra noutra sala', async () => {
+    const first = await openRoom();
+    const second = await openRoom();
+
+    const guest = await connect();
+    let rosterOnFirst = nextMessage(first.ws);
+    send(guest, { kind: 'join', code: first.created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    const joined = await nextMessage(guest);
+    expect(joined.kind).toBe('joined');
+    if (joined.kind !== 'joined') return;
+    await rosterOnFirst;
+
+    rosterOnFirst = nextMessage(first.ws);
+    send(guest, { kind: 'leave', peerId: joined.peerId });
+    const roster = await rosterOnFirst;
+    expect(roster.kind).toBe('peers');
+    if (roster.kind === 'peers') expect(roster.peers).toHaveLength(1);
+    expect(rooms.get(first.created.code)?.occupants.size).toBe(1);
+
+    const rosterOnSecond = nextMessage(second.ws);
+    send(guest, { kind: 'join', code: second.created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    const again = await nextMessage(guest);
+    expect(again.kind).toBe('joined');
+    if (again.kind === 'joined') expect(again.code).toBe(second.created.code);
+    await rosterOnSecond;
   });
 });
 

@@ -224,6 +224,14 @@ describe('o texto da tela de sala', () => {
     }
   });
 
+  it('sair da sala é DITO ao servidor, não só feito (WR-02)', () => {
+    // Closing the socket alone leaves the server to tell "left on purpose"
+    // from "vanished" by a silence, and the two are answered differently: a
+    // `leave` from whoever created the room ends it for everyone now (D3-02),
+    // a socket that merely closed starts the grace written for a Caddy reload.
+    expect(roomSrc).toContain("kind: 'leave'");
+  });
+
   it('▶ INICIAR é ausência e não `disabled` para o convidado (D3-04)', () => {
     // A disabled button invites a click and a question, and the asymmetry is
     // permanent: there is no authority migration (D3-02).

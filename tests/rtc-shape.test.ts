@@ -117,6 +117,14 @@ describe('forma do transporte WebRTC (teste estrutural)', () => {
     expect(count(code(), "bundlePolicy: 'max-bundle'")).toBe(1);
   });
 
+  it('o fechamento do canal é o sinal rápido de que o outro lado foi embora (WR-02)', () => {
+    // O estado `failed` da conexão chega segundos depois de o par remoto
+    // fechar de propósito; o canal fecha em milissegundos. Sem o manipulador,
+    // um convidado descobria que a sala acabou pelo caminho lento — e "saiu"
+    // viraria "a conexão falhou".
+    expect(code()).toContain('channel.onclose');
+  });
+
   it('o lado do convidado existe: os canais também chegam de fora', () => {
     // Sem este manipulador, só a autoridade teria canais e a conexão abriria
     // sem que o convidado pudesse falar — a falha aparece como uma sala em que
