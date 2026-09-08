@@ -160,6 +160,8 @@ describe('cliente do signaling', () => {
     await expect(h.client.join('UUUUUU', WHO)).rejects.toMatchObject({
       reason: 'badCode',
       detail: BAD_CODE_MESSAGE,
+      // Recusada AQUI, e a recusa diz isso: nada viajou.
+      source: 'local',
     });
     // A economia que a recusa local compra: uma ida ao servidor e uma ficha do
     // balde de rate limit que protege os seis caracteres (T-3-01).
@@ -172,7 +174,7 @@ describe('cliente do signaling', () => {
     h.openIt();
     h.deliver({ kind: 'error', reason: 'badCode', detail: 'código de sala inválido' });
 
-    await expect(promise).rejects.toMatchObject({ reason: 'badCode' });
+    await expect(promise).rejects.toMatchObject({ reason: 'badCode', source: 'server' });
     // A razão vem da tabela congelada e é o que o chamador pode ramificar;
     // `detail` é texto para a tela e nunca condição (D-08).
     await promise.catch((error: { reason: string }) => {
@@ -278,8 +280,11 @@ describe('cliente do signaling', () => {
     h.last().onclose?.(CLOSE);
     // Sem isto a promessa ficaria pendente para sempre e a tela de "criando
     // sala…" nunca sairia — a forma de travamento mais cara de diagnosticar,
-    // porque não há erro nenhum em lugar nenhum.
-    await expect(promise).rejects.toMatchObject({ reason: 'roomClosed' });
+    // porque não há erro nenhum em lugar nenhum. E a recusa diz de onde veio:
+    // a sala não é o problema, o servidor está fora do ar, e a tela que lesse
+    // só a razão mandaria o jogador conferir um código que nunca esteve
+    // errado (WR-05).
+    await expect(promise).rejects.toMatchObject({ reason: 'roomClosed', source: 'socket' });
   });
 
   it('um create pendente quando o socket cai NÃO é reenviado na reconexão (WR-04)', async () => {

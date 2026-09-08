@@ -430,6 +430,23 @@ describe('máquina de estado do lobby', () => {
     await flush();
   });
 
+  it('sala morta entrega o motivo do transporte, para a tela separar falha de saída (WR-05)', () => {
+    // O lobby carrega a palavra do transporte e não lê nada nela: é a tela
+    // que decide se "a conexão falhou" antes de abrir é uma tentativa de novo
+    // (D3-08) ou se a autoridade foi embora (D3-02).
+    const { rec, lobby } = lonelyGuest();
+    const reasons: string[] = [];
+    lobby.onRoomDead((reason) => { reasons.push(reason); });
+
+    rec.leave(AUTHORITY, 'conexão falhou');
+    expect(reasons).toEqual(['conexão falhou']);
+    // Uma vez só, e só pela autoridade: um segundo aviso, ou o de outro peer,
+    // não muda nada.
+    rec.leave(AUTHORITY, 'conexão encerrada');
+    rec.leave('peer-outro', 'conexão falhou');
+    expect(reasons).toEqual(['conexão falhou']);
+  });
+
   it('close() cancela o agendamento e não deixa deadline armado', async () => {
     const room = openRoom();
     await join(room, 'peer-b', 'BIA', 'archer');

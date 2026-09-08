@@ -224,6 +224,16 @@ describe('o texto da tela de sala', () => {
     }
   });
 
+  it('as três frases de erro são alcançáveis pelo caminho certo (WR-05)', () => {
+    // `serverDown` pela queda do socket, `rtcFailed` pela perna da autoridade
+    // que nunca abriu, `roomDead` pelo resto. Antes, a primeira era
+    // inalcançável e a segunda só saía por um erro de programação.
+    expect(roomSrc).toContain("error.source === 'socket'");
+    expect(roomSrc).toContain('COPY.serverDown');
+    expect(roomSrc).toContain('reason === REASON_FAILED');
+    expect(roomSrc).toContain('function rtcFailed');
+  });
+
   it('sair da sala é DITO ao servidor, não só feito (WR-02)', () => {
     // Closing the socket alone leaves the server to tell "left on purpose"
     // from "vanished" by a silence, and the two are answered differently: a

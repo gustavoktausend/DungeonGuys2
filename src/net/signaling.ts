@@ -140,13 +140,30 @@ export interface SignalRefusal {
   reason: RejectReason;
   detail: string;
   ours: Versions;
+  source: RefusalSource;
 }
+
+/**
+ * De onde uma recusa veio, porque a tela responde a cada origem de um jeito.
+ *
+ *   server  o servidor disse não, com uma razão da tabela congelada — o código
+ *           está errado, a sala está cheia, as versões diferem.
+ *   local   esta máquina recusou antes de mandar qualquer coisa (um código que
+ *           não pode ser um código, um cliente já encerrado).
+ *   socket  o socket CAIU com o pedido em curso. Chega como `roomClosed` para
+ *           que a promessa não fique aberta para sempre, mas a sala não é o
+ *           problema — o servidor está fora do ar, e é isso que a tela tem de
+ *           dizer. Antes desta distinção o jogador lia "Essa sala não existe
+ *           mais." e ia conferir um código que nunca esteve errado.
+ */
+export type RefusalSource = 'server' | 'local' | 'socket';
 
 /** A recusa como erro, para que uma promessa possa carregá-la. */
 export class SignalRefused extends Error implements SignalRefusal {
   readonly reason: RejectReason;
   readonly detail: string;
   readonly ours: Versions;
+  readonly source: RefusalSource;
 
   constructor(refusal: SignalRefusal) {
     super(`${refusal.reason}: ${refusal.detail}`);
@@ -154,6 +171,7 @@ export class SignalRefused extends Error implements SignalRefusal {
     this.reason = refusal.reason;
     this.detail = refusal.detail;
     this.ours = refusal.ours;
+    this.source = refusal.source;
   }
 }
 
@@ -238,11 +256,11 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
     ours: Versions;
   } | null = null;
 
-  function settleRefusal(reason: RejectReason, detail: string): void {
+  function settleRefusal(reason: RejectReason, detail: string, source: RefusalSource = 'server'): void {
     const waiting = pending;
     if (!waiting) return;
     pending = null;
-    waiting.reject(new SignalRefused({ reason, detail, ours: waiting.ours }));
+    waiting.reject(new SignalRefused({ reason, detail, ours: waiting.ours, source }));
   }
 
   function receive(data: unknown): void {
@@ -327,8 +345,10 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
     outbox = [];
     // A promessa pendente é REJEITADA, e não deixada aberta. Uma tela de
     // "criando sala…" que espera para sempre é a forma de travamento mais cara
-    // de diagnosticar, porque não há erro nenhum em lugar nenhum.
-    settleRefusal('roomClosed', 'a conexão com o servidor caiu');
+    // de diagnosticar, porque não há erro nenhum em lugar nenhum. Marcada
+    // como vinda do SOCKET: a razão da tabela é a mais próxima que existe,
+    // mas a sala não é o problema, e a tela precisa saber disso.
+    settleRefusal('roomClosed', 'a conexão com o servidor caiu', 'socket');
     for (const cb of [...disconnectedCbs]) cb();
     armRetry();
   }
@@ -372,7 +392,9 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
   function enter(message: SignalMessage, ours: Versions): Promise<RoomEntry> {
     if (shut) {
       return Promise.reject(
-        new SignalRefused({ reason: 'roomClosed', detail: 'o cliente já foi encerrado', ours }),
+        new SignalRefused({
+          reason: 'roomClosed', detail: 'o cliente já foi encerrado', ours, source: 'local',
+        }),
       );
     }
     if (pending) {
@@ -409,6 +431,7 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
             reason: 'badCode',
             detail: BAD_CODE_MESSAGE,
             ours: who.versions,
+            source: 'local',
           }),
         );
       }
@@ -440,7 +463,7 @@ export function createSignalingClient(deps: SignalingDeps): SignalingClient {
       if (shut) return;
       shut = true;
       if (cancelRetry) { cancelRetry(); cancelRetry = null; }
-      settleRefusal('roomClosed', 'o cliente foi encerrado');
+      settleRefusal('roomClosed', 'o cliente foi encerrado', 'local');
       const sock = socket;
       socket = null;
       opened = false;

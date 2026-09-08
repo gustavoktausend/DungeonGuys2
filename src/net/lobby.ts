@@ -230,8 +230,15 @@ export interface StartOptions {
 export interface Lobby {
   state(): LobbyView;
   onState(cb: (view: LobbyView) => void): Unsubscribe;
-  /** The authority went. There is no migration (D3-02). */
-  onRoomDead(cb: () => void): Unsubscribe;
+  /**
+   * The authority went. There is no migration (D3-02).
+   *
+   * `reason` is the transport's own word for HOW — net/rtc.ts spells the two
+   * it has — so the screen can tell a negotiation that never closed (a retry,
+   * D3-08) from an authority that left (the end of the room). This module
+   * carries the string and reads nothing into it.
+   */
+  onRoomDead(cb: (reason: string) => void): Unsubscribe;
   /**
    * The authority said no. `detail` is free text for the screen, bounded and
    * never branched on (D-08): for a version refusal it carries the room's
@@ -585,7 +592,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
   let ourHash: string | null = null;
 
   const stateCbs = new Set<(view: LobbyView) => void>();
-  const deadCbs = new Set<() => void>();
+  const deadCbs = new Set<(reason: string) => void>();
   const rejectCbs = new Set<(reason: RejectReason, detail: string) => void>();
   const startCbs = new Set<(config: RunConfig, slot: PlayerSlot) => void>();
   const desyncCbs = new Set<(ours: string, theirs: string) => void>();
@@ -859,7 +866,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
     for (const cb of [...startCbs]) cb(config, slot);
   }));
 
-  subs.push(transport.onPeerLeave((peer) => {
+  subs.push(transport.onPeerLeave((peer, reason) => {
     if (disposed) return;
     if (!isAuthority) {
       // D3-02: the room dies with whoever created it, and only with them. A
@@ -867,7 +874,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
       // to one — so anything else arriving here is not a reason to end.
       if (dead || peer !== authorityPeerId) return;
       dead = true;
-      for (const cb of [...deadCbs]) cb();
+      for (const cb of [...deadCbs]) cb(reason);
       return;
     }
     refused.delete(peer);

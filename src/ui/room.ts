@@ -64,7 +64,7 @@ import {
   BAD_CODE_MESSAGE, createSignalingClient, SignalRefused,
   type RoomEntry, type SignalingClient, type SocketLike,
 } from '../net/signaling';
-import { createRtcTransport, type RtcSignal, type RtcTransport } from '../net/rtc';
+import { createRtcTransport, REASON_FAILED, type RtcSignal, type RtcTransport } from '../net/rtc';
 import { clearRelayFlag, routeOf, type StorageLike } from '../net/ice';
 import type { Schedule } from '../net/transport';
 // Namespace import on purpose, and it must stay one: the acceptance criterion of
@@ -461,6 +461,17 @@ export function initRoom(deps: RoomDeps): RoomFlow {
   function fail(error: unknown, retryable: boolean): void {
     setBusy(false);
     if (error instanceof SignalRefused) {
+      // THE SOCKET DROPPING IS NOT A REFUSAL, even though it arrives as one:
+      // net/signaling.ts rejects the pending entry with `roomClosed` so the
+      // screen never waits forever, and says where it came from. "Essa sala
+      // não existe mais." for a server that is down would send the player
+      // to re-check a code that was never the problem.
+      if (error.source === 'socket') {
+        say('', COPY.serverDown);
+        el.joinCode.focus();
+        deps.log('sala-falhou', { erro: String(error) });
+        return;
+      }
       const text = isVersionReason(error.reason)
         ? versionRefusal(error.reason, error.detail, error.ours)
         : REFUSAL_COPY[error.reason] || error.detail;
@@ -516,7 +527,10 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       const c = openSignaling();
       enter(await c.join(code, { accountId: who.accountId, name: who.name, versions: deps.versions }), false, who);
     } catch (error) {
-      fail(error, error instanceof SignalRefused ? false : true);
+      // Never `retryable` from here: nothing that rejects this promise is a
+      // WebRTC failure — the peer connection does not exist yet. The retry
+      // path belongs to `rtcFailed`, which is reached from the lobby.
+      fail(error, false);
     }
   }
 
@@ -558,7 +572,17 @@ export function initRoom(deps: RoomDeps): RoomFlow {
     });
 
     lobby.onState(paintLobby);
-    lobby.onRoomDead(roomDead);
+    // Whether the authority's leg ever opened. A leg that FAILED before it
+    // did is a negotiation that never closed, and D3-08 says that is a retry,
+    // not a dead end: the room is alive and nobody left it. One that fails
+    // after opening is the authority gone, and the room is over (D3-02) —
+    // the same word the clean close of its channels says faster (net/rtc.ts).
+    let everConnected = false;
+    rtc.onPeerJoin(() => { everConnected = true; });
+    lobby.onRoomDead((reason) => {
+      if (!authority && reason === REASON_FAILED && !everConnected) { rtcFailed(); return; }
+      roomDead();
+    });
     lobby.onRejected((reason, detail) => {
       teardown();
       // The peer-side refusal of D-08 gets the same sentence the server-side
@@ -663,6 +687,20 @@ export function initRoom(deps: RoomDeps): RoomFlow {
       }
       armRouteProbe(rtc, active);
     }, LOBBY_EMIT_MS);
+  }
+
+  /**
+   * The authority's leg never opened: a retry, not a dead end (D3-08).
+   *
+   * Back to the room screen with the code still in the field, the retry
+   * button in front, and the copy that says what actually happened — until
+   * now this path was unreachable, and a guest whose negotiation failed was
+   * told the room had ended while it went on without them.
+   */
+  function rtcFailed(): void {
+    teardown();
+    deps.showScreen('room');
+    fail(new Error(REASON_FAILED), true);
   }
 
   function roomDead(): void {
