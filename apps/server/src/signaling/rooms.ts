@@ -174,6 +174,13 @@ export interface Rooms {
   touch(code: string): void;
   /** Frees a seat. The room survives; only the authority's exit ends it. */
   leave(code: string, peerId: string): void;
+  /**
+   * Deletes a room on the spot and hands back what was deleted, so the caller
+   * can tell whoever was still in it. For the two exits that are not a
+   * timeout: the authority leaving ON PURPOSE, and an entry that failed
+   * halfway through and must not leave a room nobody is in.
+   */
+  remove(code: string): Room | undefined;
   /** Starts the grace period. Does NOT delete — see AUTHORITY_GRACE_MS. */
   authorityLeft(code: string): void;
   /** Ends the grace period, rebinding the authority to its new handle. */
@@ -297,6 +304,12 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     if (room) room.occupants.delete(peerId);
   };
 
+  const remove = (code: string): Room | undefined => {
+    const room = rooms.get(code);
+    if (room) rooms.delete(code);
+    return room;
+  };
+
   const authorityLeft = (code: string): void => {
     const room = rooms.get(code);
     // Idempotent: a socket can emit both 'close' and 'error', and restarting
@@ -346,6 +359,7 @@ export function createRooms({ randomBytes, now }: RoomsDeps): Rooms {
     get: (code: string) => rooms.get(code),
     touch,
     leave,
+    remove,
     authorityLeft,
     authorityReturned,
     sweep,

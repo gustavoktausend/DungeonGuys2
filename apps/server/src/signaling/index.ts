@@ -314,7 +314,24 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
         sendTo(ws, parsed.error);
         return;
       }
-      handle(ws, session, parsed.message);
+      // THE ONE CATCH THAT KEEPS A ROOM'S ERROR A ROOM'S ERROR. This runs
+      // inside an EventEmitter listener, where an exception is an
+      // `uncaughtException`: Node exits, every room on the box dies with it,
+      // and `StartLimitBurst=5` in dg2.service can leave the unit in `failed`
+      // if the same message comes back five times. Two callees throw by
+      // design — `createCode` after MAX_CODE_ATTEMPTS collisions, and the
+      // injected credential minting — and any future one lands here too. The
+      // sender gets a refusal, the journal gets the line, the process lives.
+      try {
+        handle(ws, session, parsed.message);
+      } catch (error) {
+        deps.log('handler', {
+          peerId: session.peerId,
+          kind: parsed.message.kind,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        refuse(ws, 'badCode', 'o servidor não conseguiu processar a mensagem');
+      }
     });
 
     ws.on('close', () => {
@@ -386,8 +403,20 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
           refuse(ws, 'roomFull', 'o servidor está no limite de salas — tente de novo em instantes');
           return;
         }
+        // Minted BEFORE the session is bound to the room, and the room is
+        // taken back if minting throws: otherwise the catch above would
+        // answer with a refusal while a room with this peer as authority sat
+        // in the map for thirty minutes, unenterable by its own creator (whom
+        // CR-02 would now refuse for being seated already).
+        let entry: ReturnType<SignallingDeps['iceConfig']>;
+        try {
+          entry = deps.iceConfig(room.code, 'p0');
+        } catch (error) {
+          deps.rooms.remove(room.code);
+          throw error;
+        }
         session.code = room.code;
-        const { ice, turn } = deps.iceConfig(room.code, 'p0');
+        const { ice, turn } = entry;
         sendTo(ws, {
           kind: 'created',
           code: room.code,
@@ -438,8 +467,17 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
           return;
         }
 
+        // The same shape as `create`: the seat is given back if minting
+        // throws, so a failed entry never leaves a ghost occupant behind.
+        let entry: ReturnType<SignallingDeps['iceConfig']>;
+        try {
+          entry = deps.iceConfig(result.room.code, result.occupant.slot);
+        } catch (error) {
+          deps.rooms.leave(result.room.code, session.peerId);
+          throw error;
+        }
         session.code = result.room.code;
-        const { ice, turn } = deps.iceConfig(result.room.code, result.occupant.slot);
+        const { ice, turn } = entry;
         sendTo(ws, {
           kind: 'joined',
           code: result.room.code,

@@ -381,6 +381,24 @@ describe('quando uma sala morre', () => {
     expect(alive?.occupants.size).toBe(2);
   });
 
+  it('remove apaga a sala na hora e devolve o que apagou, com os ocupantes', () => {
+    // The exit that is not a timeout: the authority leaving on purpose, or an
+    // entry that failed halfway. The caller gets the room back so it can tell
+    // whoever was still inside — a deletion that returned nothing would leave
+    // every guest to find out from a silence.
+    const rooms = createRooms({ randomBytes: countingBytes(), now: fakeClock().now });
+    const room = open(rooms, peer('autoridade'));
+    rooms.join(room.code, peer('convidado'));
+
+    const removed = rooms.remove(room.code);
+    expect(removed).toBe(room);
+    expect(removed?.occupants.size).toBe(2);
+    expect(rooms.get(room.code)).toBeUndefined();
+    expect(rooms.size()).toBe(0);
+    // Idempotent: a second removal has nothing to hand back.
+    expect(rooms.remove(room.code)).toBeUndefined();
+  });
+
   it('a autoridade não consegue voltar para uma sala já varrida', () => {
     const clock = fakeClock();
     const rooms = createRooms({ randomBytes: countingBytes(), now: clock.now });

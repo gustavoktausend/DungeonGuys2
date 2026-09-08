@@ -21,7 +21,7 @@ import { isRoomCode } from '@dg2/protocol';
 import type { IceOutcome, SignalMessage } from '@dg2/protocol';
 import { attachSignalling, type SignallingDeps } from '../apps/server/src/signaling';
 import type { OutcomeSource } from '../apps/server/src/signaling/outcome';
-import { createRooms } from '../apps/server/src/signaling/rooms';
+import { createRooms, type Rooms } from '../apps/server/src/signaling/rooms';
 import { createLimiter, JOIN_LIMIT, LIMIT_WINDOW_MS, UPGRADE_LIMIT } from '../apps/server/src/signaling/limiter';
 
 const ORIGIN = 'http://localhost:5173';
@@ -35,6 +35,10 @@ let sources: OutcomeSource[];
 /** Every peerId whose telemetry quota was released. */
 let forgotten: string[];
 let recordThrows: boolean;
+/** When true, the injected credential minting throws — the WR-03 probe. */
+let iceThrows: boolean;
+/** The room map behind the server, so a test can look at it directly. */
+let rooms: Rooms;
 let open: WebSocket[];
 
 beforeEach(async () => {
@@ -42,12 +46,14 @@ beforeEach(async () => {
   sources = [];
   forgotten = [];
   recordThrows = false;
+  iceThrows = false;
   open = [];
   server = createServer();
+  rooms = createRooms({ randomBytes: (n) => randomish(n), now: () => Date.now() });
 
   const deps: SignallingDeps = {
     origin: ORIGIN,
-    rooms: createRooms({ randomBytes: (n) => randomish(n), now: () => Date.now() }),
+    rooms,
     upgradeLimiter: createLimiter({
       now: () => Date.now(),
       limit: UPGRADE_LIMIT,
@@ -71,10 +77,13 @@ beforeEach(async () => {
     forgetOutcomes: (peerId) => {
       forgotten.push(peerId);
     },
-    iceConfig: () => ({
-      ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
-      turn: { username: 'u', credential: 'c', ttl: 3600 },
-    }),
+    iceConfig: () => {
+      if (iceThrows) throw new Error('segredo do relay indisponível');
+      return {
+        ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
+        turn: { username: 'u', credential: 'c', ttl: 3600 },
+      };
+    },
     startHeartbeat: (tick) => {
       heartbeat = tick;
     },
@@ -462,6 +471,49 @@ describe('o relay opaco', () => {
     });
 
     expect((await waiting).kind).toBe('error');
+  });
+});
+
+describe('um handler que lança não derruba o processo (WR-03)', () => {
+  it('create com iceConfig lançando devolve error, mantém a conexão e não deixa sala meio-aberta', async () => {
+    // Without the catch this is an `uncaughtException` inside an
+    // EventEmitter listener: Node exits and every room on the box dies with
+    // it. Here the process survives, the sender hears a refusal, and the room
+    // that was drawn before the throw is taken back — a room left behind would
+    // sit in the map for thirty minutes with its own creator refused at the
+    // door for being seated already (CR-02).
+    iceThrows = true;
+    const ws = await connect();
+    send(ws, { kind: 'create', accountId: 'c', name: 'n', versions: VERSIONS });
+    const answer = await nextMessage(ws);
+    expect(answer.kind).toBe('error');
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(rooms.size()).toBe(0);
+
+    // The same socket, minting repaired: it was never bound to the dead room.
+    iceThrows = false;
+    send(ws, { kind: 'create', accountId: 'c', name: 'n', versions: VERSIONS });
+    expect((await nextMessage(ws)).kind).toBe('created');
+    expect(rooms.size()).toBe(1);
+  });
+
+  it('join com iceConfig lançando devolve o assento em vez de deixar um fantasma', async () => {
+    const { ws: authority, created } = await openRoom();
+    const guest = await connect();
+
+    iceThrows = true;
+    send(guest, { kind: 'join', code: created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    expect((await nextMessage(guest)).kind).toBe('error');
+    expect(rooms.get(created.code)?.occupants.size).toBe(1);
+
+    // Repaired, the same guest gets p1 — a ghost seat would have made it p2.
+    iceThrows = false;
+    const rosterOnAuthority = nextMessage(authority);
+    send(guest, { kind: 'join', code: created.code, accountId: 'conta-b', name: 'convidado', versions: VERSIONS });
+    const joined = await nextMessage(guest);
+    await rosterOnAuthority;
+    expect(joined.kind).toBe('joined');
+    if (joined.kind === 'joined') expect(joined.slot).toBe('p1');
   });
 });
 
