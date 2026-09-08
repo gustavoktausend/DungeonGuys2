@@ -113,6 +113,12 @@ jobs:
       # tests/server-migrate.test.ts e tests/server-health.test.ts sao compilados,
       # porque a raiz os exclui por precisarem de tipos de Node.
       - run: npm run typecheck:server
+      # tests/net/room.spec.ts e tests/net/e2e-helpers.ts sao excluidos do
+      # tsconfig da raiz porque precisam de tipos de Node (o helper abre um
+      # http.Server e pendura o signaling nele). Sem este passo eles nao seriam
+      # compilados por programa nenhum. tests/net/helpers.ts NAO esta aqui: ele
+      # e puro e continua no programa da raiz, com os testes que o importam.
+      - run: npm run typecheck:net
       - run: npm test
 
       # SYNC-04: imprime no log as tres partes do snapshot na wave 16 com quatro
@@ -260,7 +266,13 @@ jobs:
       # falharem por um motivo que nao e o delas.
       - run: npm run build
       - run: npm run sw:verify
-      - run: npm run test:pwa
+      # O script dos DOIS projetos, e nao mais so o do PWA. O segundo deles
+      # (`net`) e a prova de ponta a ponta da sala — dois contextos
+      # de navegador que abrem uma sala por loopback, se veem, escolhem classe e
+      # comecam a run com o mesmo hash do tick 0 (SALA-02, SALA-03, D3-05). Os
+      # dois projetos vivem no mesmo job porque compartilham exatamente o que
+      # este job ja paga: o build, o Chromium do cache e a serializacao.
+      - run: npm run test:e2e
 
   # Publicar e `git push` na main, e este job e todo o caminho.
   #

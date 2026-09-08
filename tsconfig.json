@@ -48,8 +48,19 @@
   // pair the client half of phase 3 also reasons about, and a name that said
   // "server" would suggest otherwise. It is here for the ordinary reason — it
   // imports node:crypto.
+  // tests/net/ is excluded BY FILE and not as a directory, unlike tests/pwa/
+  // above, and the asymmetry is load-bearing. That directory is split down the
+  // middle: helpers.ts is pure and belongs in this program, because
+  // tests/lobby.test.ts and tests/run-config-lobby.test.ts import it and it
+  // needs no Node types. Only the two Playwright-side files — the spec and the
+  // helper that opens an http.Server with the signalling leg on it — are carved
+  // out, and tests/net/tsconfig.json names exactly those two back in, run as
+  // `npm run typecheck:net`. Excluding the directory would have taken
+  // helpers.ts out of every program that typechecks it, silently.
   "exclude": [
     "tests/pwa",
+    "tests/net/room.spec.ts",
+    "tests/net/e2e-helpers.ts",
     "tests/server-migrate.test.ts",
     "tests/server-health.test.ts",
     "tests/server-rooms.test.ts",

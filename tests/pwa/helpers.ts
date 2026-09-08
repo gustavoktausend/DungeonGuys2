@@ -20,6 +20,7 @@
 //    would prove a behaviour production does not have.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readdir, readFile, stat } from 'node:fs/promises';
+import type { Duplex } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import { extname, join, resolve, sep } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -30,6 +31,24 @@ export type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void |
 export interface StaticServer {
   /** `http://127.0.0.1:<ephemeral port>` — a secure context, so no TLS needed. */
   readonly origin: string;
+  /**
+   * The `http.Server` itself, in the ONE aspect a second leg needs: `upgrade`.
+   *
+   * Exposed for tests/net/e2e-helpers.ts, which attaches the signalling server
+   * to this same object. It has to be the same one: the client's origin check
+   * (plan 03-04) compares byte for byte, and a WebSocket on a second port would
+   * be a second origin — so the room spec would be proving a topology
+   * production does not have. It is deliberately typed as the single method
+   * rather than as `http.Server`, in the shape signaling/index.ts's
+   * `UpgradableServer` already established, so nothing here gains the ability
+   * to reach into the listener the PWA specs own.
+   */
+  readonly upgradable: {
+    on(
+      event: 'upgrade',
+      listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void,
+    ): unknown;
+  };
   /**
    * Swaps the directory being served WITHOUT closing the server, which is what
    * lets a spec stage "old build -> new build" on the same origin and the same
@@ -129,6 +148,7 @@ export async function serveDir(dir: string): Promise<StaticServer> {
 
   return {
     origin: `http://127.0.0.1:${port}`,
+    upgradable: server,
     setRoot(next: string): void {
       root = resolve(next);
     },

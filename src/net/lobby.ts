@@ -40,6 +40,21 @@
 //   D3-16  the ping and route summary per seat is relayed once a second, because
 //          in a star a guest can only measure its own link.
 //
+// THE RUN STARTS LOCAL AND UNSYNCHRONISED, AND THAT IS BY DESIGN (D3-05,
+// D3-18). Once `startRun` goes out, every machine builds the same world from
+// the same manifest and then steps it ON ITS OWN: the other characters stand
+// still, because nothing streams inputs or snapshots between them yet. That is
+// the subject of fase 4, and it is deliberately not started here — writing half
+// of it now would be writing it against a wire whose shape phase 4 measures.
+// The sentence is in the file because without it the standing characters read
+// as a bug, and somebody would "fix" them by inventing the netcode early.
+//
+// WHAT THIS FILE DOES INSTEAD IS PROVE THE STARTING POINT. Each machine returns
+// the tick-0 fingerprint of the world it built, and the two are compared before
+// anything else. It costs one string per run and it catches, IN THE LOBBY, the
+// failure whose only other symptom is "it desynchronised forty seconds in" —
+// which is the symptom nobody can debug.
+//
 // TIME ARRIVES AS AN ARGUMENT. `schedule` is injected (see transport.ts), so a
 // test asserts a SEQUENCE rather than waiting on a clock — the same reasoning
 // apps/server/src/shutdown.ts wrote down when it made `startWatchdog` a
@@ -53,6 +68,10 @@
 // below is written with explicit comparisons, which is also easier to read.
 import { CLASS_KEY, GAME_MODE, ICE_ROUTE, MSG_KIND, PLAYER_SLOT, REJECT_REASON } from '@dg2/protocol';
 import type { IceRoute, RejectReason } from '@dg2/protocol';
+// Aliased because this file already has three other things called "start": the
+// `startRun` MESSAGE KIND, `startRoom`, and `onStart`. The import is the one
+// that builds a world.
+import { createPlayer, createWorld, hashWorld, startRun as startSimRun } from '@dg2/sim';
 import type { ClassKey, ForgeLevels, GameMode, PlayerSlot, RunConfig, RunPlayer } from '@dg2/sim';
 import { createPinger, type Pinger } from './ping';
 import type { PeerId, Schedule, Transport, Unsubscribe } from './transport';
@@ -86,8 +105,48 @@ export const MAX_NAME_CODE_POINTS = 24;
  */
 export const MAX_FORGE_LEVEL = 99;
 
+/**
+ * The longest fingerprint this module will accept off the wire.
+ *
+ * `hashWorld` returns FNV-1a as unpadded hex, so eight characters at most; the
+ * cap is generous and exists for one reason — the value is put on a screen, and
+ * a peer that sent a megabyte of text would otherwise be putting a megabyte of
+ * text on it (T-3-14/T-3-34).
+ */
+export const MAX_HASH_CHARS = 16;
+
 /** The clothing colour, as it travels: three bytes of presentation (D3-06). */
 export type Rgb = readonly [number, number, number];
+
+/**
+ * The tick-0 fingerprint of a run manifest — THE canonical start-of-run
+ * sequence, written once and never twice.
+ *
+ * `createWorld`, one `createPlayer` per seat IN THE MANIFEST'S ORDER, then
+ * `startRun` (which is what generates the arena, sim/run.ts). It is the same
+ * sequence main.ts's `beginRun` runs and the same one a replay is rebuilt from
+ * (D-11), and that identity is the whole value of the number: a second way of
+ * building the initial world would be a second way for two machines to disagree
+ * about a world neither of them got wrong.
+ *
+ * THE STATIC LAYER NEVER TRAVELS (D3-17). `startRun` carries the manifest and
+ * nothing else — no arena, no derived config — because every machine can build
+ * the rest from the seed, and shipping it would be shipping a second source of
+ * truth for something that is already deterministic. This function is the proof
+ * that the rest really is derivable: if it were not, the fingerprints would
+ * differ and the room would say so on the spot, in the lobby, instead of the
+ * run drifting apart forty seconds in.
+ *
+ * The world built here is DISCARDED. It costs one arena generation per run
+ * start, which is microseconds, and it buys a fingerprint that depends on
+ * nothing this module could have got subtly right by accident.
+ */
+export function tickZeroHash(config: RunConfig): string {
+  const world = createWorld(config);
+  for (const seat of config.players) createPlayer(world, seat.id, seat.cls, seat.name);
+  startSimRun(world);
+  return hashWorld(world);
+}
 
 /** One occupant, as a screen would draw them. */
 export interface OccupantView {
@@ -150,8 +209,39 @@ export interface Lobby {
   /** The authority went. There is no migration (D3-02). */
   onRoomDead(cb: () => void): Unsubscribe;
   onRejected(cb: (reason: RejectReason) => void): Unsubscribe;
-  onStart(cb: (config: RunConfig) => void): Unsubscribe;
+  /**
+   * The run begins, with the manifest AND the seat this machine was given.
+   *
+   * The seat travels alongside because the manifest cannot say it: `RunConfig`
+   * names `p0..p3` and nothing in it says which one is us — `peerId` never
+   * enters the simulation (ADR 0001). The lobby is the one place that knows
+   * both, so it is the one place the translation happens.
+   */
+  onStart(cb: (config: RunConfig, slot: PlayerSlot) => void): Unsubscribe;
+  /**
+   * The two tick-0 fingerprints disagreed: this machine's, then the other's.
+   *
+   * Fires on WHICHEVER SIDE NOTICES, and both do — the authority sends its own
+   * fingerprint alongside `startRun` and every peer sends its answer back, so
+   * each end compares a pair. A divergence seen only by the authority would
+   * leave the other player in a run nobody told them was wrong.
+   */
+  onDesync(cb: (ours: string, theirs: string) => void): Unsubscribe;
   chooseClass(cls: ClassKey): void;
+  /**
+   * The measured route of one leg, from whoever holds the connection.
+   *
+   * PUSHED IN RATHER THAN READ OUT, because the route comes from
+   * `RTCPeerConnection.getStats()` — asynchronous, and belonging to a transport
+   * this module deliberately does not know the type of. `Transport` has no
+   * `getStats`, and widening it so the lobby could ask would put WebRTC in the
+   * interface that `local.ts` and `lossy.ts` also satisfy.
+   *
+   * Only the authority's copy matters: in a star a guest can measure its own
+   * leg but has nowhere to put it, and the relayed `lobbyState` is what carries
+   * every seat's route to every screen (D3-16).
+   */
+  setRoute(peer: PeerId, route: IceRoute): void;
   /** Closes the room and hands out the seats. Authority only (D3-04). */
   startRoom(options: StartOptions): RunConfig;
   /** Drops every subscription and deadline. Does not close the transport. */
@@ -162,6 +252,18 @@ const KIND_HELLO = MSG_KIND.indexOf('hello');
 const KIND_REJECT = MSG_KIND.indexOf('reject');
 const KIND_LOBBY_STATE = MSG_KIND.indexOf('lobbyState');
 const KIND_START_RUN = MSG_KIND.indexOf('startRun');
+/**
+ * `ack` carries the tick-0 fingerprint, IN BOTH DIRECTIONS.
+ *
+ * The table's own header describes `ack` as what "closes the loop" of a run's
+ * messages, and this is the first loop there is to close: the authority hands
+ * out a manifest and every machine answers with what that manifest built. One
+ * kind and one meaning in both directions, rather than a second name for the
+ * same sentence said the other way round — the authority sends its own
+ * fingerprint too, so each end holds a pair and each end can be the one that
+ * notices.
+ */
+const KIND_ACK = MSG_KIND.indexOf('ack');
 
 /**
  * The forge keys, pinned to the type by `satisfies`.
@@ -381,6 +483,21 @@ function isRejectReason(v: unknown): v is RejectReason {
   return typeof v === 'string' && (REJECT_REASON as readonly string[]).includes(v);
 }
 
+/**
+ * The fingerprint out of an `ack`, or null.
+ *
+ * Bounded and rebuilt like everything else here: it is a string authored by
+ * another machine that lands on a screen, so its LENGTH is as much a part of
+ * the contract as its type. Nothing is branched on beyond "equal or not".
+ */
+function readHash(body: unknown): string | null {
+  if (!isRecord(body)) return null;
+  const { hash } = body;
+  if (typeof hash !== 'string') return null;
+  if (hash.length === 0 || hash.length > MAX_HASH_CHARS) return null;
+  return hash;
+}
+
 // ─── The machine ─────────────────────────────────────────────────────────────
 
 export function createLobby(deps: LobbyDeps): Lobby {
@@ -405,10 +522,21 @@ export function createLobby(deps: LobbyDeps): Lobby {
    */
   let echo: ClassKey | null = null;
 
+  /**
+   * This machine's own tick-0 fingerprint, once a run has started.
+   *
+   * Null before that, and that is a meaningful state: an `ack` arriving before
+   * this machine has built anything has nothing to be compared against, and
+   * comparing it to a placeholder would manufacture a divergence out of a
+   * message that merely arrived early.
+   */
+  let ourHash: string | null = null;
+
   const stateCbs = new Set<(view: LobbyView) => void>();
   const deadCbs = new Set<() => void>();
   const rejectCbs = new Set<(reason: RejectReason) => void>();
-  const startCbs = new Set<(config: RunConfig) => void>();
+  const startCbs = new Set<(config: RunConfig, slot: PlayerSlot) => void>();
+  const desyncCbs = new Set<(ours: string, theirs: string) => void>();
   const subs: Unsubscribe[] = [];
   let cancelTick: Unsubscribe | null = null;
   /**
@@ -470,6 +598,18 @@ export function createLobby(deps: LobbyDeps): Lobby {
     };
   }
 
+  /**
+   * This machine's seat, or null while the room is still open.
+   *
+   * Read from the roster and never from the manifest's array position: the two
+   * agree today, and the day they stop agreeing the roster is the one that
+   * carries `peerId` — which is the only field that says which row is us.
+   */
+  function mySlot(): PlayerSlot | null {
+    const list = isAuthority ? occupants : remote;
+    return list.find((o) => o.peerId === self.peerId)?.slot ?? null;
+  }
+
   function notify(): void {
     const view = buildView();
     // A snapshot of the set: a subscriber that unsubscribes itself while this
@@ -484,11 +624,13 @@ export function createLobby(deps: LobbyDeps): Lobby {
    * machine has no round trip to itself, and a zero there would read on screen
    * as the best connection in the room instead of as the absence of one.
    *
-   * `route` stays `'unknown'` in this wave, which is the value the frozen table
-   * puts at index 0 for exactly this reason — an absent measurement must never
-   * decode as `direct`, because that biases the one number the telemetry exists
-   * to produce in the reassuring direction. Plan 03-08 fills it from
-   * `getStats()`, which is the only source of the route (D3-13).
+   * `route` is NOT touched here. It is not a measurement this module can take —
+   * it comes off the connection's statistics, which belong to the transport
+   * (net/ice.ts, D3-13) — so it is written by `setRoute` and merely carried
+   * along by the row. A seat nobody has reported on keeps `'unknown'`, the
+   * value the frozen table puts at index 0 precisely so that an absent
+   * measurement can never decode as `direct` and bias the one number the
+   * telemetry exists to produce in the reassuring direction.
    */
   function refreshPings(): void {
     for (const o of occupants) {
@@ -496,6 +638,25 @@ export function createLobby(deps: LobbyDeps): Lobby {
       const pinger = pingers.get(o.peerId);
       o.ping = pinger ? pinger.rtt() : null;
     }
+  }
+
+  /**
+   * Compares a fingerprint that arrived against this machine's own.
+   *
+   * Silence on agreement is the whole design: the common case must cost one
+   * string comparison and produce nothing, and the screen only exists for the
+   * case that should never happen.
+   */
+  function compareHash(theirs: string): void {
+    if (ourHash === null || ourHash === theirs) return;
+    for (const cb of [...desyncCbs]) cb(ourHash, theirs);
+  }
+
+  /** Builds this machine's world from the manifest and answers with its hash. */
+  function proveTickZero(config: RunConfig, to: PeerId[]): void {
+    ourHash = tickZeroHash(config);
+    const proof = encode(KIND_ACK, { hash: ourHash });
+    for (const peer of to) transport.send(peer, proof, 'reliable');
   }
 
   /** The authority's one write of the truth: relay it, then tell the screen. */
@@ -581,14 +742,23 @@ export function createLobby(deps: LobbyDeps): Lobby {
     // reach the parser below.
     const kind = kindOf(payload);
     if (isAuthority) {
-      // An authority accepts exactly one kind from a peer in this phase.
-      if (kind !== KIND_HELLO) return;
+      // An authority accepts exactly two kinds from a peer in this phase: who
+      // you are, and what the manifest built on your machine.
+      if (kind !== KIND_HELLO && kind !== KIND_ACK) return;
       const parsed = parseBody(payload);
-      if (parsed) onAnnounce(from, parsed.body);
+      if (!parsed) return;
+      if (kind === KIND_HELLO) { onAnnounce(from, parsed.body); return; }
+      // Only from a peer that is actually in the room: a fingerprint from a
+      // stranger is a divergence screen raised by someone with no part in the
+      // run (the same reasoning as T-3-07b, one message further along).
+      if (!occupants.some((o) => o.peerId === from)) return;
+      const theirs = readHash(parsed.body);
+      if (theirs !== null) compareHash(theirs);
       return;
     }
     if (from !== authorityPeerId) return;
-    if (kind !== KIND_LOBBY_STATE && kind !== KIND_REJECT && kind !== KIND_START_RUN) return;
+    if (kind !== KIND_LOBBY_STATE && kind !== KIND_REJECT
+      && kind !== KIND_START_RUN && kind !== KIND_ACK) return;
     const parsed = parseBody(payload);
     if (!parsed) return;
     if (kind === KIND_LOBBY_STATE) { onLobbyState(from, parsed.body); return; }
@@ -597,10 +767,26 @@ export function createLobby(deps: LobbyDeps): Lobby {
       if (isRejectReason(reason)) for (const cb of [...rejectCbs]) cb(reason);
       return;
     }
+    if (kind === KIND_ACK) {
+      const theirs = readHash(parsed.body);
+      if (theirs !== null) compareHash(theirs);
+      return;
+    }
     const config = readRunConfig(parsed.body);
     if (!config) return;
+    const slot = mySlot();
+    // A manifest with no seat for this machine is not startable, and it is not
+    // a malformed message either — it is a `startRun` that arrived before the
+    // roster that hands out the seats. The reliable channel is ORDERED and
+    // `startRoom` publishes the closed roster BEFORE sending this frame, so it
+    // cannot happen; refusing rather than guessing is what keeps that ordering
+    // a fact instead of an assumption nobody would notice breaking.
+    if (slot === null) return;
     started = config;
-    for (const cb of [...startCbs]) cb(config);
+    // Build, fingerprint, answer — BEFORE the run is handed to the caller, so
+    // that the proof is on the wire even if starting the run throws.
+    proveTickZero(config, [authorityPeerId]);
+    for (const cb of [...startCbs]) cb(config, slot);
   }));
 
   subs.push(transport.onPeerLeave((peer) => {
@@ -659,6 +845,22 @@ export function createLobby(deps: LobbyDeps): Lobby {
     onRoomDead(cb) { deadCbs.add(cb); return () => { deadCbs.delete(cb); }; },
     onRejected(cb) { rejectCbs.add(cb); return () => { rejectCbs.delete(cb); }; },
     onStart(cb) { startCbs.add(cb); return () => { startCbs.delete(cb); }; },
+    onDesync(cb) { desyncCbs.add(cb); return () => { desyncCbs.delete(cb); }; },
+
+    setRoute(peer, route) {
+      if (disposed || !isAuthority) return;
+      // Validated like anything else that ends up on a screen, even though this
+      // one comes from the same process: `IceRoute` is a frozen table and a
+      // value outside it would print as itself.
+      if (!isRoute(route)) return;
+      const o = occupants.find((x) => x.peerId === peer);
+      if (!o || o.route === route) return;
+      o.route = route;
+      // No `publish()` here. The route rides the next second's roster (D3-16)
+      // instead of costing a fan-out of its own: it changes at most once per
+      // connection, and a message per report would put N sends on the wire for
+      // a value that did not move.
+    },
 
     chooseClass(cls) {
       // D3-03: no exclusivity check. Two people may pick the same class, and
@@ -692,13 +894,30 @@ export function createLobby(deps: LobbyDeps): Lobby {
         players.push({ id: o.slot, name: o.name, cls: o.cls, forge: copyForge(o.forge) });
       }
       started = { seed, mode, players };
+      // The closed roster goes out FIRST and the manifest second, on the same
+      // ordered reliable channel: the roster is where a guest reads its own
+      // seat, and a manifest that overtook it would arrive at a machine that
+      // does not yet know where it sits.
       publish();
       const frame = encode(KIND_START_RUN, started);
+      const guests: PeerId[] = [];
       for (const o of occupants) {
         if (o.peerId === self.peerId || !o.connected) continue;
+        guests.push(o.peerId);
         transport.send(o.peerId, frame, 'reliable');
       }
-      for (const cb of [...startCbs]) cb(started);
+      // The authority proves its own tick 0 by the SAME path every guest takes,
+      // and sends its fingerprint along so each of them can be the one that
+      // notices. A room where only the authority compared would leave a
+      // divergent player in a run nobody told them was wrong.
+      proveTickZero(started, guests);
+      // The authority takes the SAME path as every guest, from here on: it
+      // starts from the manifest it just published, at the seat the roster gave
+      // it. A short cut here — starting from the local selection instead —
+      // would be a second way of beginning a run, and the tick-0 hash would be
+      // comparing two things that were never built the same way (D-11).
+      const slot = mySlot();
+      if (slot !== null) for (const cb of [...startCbs]) cb(started, slot);
       return started;
     },
 
@@ -714,6 +933,7 @@ export function createLobby(deps: LobbyDeps): Lobby {
       deadCbs.clear();
       rejectCbs.clear();
       startCbs.clear();
+      desyncCbs.clear();
       // The transport is NOT closed here: this module did not open it, and the
       // same connection carries the run once the lobby is done with it.
     },
