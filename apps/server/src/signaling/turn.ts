@@ -9,17 +9,37 @@
 // expires, and expires soon.
 //
 // THE CREDENTIAL IS TIED TO THE ROOM, and that is a second property on top of
-// the expiry (D3-10): the room code and the slot are inside the signed
-// username, so a pair captured from one session names the session it came from.
-// It cannot be quietly reused as a general-purpose relay account, and a journal
-// line can be tied back to a room without this process storing anything.
+// the expiry (D3-10): a tag derived from the room code and the slot is inside
+// the signed username, so a pair captured from one session names the session
+// it came from. It cannot be quietly reused as a general-purpose relay account,
+// and a journal line can be tied back to a room without this process storing
+// anything — the operator recomputes the tag from the secret it already has.
 //
-// NO HAND-ROLLED CRYPTOGRAPHY (ASVS V6). `node:crypto` computes the digest;
+// THE ROOM CODE ITSELF NEVER TRAVELS IN THE USERNAME. The STUN USERNAME
+// attribute goes in clear over `turn:` on UDP and TCP — only `turns:` is
+// encrypted — and the six-character code is the ONLY credential a room has in
+// this phase (D3-09). Spelling it in the username would hand it to anyone on
+// the path between a player and the relay: the open Wi-Fi, the provider. The
+// binding D3-10 wants does not need the code in clear; it needs something only
+// this process can produce from it, and an HMAC keyed with the relay secret is
+// exactly that.
+//
+// NO HAND-ROLLED CRYPTOGRAPHY (ASVS V6). `node:crypto` computes both digests;
 // this file only decides what gets signed. There is no fallback path, no
 // alternative digest and no place where a comparison could be made non-constant
 // — coturn does the verifying, and it is not in this repository.
 import { createHmac } from 'node:crypto';
 import type { IceServer, PeerInfo, TurnCredential } from '@dg2/protocol';
+
+/**
+ * How many characters of the room tag go into the username: SIXTEEN.
+ *
+ * Sixteen base64url characters are 96 bits of a keyed digest, which is far
+ * more than a six-character code needs to be unguessable from, and short
+ * enough that the username stays legible in a journal line and well inside
+ * the 513-byte ceiling STUN puts on the attribute.
+ */
+const ROOM_TAG_CHARS = 16;
 
 /**
  * How long a minted credential stays valid: ONE HOUR.
@@ -69,9 +89,18 @@ export function turnCredential(
   nowSeconds: number,
 ): TurnCredential {
   const expiry = Math.floor(nowSeconds) + TTL_SECONDS;
+  // The room binding, without the room: a keyed digest of code and seat, cut
+  // to ROOM_TAG_CHARS. SHA-256 here and SHA-1 below is not inconsistency —
+  // SHA-1 is what coturn's `use-auth-secret` computes and cannot be changed
+  // from this side, while this tag is ours alone and gets the current digest.
+  // base64url so the tag carries no `/` or `+` into a journal line or a URL.
+  const tag = createHmac('sha256', secret)
+    .update(`${roomCode}:${slot}`)
+    .digest('base64url')
+    .slice(0, ROOM_TAG_CHARS);
   // The layout coturn parses: everything up to the first colon is the unix
   // expiry it enforces, and the rest is opaque to it and ours to use.
-  const username = `${expiry}:${roomCode}:${slot}`;
+  const username = `${expiry}:${tag}`;
   const credential = createHmac('sha1', secret).update(username).digest('base64');
   // Three fields and no more. A fourth is how the secret would get out.
   return { username, credential, ttl: TTL_SECONDS };

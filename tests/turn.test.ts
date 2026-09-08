@@ -7,10 +7,16 @@
 // the pair of tsconfig entries exists here: a test that recomputed the HMAC by
 // calling turnCredential would be asserting that a function equals itself.
 //
-// The literal below was produced once, by two independent tools that agreed,
-// and it is checked in so the assertion is auditable without running anything:
+// The literals below were produced once, by two independent tools that agreed,
+// and they are checked in so the assertion is auditable without running
+// anything. Two steps, because the username carries a tag of the room instead
+// of the room itself (WR-10): first the tag, then the credential over the
+// username that contains it.
 //
-//   printf '%s' '1756003600:ABCDEF:p1' \
+//   TAG=$(printf '%s' 'ABCDEF:p1' \
+//     | openssl dgst -sha256 -hmac 'segredo-de-teste' -binary \
+//     | openssl base64 -A | tr '+/' '-_' | tr -d '=' | cut -c1-16)
+//   printf '%s' "1756003600:$TAG" \
 //     | openssl dgst -sha1 -hmac 'segredo-de-teste' -binary | openssl base64
 //
 // WHY A VECTOR AND NOT A ROUND TRIP. coturn is the other half of this
@@ -33,23 +39,32 @@ import {
 const SECRET = 'segredo-de-teste';
 /** Chosen so the expiry is a round number: 1756000000 + 3600. */
 const NOW_SECONDS = 1_756_000_000;
-const EXPECTED_USERNAME = '1756003600:ABCDEF:p1';
-const EXPECTED_CREDENTIAL = 'AuH1uQQpb2Nf9yhX3BCTz3dWt5w=';
+/** The first sixteen base64url characters of HMAC-SHA256(secret, 'ABCDEF:p1'). */
+const EXPECTED_TAG = 'gKGiQi0WbgIIl_0a';
+const EXPECTED_USERNAME = `1756003600:${EXPECTED_TAG}`;
+const EXPECTED_CREDENTIAL = 'gGxahfL6eQwogZHqSL0McNChs6g=';
 
 const DOMAIN = 'dg2.example';
 
 describe('turnCredential — TURN REST API (D3-10, SALA-04)', () => {
-  it('o username é <expiry>:<code>:<slot>, com expiry uma hora à frente', () => {
+  it('o username é <expiry>:<tag>, com expiry uma hora à frente e SEM o código da sala', () => {
     const cred = turnCredential(SECRET, 'ABCDEF', 'p1', NOW_SECONDS);
 
     expect(cred.username).toBe(EXPECTED_USERNAME);
     // coturn parses the part before the first colon as a unix expiry and
     // refuses the credential once it has passed. Everything after is opaque to
-    // it and is ours: the room and the slot are there so a leaked pair cannot
+    // it and is ours: a tag of the room and the slot, so a leaked pair cannot
     // outlive the session it was issued for, and so a journal line can be tied
-    // back to a room without storing anything.
+    // back to a room by whoever holds the secret — without storing anything.
     expect(Number(cred.username.split(':')[0])).toBe(NOW_SECONDS + TTL_SECONDS);
     expect(TTL_SECONDS).toBe(3600);
+    // THE CODE NEVER TRAVELS IN CLEAR (WR-10). The STUN USERNAME attribute is
+    // plaintext over `turn:` on UDP and TCP, and the code is the only
+    // credential a room has (D3-09): anyone on the path — the open Wi-Fi, the
+    // provider — would read six characters and walk into the room.
+    expect(cred.username).not.toContain('ABCDEF');
+    expect(cred.username).not.toContain('p1');
+    expect(cred.username).toMatch(/^\d+:[A-Za-z0-9_-]{16}$/);
   });
 
   it('a credencial bate com o vetor conhecido, calculado fora deste código', () => {
@@ -57,10 +72,14 @@ describe('turnCredential — TURN REST API (D3-10, SALA-04)', () => {
     expect(cred.credential).toBe(EXPECTED_CREDENTIAL);
   });
 
-  it('o vetor recomputado à mão com node:crypto confirma o literal', () => {
-    // Anti-vacuity for the assertion above: if someone re-baselines the literal
-    // from the implementation's own output, this line still holds it to
-    // HMAC-SHA1/base64 over that exact username — which is what coturn does.
+  it('o vetor recomputado à mão com node:crypto confirma os dois literais', () => {
+    // Anti-vacuity for the assertions above: if someone re-baselines the
+    // literals from the implementation's own output, these lines still hold
+    // them to the two steps — HMAC-SHA256/base64url over `code:slot` for the
+    // tag, and HMAC-SHA1/base64 over the username for the credential, which
+    // is what coturn's `use-auth-secret` computes on its side.
+    const tag = createHmac('sha256', SECRET).update('ABCDEF:p1').digest('base64url').slice(0, 16);
+    expect(tag).toBe(EXPECTED_TAG);
     const byHand = createHmac('sha1', SECRET).update(EXPECTED_USERNAME).digest('base64');
     expect(byHand).toBe(EXPECTED_CREDENTIAL);
   });
@@ -69,10 +88,10 @@ describe('turnCredential — TURN REST API (D3-10, SALA-04)', () => {
     const a = turnCredential(SECRET, 'ABCDEF', 'p1', NOW_SECONDS);
     const b = turnCredential('outro-segredo', 'ABCDEF', 'p1', NOW_SECONDS);
 
-    // Same username, different key. If these matched, the credential would not
-    // be a function of the secret at all and every relay on the internet would
-    // accept it.
-    expect(b.username).toBe(a.username);
+    // Different key, different credential. If these matched, the credential
+    // would not be a function of the secret at all and every relay on the
+    // internet would accept it. (The username differs too since WR-10 — the
+    // room tag is keyed — so the comparison is on the credential alone.)
     expect(b.credential).not.toBe(a.credential);
   });
 
@@ -112,8 +131,15 @@ describe('turnCredential — TURN REST API (D3-10, SALA-04)', () => {
     const outraSala = turnCredential(SECRET, 'GHJKMN', 'p1', NOW_SECONDS);
     const outroSlot = turnCredential(SECRET, 'ABCDEF', 'p2', NOW_SECONDS);
 
+    // The binding lives in the tag, so it moves the username too — which is
+    // how a journal line still tells one room from another.
+    expect(outraSala.username).not.toBe(a.username);
+    expect(outroSlot.username).not.toBe(a.username);
     expect(outraSala.credential).not.toBe(a.credential);
     expect(outroSlot.credential).not.toBe(a.credential);
+    // And the tag is keyed: another secret gives another tag for the same
+    // room, so nobody can compute it without the secret the box holds.
+    expect(turnCredential('outro-segredo', 'ABCDEF', 'p1', NOW_SECONDS).username).not.toBe(a.username);
   });
 
   it('NO_TURN é a ausência de credencial, e não uma credencial vazia válida', () => {
