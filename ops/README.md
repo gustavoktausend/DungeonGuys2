@@ -243,6 +243,15 @@ repositório, nunca):
 | `LITESTREAM_ENDPOINT` | o endpoint S3-compatível do bucket |
 | `AWS_ACCESS_KEY_ID` | credencial da réplica, lida como `${AWS_ACCESS_KEY_ID}` |
 | `AWS_SECRET_ACCESS_KEY` | credencial da réplica, lida como `${AWS_SECRET_ACCESS_KEY}` |
+| `DG2_TURN_SECRET` | o mesmo segredo que o `static-auth-secret` do coturn (§12) |
+| `DG2_TURN_REALM` | o `realm` do coturn, idêntico ao de `/etc/turnserver.conf` |
+
+As duas últimas são da fase 3 e só significam alguma coisa depois de §12. A
+**ausência** delas é tolerada de propósito: o servidor sobe, avisa no log e
+emite configuração de ICE só com STUN, o que é o que permite desenvolver sem a
+caixa. Definida e **vazia** continua sendo erro, como todas as outras — um
+segredo em branco não é um segredo padrão, e um segredo padrão seria uma
+vulnerabilidade.
 
 O `litestream.yml` versionado referencia as duas últimas por interpolação
 (`${...}`), nunca por valor — e é por isso que as duas linhas acima escrevem a
@@ -315,6 +324,13 @@ Não há valor padrão para a variável. Sem ela, o endereço do site fica vazio
 Caddy recusa no parse: uma falha barulhenta no boot é melhor que uma caixa
 servindo o jogo em silêncio sob o nome errado.
 
+**A segunda coisa que o reload faz, e que não tem nada a ver com a primeira:**
+`systemctl reload caddy` **fecha todas as WebSockets ativas**, portanto derruba
+o signaling de todo mundo que estiver num lobby. Os DataChannels P2P não passam
+pelo Caddy e continuam vivos, o que torna o sintoma confuso — o jogo segue e só
+o servidor esquece. §9 traz a mitigação (o grace de 60 s antes de apagar a
+sala), e as duas metades precisam continuar existindo juntas.
+
 ## 7. Publicar e reverter
 
 O job de deploy do CI faz duas coisas, com a mesma chave:
@@ -370,16 +386,35 @@ Node fora" de "caixa fora".
 **Sem stack trace na resposta.** O corpo de erro não carrega caminho, nem nome de
 upstream, nem mensagem de exceção.
 
-## 9. Agendado para a fase 3
+## 9. A porta 443, decidida
 
-A **porta 443 vai ser disputada**: o TURN sobre TLS quer 443/tcp para atravessar
-firewall corporativo, e este servidor também. O `Caddyfile` desta fase não
-resolve isso; a questão está no calendário, não esquecida.
+**A 443 é do Caddy.** O que esta seção registrava como "vai ser disputada" está
+resolvido: o coturn fica em **3478 (UDP e TCP) e 5349 (TLS)**, e essas duas
+portas atravessam praticamente todo NAT e firewall doméstico — que é a
+população deste jogo, amigos em acesso residencial brasileiro. O runbook do
+relay é a **§12**.
 
-O bloco `handle /ws` já existe no `Caddyfile`, sem consumidor, para que a forma
-esteja visível em revisão desde agora. O Caddy faz upgrade de WebSocket através
-do `reverse_proxy` sem módulo extra, então o bloco não precisa mudar quando o
-signaling chegar.
+TURN sobre TLS na 443 só compraria o firewall corporativo que não abre mais
+nada, e é **dívida registrada, não construída**. As duas saídas ficam nomeadas
+para quem voltar aqui: o app `layer4` do Caddy roteando por ALPN/SNI na frente
+dos dois serviços, ou um segundo IP na VPS. Nenhuma das duas paga o próprio
+peso operacional antes de existir alguém de fato trancado do lado de fora por
+um firewall que se possa nomear.
+
+O bloco `handle /ws` do `Caddyfile` foi escrito uma fase antes, sem consumidor,
+para que a forma estivesse visível em revisão — e a aposta se pagou: o bloco
+**não mudou** quando o signaling chegou. O Caddy faz upgrade de WebSocket
+através do `reverse_proxy` sem módulo extra, e o CSP já cobre o caminho, porque
+`connect-src 'self'` inclui `wss://` na mesma origem.
+
+**A regra operacional que vem junto:** `systemctl reload caddy` **fecha todas as
+WebSockets ativas** — por um cabeçalho, por uma regra de cache, por qualquer
+coisa. Enquanto isso os DataChannels P2P, que não passam pelo Caddy, continuam
+vivos: o jogo segue e o servidor vê todo mundo sair ao mesmo tempo. É por isso
+que existe um **grace de 60 s** antes de apagar a sala, em vez de apagá-la na
+desconexão. As duas metades andam juntas; tirar uma traz de volta o sintoma
+"todo mundo caiu ao mesmo tempo, e eu não fiz nada" logo depois de um deploy que
+tocou o `Caddyfile`.
 
 ## 10. As units do systemd — instalar, habilitar, e em que ordem
 
@@ -518,3 +553,71 @@ qualquer um dos dois o script sai 1 dizendo qual falta.
 O ensaio desta fase — data, tempo até restaurar, e o que faltou — é registrado
 em `docs/`, não aqui: este arquivo diz como operar, e o registro do ensaio é um
 fato datado.
+
+## 12. coturn — o relay da fase 3
+
+Só faz sentido depois que a caixa existir (02-04). Os dois arquivos versionados
+são `ops/turnserver.conf` e `ops/coturn-dropin.conf`, e nenhum dos dois carrega
+valor real: os placeholders são substituídos aqui, na máquina.
+
+1. `apt-get install -y coturn`. O pacote **já traz** `coturn.service` e o
+   habilita na instalação — não há nada para copiar de `ops/`, e
+   `/etc/default/coturn` com `TURNSERVER_ENABLED=1` é documentação de uma era
+   anterior.
+2. `cp ops/turnserver.conf /etc/turnserver.conf`, depois
+   `chown root:root /etc/turnserver.conf` e `chmod 0600 /etc/turnserver.conf`.
+   **Substitua os dois placeholders**: `realm` (o domínio) e
+   `static-auth-secret` (um segredo longo e aleatório, gerado aqui).
+3. `mkdir -p /etc/systemd/system/coturn.service.d` e
+   `cp ops/coturn-dropin.conf /etc/systemd/system/coturn.service.d/dg2.conf`,
+   depois `systemctl daemon-reload`. É um **drop-in**, não uma cópia da unit:
+   as três linhas que ele sobrescreve são as únicas que este projeto quer, e o
+   resto continua sendo mantido pelo pacote — inclusive as correções de
+   segurança dele.
+4. Ponha `DG2_TURN_SECRET` **com exatamente o mesmo valor do passo 2** e
+   `DG2_TURN_REALM` em `/etc/dg2/env` (§5). Depois **`systemctl restart dg2`**,
+   e não `reload`: §6 já registra que o reload não relê o `EnvironmentFile`, e
+   uma chave nova que ninguém releu é uma chave que não existe.
+5. Abra **3478/udp**, **3478/tcp** e **5349/tcp** no firewall. O UDP é o
+   caminho normal; o TCP existe para a rede que descarta UDP, que é
+   exatamente a rede por causa da qual há um relay.
+6. `systemctl enable --now coturn`, e confira `systemctl status coturn` **de
+   verdade**. O `ProtectSystem=strict` do drop-in é a linha capaz de recusar o
+   start se alguém acrescentar a `/etc/turnserver.conf` um diretório de log ou
+   de banco fora do que o sandbox permite — e o erro se parece com permissão
+   comum.
+
+### O SEGREDO MORA EM DOIS ARQUIVOS, E ESSA É A ARMADILHA
+
+O `static-auth-secret` existe **duas vezes** na caixa:
+
+| Arquivo | Nome ali | Quem lê |
+|---|---|---|
+| `/etc/turnserver.conf` | `static-auth-secret` | o coturn, para **verificar** a credencial |
+| `/etc/dg2/env` | `DG2_TURN_SECRET` | o Node, para **emitir** a credencial |
+
+Os dois são `root`, `chmod 600`. **Trocar num só faz o relay recusar toda
+credencial que a API emitir** — e o sintoma não se parece com um erro de
+configuração. Parece **"um amigo específico nunca entra"**: quem fecha a conexão
+direta continua jogando normalmente, e só quem precisava do relay fica de fora.
+Isso é indistinguível de NAT ruim a olho nu, e é por isso que esta seção existe
+em vez de a informação estar só no cabeçalho do arquivo de config.
+
+Ao rotacionar o segredo: troque nos **dois** arquivos, depois
+`systemctl restart coturn` **e** `systemctl restart dg2`. As credenciais já
+emitidas valem uma hora e vão falhar até expirarem; isso é esperado.
+
+### Orçamento
+
+Os **~128 MB** que §10 reserva para o coturn são exatamente o
+`MemoryHigh=96M`/`MemoryMax=128M` do drop-in — o que era um parágrafo de
+intenção agora é um limite de cgroup. Valem aqui as mesmas duas ressalvas de
+§10: os limites são **ignorados em silêncio sob cgroup v1** (a caixa é v2, §3),
+e o par `NODE_OPTIONS` de `dg2.service` **não** tem equivalente aqui — aquela
+armadilha é do heap do V8, e o coturn é C, que não dimensiona nada a partir da
+memória da máquina.
+
+O `total-quota=1200` de `/etc/turnserver.conf` é dimensionamento tanto quanto
+anti-abuso: é o teto de alocações simultâneas da máquina, e é o número a
+revisitar **antes** do orçamento de tráfego da VPS, não depois. O
+`user-quota=12` é o teto por conta autenticada.

@@ -179,6 +179,33 @@ describe('ops/Caddyfile', () => {
     expect(cfg).toContain('handle_errors');
     expect(cfg).toContain('{"status":"unavailable"}');
   });
+
+  it('a disputa da 443 virou decisão escrita, não um item de calendário', () => {
+    // read() e não code(): a decisão VIVE num comentário, e esta é justamente a
+    // asserção que code() tornaria vazia — o texto que ela persegue nunca
+    // esteve fora de um comentário.
+    const cfg = read('Caddyfile');
+    // O que saiu. Um comentário que promete resolver algo depois envelhece para
+    // "ninguém sabe se isso ainda vale", que é pior que não ter nota nenhuma.
+    expect(cfg, 'o Caddyfile ainda adia a decisão da 443')
+      .not.toContain('SCHEDULED FOR PHASE 3');
+    // O que entrou: a saída nomeada, para que a dívida seja reconsiderável em
+    // vez de redescoberta. `layer4` é o app do Caddy que rotearia por ALPN/SNI.
+    expect(cfg).toContain('layer4');
+    // E a advertência que o plano 03-04 paga com o grace de 60 s: um reload
+    // fecha as WebSockets ativas enquanto os DataChannels P2P sobrevivem.
+    expect(cfg).toMatch(/reload/i);
+  });
+
+  it('o CSP já cobre o wss:// do signaling sem precisar mudar', () => {
+    // connect-src 'self' inclui wss:// na mesma origem, então /ws entrar em uso
+    // NÃO é motivo para afrouxar o CSP. O caso existe para que a próxima pessoa
+    // que "precisar liberar o WebSocket" encontre a resposta já testada.
+    const cfg = code('Caddyfile');
+    expect(cfg).toMatch(/connect-src 'self'/);
+    expect(cfg).not.toContain('connect-src *');
+    expect(cfg).not.toMatch(/connect-src[^;"]*wss:/);
+  });
 });
 
 /**
@@ -816,6 +843,11 @@ const ENV_KEYS = [
   'DG2_DOMAIN', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE',
   'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT',
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+  // Fase 3. DG2_TURN_SECRET entra nesta lista pelo motivo pelo qual a lista
+  // existe: é a metade Node de um segredo que também vive em
+  // /etc/turnserver.conf, e a asserção de "nenhuma chave aparece com valor
+  // literal" é o que impede o par de vazar pelo lado mais fácil de esquecer.
+  'DG2_TURN_SECRET', 'DG2_TURN_REALM',
 ];
 
 describe('ops/README.md', () => {
@@ -892,6 +924,63 @@ describe('ops/README.md', () => {
     const readme = read('README.md');
     expect(readme).toContain('node tools/ops/restore-verify.mjs');
     expect(readme).toContain('D2-03');
+  });
+
+  it('§9 deixou de agendar a 443 e passou a decidi-la', () => {
+    const readme = read('README.md');
+    expect(readme, '§9 ainda diz que a 443 está no calendário')
+      .not.toContain('Agendado para a fase 3');
+    // A decisão, e a saída nomeada para o dia em que a dívida for cobrada.
+    expect(readme).toContain('layer4');
+  });
+
+  it('§12 é executável por um operador que nunca viu um coturn', () => {
+    const readme = read('README.md');
+    expect(readme, 'não existe §12').toMatch(/^## 12\./m);
+    for (const step of [
+      // Instalar, e saber que a unit vem do pacote.
+      'apt-get install -y coturn',
+      // Copiar a config e fechá-la.
+      '/etc/turnserver.conf',
+      'chmod 0600 /etc/turnserver.conf',
+      // O drop-in vai para o diretório .d, não para /etc/systemd/system direto:
+      // copiado no lugar errado, ele é um arquivo inerte e nada avisa.
+      'coturn.service.d',
+      'daemon-reload',
+      // As três portas do firewall. Sem elas o relay sobe e ninguém o alcança.
+      '3478/udp',
+      '3478/tcp',
+      '5349/tcp',
+      // E conferir de verdade, porque ProtectSystem=strict pode recusar o start.
+      'systemctl enable --now coturn',
+      'systemctl status coturn',
+    ]) {
+      expect(readme, `§12 não manda: ${step}`).toContain(step);
+    }
+  });
+
+  it('§12 escreve que o segredo mora em DOIS arquivos (T-3-11)', () => {
+    // O sintoma de trocar num só é "um amigo específico nunca entra", que é
+    // indistinguível de NAT ruim — e por isso capaz de custar uma noite. O
+    // runbook é o único lugar onde as duas metades aparecem juntas.
+    const readme = read('README.md');
+    expect(readme).toContain('static-auth-secret');
+    // Nomeada nas duas pontas: a tabela de §5 e o passo 4 de §12.
+    expect(readme.split('\n').filter((l) => l.includes('DG2_TURN_SECRET')).length,
+      'DG2_TURN_SECRET aparece em menos de dois lugares').toBeGreaterThanOrEqual(2);
+    // A consequência, escrita. Sem o sintoma nomeado, a seção vira inventário.
+    expect(readme).toContain('um amigo específico nunca entra');
+    // E o restart, porque §6 já registra que reload não relê o EnvironmentFile.
+    expect(readme).toContain('systemctl restart dg2');
+  });
+
+  it('§12 amarra o orçamento de memória ao drop-in que o aplica (D2-19)', () => {
+    // §10 reservava ~128 MB para o coturn em prosa, sem nada que o impusesse.
+    // Este caso é o que mantém o parágrafo e o limite de cgroup em acordo.
+    const readme = read('README.md');
+    expect(readme).toContain('MemoryHigh=96M');
+    expect(readme).toContain('MemoryMax=128M');
+    expect(readme).toContain('total-quota=1200');
   });
 });
 
