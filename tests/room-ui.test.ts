@@ -147,12 +147,19 @@ describe('o texto da tela de sala', () => {
       ],
     });
     expect(badgeLine(withGuests)).toBe('pior 190 ms · relay');
-    // A guest sees its own link and calls it nothing but what it is.
+    // A guest sees its own link, with no superlative in front of it: it has
+    // exactly one leg, and calling it "the worst" would be a lie by grammar.
     const asGuest = view({
       isAuthority: false, selfPeerId: 'peer-b',
       occupants: [seat({ peerId: 'peer-a', ping: null }), seat({ peerId: 'peer-b', ping: 40 })],
     });
-    expect(badgeLine(asGuest)).toBe('40 ms');
+    expect(badgeLine(asGuest)).toBe('40 ms · direto');
+    // And `—` until the first pong, which is the state the badge is born in.
+    const beforeFirstPong = view({
+      isAuthority: false, selfPeerId: 'peer-b',
+      occupants: [seat({ peerId: 'peer-a', ping: null }), seat({ peerId: 'peer-b', ping: null })],
+    });
+    expect(badgeLine(beforeFirstPong)).toBe('—');
   });
 
   it('o link de convite é montado do código da sala, nunca do endereço atual', () => {
