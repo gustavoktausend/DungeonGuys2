@@ -17,6 +17,7 @@ import { createShutdown, SHUTDOWN_GRACE_MS } from './shutdown';
 import { attachSignalling, HEARTBEAT_MS } from './signaling';
 import { createOutcomeRecorder } from './signaling/outcome';
 import { createRooms } from './signaling/rooms';
+import { DEV_STUN_DOMAIN, iceServers, NO_TURN, turnCredential } from './signaling/turn';
 import {
   createLimiter,
   JOIN_LIMIT,
@@ -106,6 +107,22 @@ const log = (event: string, fields?: Record<string, unknown>): void => {
 // schema is missing.
 const outcomes = createOutcomeRecorder({ sqlite, log, now: () => Date.now() });
 
+// The relay, or the honest absence of one.
+//
+// WARNED ONCE, AT BOOT, AND NOT PER ROOM. A deployment without coturn is a
+// supported state — it is what every wave of phase 3 before the box runs
+// against — so this is not an error; but it is also not something to discover
+// from a player's complaint. One line at startup is where an operator looks
+// when relay stops working, and a line per room would bury it.
+const turnDomain = env.turnRealm ?? DEV_STUN_DOMAIN;
+if (env.turnSecret === null) {
+  log('turn-disabled', {
+    // No key names beyond the one to set, and no path: the operator can act on
+    // this, and the rest is topology (D2-15).
+    detail: 'DG2_TURN_SECRET ausente — ICE será emitido só com STUN, sem relay',
+  });
+}
+
 // The signalling leg, wired with everything time-like and stateful passed in.
 //
 // The two dependencies plan 03-04 left inert are real from here on:
@@ -130,10 +147,20 @@ attachSignalling(server, {
   now: () => Date.now(),
   recordOutcome: outcomes.record,
   forgetOutcomes: outcomes.forget,
-  iceConfig: () => ({
-    ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
-    turn: { username: '', credential: '', ttl: 0 },
-  }),
+  // Minted PER ENTRY, per room and per seat, so the pair a peer holds names the
+  // session it was issued for and stops being useful when that session ends
+  // (D3-10). Seconds and not milliseconds: the expiry inside the username is
+  // what coturn enforces, and it reads unix seconds.
+  iceConfig: (code, slot) => {
+    const cred =
+      env.turnSecret === null
+        ? null
+        : turnCredential(env.turnSecret, code, slot, Math.floor(Date.now() / 1000));
+    return {
+      ice: { iceServers: iceServers(turnDomain, cred) },
+      turn: cred ?? NO_TURN,
+    };
+  },
   // .unref() for the same reason shutdown.ts gives: a periodic timer must not
   // itself be a reason for the process to stay alive.
   startHeartbeat: (tick) => {
