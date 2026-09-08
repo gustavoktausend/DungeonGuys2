@@ -593,9 +593,9 @@ describe('ops/turnserver.conf', () => {
     }
   });
 
-  it('recusa as oito faixas reservadas, e são OITO (T-3-04)', () => {
+  it('recusa as onze faixas reservadas, e são ONZE (T-3-04)', () => {
     // A CONTAGEM É A ASSERÇÃO. O modo de falha real não é apagar o bloco — é
-    // publicar sete das oito linhas, e uma deny-list incompleta não faz barulho
+    // publicar dez das onze linhas, e uma deny-list incompleta não faz barulho
     // nenhum: o relay funciona, o jogo funciona, e uma família inteira de
     // endereços continua alcançável a partir da internet. Conferir por leitura
     // é exatamente o que não pega isso.
@@ -603,6 +603,9 @@ describe('ops/turnserver.conf', () => {
     for (const range of [
       '0.0.0.0-0.255.255.255',
       '10.0.0.0-10.255.255.255',
+      // RFC 6598, o espaço compartilhado do CGNAT — e o que provedores de
+      // máquinas virtuais usam nas redes internas: os vizinhos da própria VPS.
+      '100.64.0.0-100.127.255.255',
       '127.0.0.0-127.255.255.255',
       '169.254.0.0-169.254.255.255',
       '172.16.0.0-172.31.255.255',
@@ -611,11 +614,16 @@ describe('ops/turnserver.conf', () => {
       // em IPv6, então uma lista só-v4 deixa aberta a metade moderna.
       '::1',
       'fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+      // O link-local de IPv6, par do 169.254 acima (WR-09).
+      'fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+      // IPv4 mapeado em IPv6: as faixas v4 acima escritas de um jeito que uma
+      // regra só-v4 pode não reconhecer, dependendo da normalização.
+      '::ffff:0.0.0.0-::ffff:255.255.255.255',
     ]) {
       expect(cfg, `falta denied-peer-ip=${range}`).toContain(`denied-peer-ip=${range}`);
     }
     expect((cfg.match(/^denied-peer-ip=/gm) ?? []).length,
-      'a lista de denied-peer-ip não tem exatamente oito linhas').toBe(8);
+      'a lista de denied-peer-ip não tem exatamente onze linhas').toBe(11);
   });
 
   it('o static-auth-secret é o placeholder literal, nunca um segredo (D2-15)', () => {
@@ -1115,22 +1123,29 @@ const NON_ROUTABLE_V4 = new Set([
   '127.0.0.1',
   '0.0.0.0', '0.255.255.255',
   '10.0.0.0', '10.255.255.255',
+  // RFC 6598 shared address space — the CGNAT range, a constant like the rest.
+  '100.64.0.0', '100.127.255.255',
   '127.0.0.0', '127.255.255.255',
   '169.254.0.0', '169.254.255.255',
   '172.16.0.0', '172.31.255.255',
   '192.168.0.0', '192.168.255.255',
+  // The upper end of the IPv4-mapped IPv6 line, which spells a v4 address.
+  '255.255.255.255',
 ]);
 
 /**
- * The IPv6 half of the same exemption, and the same exactness. Two tokens,
+ * The IPv6 half of the same exemption, and the same exactness. Four tokens,
  * because that is all the deny-list spells that the address regex below can
- * see: the loopback, and the upper end of the RFC 4193 unique-local range.
- * `fc00::` — the lower end — is not here because the compressed form matches
- * neither alternative of that regex, so it never reaches this set.
+ * see: the loopback, the upper ends of the RFC 4193 unique-local and the
+ * link-local ranges, and the `::ffff` prefix of the IPv4-mapped line. The
+ * lower ends `fc00::` and `fe80::` are not here because the compressed form
+ * matches neither alternative of that regex, so they never reach this set.
  */
 const NON_ROUTABLE_V6 = new Set([
   '::1',
   'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+  'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+  '::ffff',
 ]);
 
 /**

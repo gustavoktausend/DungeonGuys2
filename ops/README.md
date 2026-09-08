@@ -621,3 +621,24 @@ O `total-quota=1200` de `/etc/turnserver.conf` é dimensionamento tanto quanto
 anti-abuso: é o teto de alocações simultâneas da máquina, e é o número a
 revisitar **antes** do orçamento de tráfego da VPS, não depois. O
 `user-quota=12` é o teto por conta autenticada.
+
+### TLS na 5349: declarada, não anunciada
+
+`tls-listening-port=5349` está em `/etc/turnserver.conf` e a porta está no
+passo 5, mas o coturn só completa um handshake TLS com `cert=` e `pkey=`
+apontando para um certificado válido do domínio — e este runbook **ainda não
+tem o passo que os fornece**. O certificado da caixa é renovado pelo Caddy,
+dentro do diretório de dados dele, que o usuário do coturn não lê. As saídas
+são uma cópia por gancho de renovação, com permissão de leitura para o
+`turnserver` e um `systemctl reload coturn` depois, ou um certificado próprio
+do relay; as duas exigem uma decisão de operação que ainda não foi tomada, e
+uma cópia feita à mão uma vez é a pior das três — funciona até a primeira
+renovação e depois falha sem uma linha de log do lado do jogo.
+
+Por isso o servidor **não anuncia** `turns:` aos navegadores
+(`apps/server/src/signaling/turn.ts`): anunciar uma URL que o relay não
+consegue atender faria o navegador tentá-la e falhar exatamente na população
+para a qual ela existiria — a rede que só deixa TLS passar. Quando o passo do
+certificado entrar aqui, `cert=`/`pkey=` entram em `ops/turnserver.conf`,
+`turns:` volta a `iceServers()`, e `tests/turn.test.ts` cobra as três URLs
+de novo, no mesmo commit.

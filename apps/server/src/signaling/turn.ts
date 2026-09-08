@@ -86,11 +86,22 @@ export function turnCredential(
  * it covers the minute our STUN is restarting. Dropping ours in favour of it
  * would put a third party in the path of every room this game ever opens.
  *
- * The three relay URLs only appear when there is a credential to go with them.
- * UDP first because it is the one that performs; TCP and TLS exist for the
- * networks that drop UDP outright, which is the population relay was bought
- * for. 5349 and not 443, because ops/turnserver.conf records that 443 belongs
- * to Caddy and names the two ways out if that ever has to change.
+ * The relay URLs only appear when there is a credential to go with them. UDP
+ * first because it is the one that performs; TCP exists for the networks that
+ * drop UDP outright, which is the population relay was bought for.
+ *
+ * NO `turns:` URL, AND THE ABSENCE IS A DECISION, NOT AN OVERSIGHT. TURN over
+ * TLS on 5349 is declared in ops/turnserver.conf, but a TLS listener only
+ * completes a handshake with a certificate that config does not yet name: the
+ * box's certificate is renewed by Caddy inside a directory the coturn user
+ * cannot read, and the step that copies it out on every renewal is not in the
+ * runbook (§12) — it is an operational decision that has not been taken. A
+ * `turns:` URL advertised without it would make every browser try the port
+ * and fail, and fail precisely for the population it exists for: the network
+ * that lets nothing but TLS through. When the certificate step lands, the URL
+ * comes back here as one line, and tests/turn.test.ts asks for three again.
+ * 5349 and not 443 either way, because ops/turnserver.conf records that 443
+ * belongs to Caddy and names the two ways out if that ever has to change.
  */
 export function iceServers(domain: string, cred: TurnCredential | null): IceServer[] {
   const servers: IceServer[] = [
@@ -103,7 +114,6 @@ export function iceServers(domain: string, cred: TurnCredential | null): IceServ
       urls: [
         `turn:${domain}:3478?transport=udp`,
         `turn:${domain}:3478?transport=tcp`,
-        `turns:${domain}:5349`,
       ],
       username: cred.username,
       credential: cred.credential,

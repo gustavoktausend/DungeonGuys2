@@ -151,19 +151,24 @@ describe('iceServers — o STUN público é adicional, nunca substituto (C-8)', 
     expect(servers[1]?.urls).toEqual(['stun:stun.l.google.com:19302']);
   });
 
-  it('com credencial devolve três, e o terceiro tem as três URLs do relay', () => {
+  it('com credencial devolve três, e o terceiro tem as duas URLs do relay — e nenhuma turns:', () => {
     const cred = turnCredential(SECRET, 'ABCDEF', 'p1', NOW_SECONDS);
     const servers = iceServers(DOMAIN, cred);
 
     expect(servers).toHaveLength(3);
-    // UDP first because it is the one that performs; TCP and TLS are there for
-    // the networks that drop UDP outright, which is the case relay exists for.
-    // 5349 and not 443: ops/turnserver.conf records that 443 belongs to Caddy.
+    // UDP first because it is the one that performs; TCP is there for the
+    // networks that drop UDP outright, which is the case relay exists for.
     expect(servers[2]?.urls).toEqual([
       `turn:${DOMAIN}:3478?transport=udp`,
       `turn:${DOMAIN}:3478?transport=tcp`,
-      `turns:${DOMAIN}:5349`,
     ]);
+    // NO turns: UNTIL THE CONFIG NAMES A CERTIFICATE (WR-09). A TLS listener
+    // without cert/pkey never completes a handshake, so advertising the URL
+    // would send every browser to try 5349 and fail — and fail precisely for
+    // the network that lets nothing but TLS through, which is the population
+    // the URL would exist for. The day ops/README.md §12 gets the certificate
+    // step, this assertion flips back to three URLs in the same commit.
+    expect(servers.flatMap((s) => s.urls).some((u) => u.startsWith('turns:'))).toBe(false);
   });
 
   it('a credencial viaja no terceiro servidor, e o segredo não viaja em nenhum', () => {
