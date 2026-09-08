@@ -27,11 +27,11 @@ mundo, com o jogo respondendo na hora para cada um.
 ## Current Position
 
 Phase: 03 (sala-transporte-e-protocolo) — EXECUTING
-Plan: 1 of 11
-Status: Executing Phase 03
-Last activity: 2026-09-08 -- Phase 03 execution started
+Plan: 10 of 11 (03-11 adiado — bloqueado por 02-04)
+Status: Executada 10/11 — verificação `passed` com o critério 3 (SALA-04) bloqueado pela VPS; fase NÃO marcada completa
+Last activity: 2026-09-08 -- Phase 03 executed (10/11), 03-11 deferred, VERIFICATION passed-with-override
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -127,10 +127,21 @@ de verdade — é ele que fecha o critério 3 (SALA-04) e fica bloqueado até o 
 
 Sequencie as ondas de forma que o que depende da VPS caia nas ultimas, como a fase 2 fez.
 
+**Executada em 2026-09-08:** ondas 1 a 6 mescladas em `main` (planos 03-01 a 03-10, cada um com
+SUMMARY e Self-Check PASSED); portão pós-merge final: build 0, 886 testes em 60 arquivos, lint 0,
+Playwright 11 passes, `bench:snapshot` = wave16 1492/798/644 B contra teto de 16384. Dois portões
+humanos aprovados por Gustavo: legitimidade do `zod` (03-04) e conferência visual das quatro telas
+(03-09). `03-VERIFICATION.md` = `passed` com **um override documentado**: o critério 3 (SALA-04)
+está bloqueado por infraestrutura, não falho. **A fase não foi marcada completa de propósito** —
+ela fecha quando o 03-11 rodar contra a caixa (depois de 02-04 e 02-12). Dívidas registradas nos
+SUMMARYs e em `deferred-items.md`: `REJECT_REASON` sem `badMessage`; `VERSIONS.sim = 'unwired'`
+(o hash do tick 0 cobre a divergência na prática); `BOSS_STATE` pinado só por valor; vetor HMAC e
+`DEV_STUN_DOMAIN` por provar contra um coturn real.
+
 ## Session Continuity
 
-Last session: 2026-09-03T15:41:09.898Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-UI-SPEC.md
+Last session: 2026-09-08
+Stopped at: Phase 3 executed 10/11 — 03-11 deferred until the VPS exists
+Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-VERIFICATION.md
 
-Next: `/gsd:plan-phase 1`
+Next: `/gsd-discuss-phase 4` (ou `/gsd-plan-phase 4`); `/gsd-execute-phase 3` de novo quando a VPS existir, para o 03-11
