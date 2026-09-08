@@ -150,9 +150,18 @@ export function createLimiter({ now, limit, windowMs }: LimiterDeps): Limiter {
   };
 }
 
-/** The minimum of `IncomingMessage` this function reads. */
+/**
+ * The minimum of `IncomingMessage` this function reads.
+ *
+ * An index signature rather than the single key it actually wants, because a
+ * type whose properties are ALL optional triggers TypeScript's weak-type check:
+ * `IncomingHttpHeaders` would be refused for having "no properties in common"
+ * with it, even though it has exactly the one that matters. Widening the
+ * parameter is the honest fix — a cast at the two call sites would silence the
+ * same message by asserting something nobody verified.
+ */
 export interface ForwardedRequest {
-  headers: { 'x-forwarded-for'?: string | string[] | undefined };
+  headers: Record<string, string | string[] | undefined>;
 }
 
 /** The minimum of the upgrade socket this function reads. */
