@@ -115,6 +115,15 @@ jobs:
       - run: npm run typecheck:server
       - run: npm test
 
+      # SYNC-04: imprime no log as tres partes do snapshot na wave 16 com quatro
+      # jogadores e na wave 40 endless, e prova que cada uma cabe abaixo dos
+      # 16 KiB por mensagem do DataChannel. O portao que QUEBRA o build ja e
+      # tests/snapshot-bench.test.ts, uma linha acima; este passo existe para o
+      # caso que o portao nao ve -- uma regressao de 2,8 KiB para 9 KiB passa no
+      # teto e some na revisao. Rodando aqui, o tamanho novo fica no log do PR
+      # que o causou, ao lado do diff que o causou.
+      - run: npm run bench:snapshot
+
       # FORM-03: prova que o SIM_VERSION e reproduzivel (dois builds da mesma
       # fonte dao o mesmo valor) e sensivel (editar packages/sim/src muda o
       # valor). Roda aqui, e nao so no build final, para que a perda de
