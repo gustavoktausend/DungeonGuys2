@@ -35,10 +35,22 @@ const FORGE: ForgeLevels = {
   vigor: 0, honed: 0, fleet: 0, startgold: 0, merchant: 0, wise: 0, golden: 0,
 };
 
-/** Uma cor por classe, derivada do índice: D3-06 tira a cor das settings. */
-function colorFor(cls: ClassKey): Rgb {
-  const i = CLASS_KEY.indexOf(cls);
-  return [i * 10, 100 + i, 200 - i];
+/**
+ * A paleta de UMA máquina.
+ *
+ * Cada peer tem a sua, porque é isso que D3-06 diz: a cor sai de
+ * `Save.data.settings.colors[cls]` no aparelho de quem escolheu, e VIAJA no
+ * `lobbyState` como dado de apresentação. Uma paleta única no teste esconderia
+ * exatamente o erro que importa — um lobby que derivasse a cor da classe
+ * localmente, em vez de usar a que chegou, passaria por todos os testes e
+ * pintaria dois magos iguais na tela.
+ */
+function paletteFor(peerId: string): (cls: ClassKey) => Rgb {
+  const bump = peerId.charCodeAt(peerId.length - 1) % 7;
+  return (cls) => {
+    const i = CLASS_KEY.indexOf(cls);
+    return [i * 10 + bump, 100 + i, 200 - i - bump];
+  };
 }
 
 const AUTHORITY = 'peer-a';
@@ -70,7 +82,7 @@ function openRoom(cls: ClassKey = 'mage'): Room {
       transport: star.authority,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls, forge: FORGE },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor, now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
     }),
     authorityTransport: star.authority,
     guests: new Map(), guestTransports: new Map(),
@@ -94,7 +106,7 @@ async function join(room: Room, id: string, name: string, cls: ClassKey): Promis
     transport,
     self: { peerId: id, accountId: `conta-${id}`, name, cls, forge: FORGE },
     isAuthority: false, authorityPeerId: AUTHORITY,
-    colorFor, now: room.clock.now, schedule: room.clock.schedule,
+    colorFor: paletteFor(id), now: room.clock.now, schedule: room.clock.schedule,
   });
   room.guests.set(id, lobby);
   room.guestTransports.set(id, transport);
@@ -155,7 +167,7 @@ function lonelyGuest() {
     transport: rec.transport,
     self: { peerId: 'peer-z', accountId: 'conta-z', name: 'ZED', cls: 'ninja', forge: FORGE },
     isAuthority: false, authorityPeerId: AUTHORITY,
-    colorFor, now: clock.now, schedule: clock.schedule,
+    colorFor: paletteFor('peer-z'), now: clock.now, schedule: clock.schedule,
   });
   // Um estado válido primeiro: toda guarda abaixo é "o anterior PERMANECE",
   // e sem um anterior o teste passaria por vacuidade.
@@ -221,6 +233,11 @@ describe('máquina de estado do lobby', () => {
     // Nenhuma recusa, e nenhum ocupante marcado de forma diferente do outro:
     // a distinção é a cor da roupa e o nome (D3-06), não um aviso.
     expect(room.rejected.get('peer-b')).toEqual([]);
+    // E cada cor é a que a máquina DAQUELE jogador escolheu, não uma derivada
+    // da classe aqui. Um lobby que derivasse localmente pintaria os dois magos
+    // iguais e ainda assim passaria em tudo acima desta linha.
+    expect(view.occupants[0]!.color).toEqual(paletteFor(AUTHORITY)('mage'));
+    expect(view.occupants[1]!.color).toEqual(paletteFor('peer-b')('mage'));
     expect(view.occupants[0]!.color).not.toEqual(view.occupants[1]!.color);
   });
 
@@ -236,7 +253,7 @@ describe('máquina de estado do lobby', () => {
     expect(room.authority.state().occupants[1]!.cls).toBe('ninja');
     const echoed = guest.state().occupants.find((o) => o.peerId === 'peer-b')!;
     expect(echoed.cls).toBe('ninja');
-    expect(echoed.color).toEqual(colorFor('ninja'));
+    expect(echoed.color).toEqual(paletteFor('peer-b')('ninja'));
   });
 
   it('startRoom com só a autoridade produz um RunConfig de um jogador (D3-04)', () => {
@@ -395,13 +412,13 @@ describe('máquina de estado do lobby', () => {
       transport: a,
       self: { peerId: AUTHORITY, accountId: 'conta-a', name: 'ANA', cls: 'mage', forge: FORGE },
       isAuthority: true, authorityPeerId: AUTHORITY,
-      colorFor, now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor(AUTHORITY), now: clock.now, schedule: clock.schedule,
     });
     const guest = createLobby({
       transport: b,
       self: { peerId: 'peer-b', accountId: 'conta-b', name: 'BIA', cls: 'archer', forge: FORGE },
       isAuthority: false, authorityPeerId: AUTHORITY,
-      colorFor, now: clock.now, schedule: clock.schedule,
+      colorFor: paletteFor('peer-b'), now: clock.now, schedule: clock.schedule,
     });
     await flush();
 
