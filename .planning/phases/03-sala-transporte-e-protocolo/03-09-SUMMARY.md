@@ -72,9 +72,11 @@ completed: 2026-09-08
 
 **As telas de sala, lobby e divergência existem no padrão craftpix sem um token, uma fonte ou uma `@media` nova, com os 27 ids conferidos por teste, o avatar de cada slot na cor do seu dono sem sobrescrever a folha que a run inteira desenha, e um `?sala=ABC123` que abre o fluxo de entrada e some da barra de endereço — tudo sobre uma view que não importa o DOM e por isso tem teste em Node.**
 
-> **Estado: as tarefas 1 a 3 estão prontas e commitadas. A tarefa 4 é um
-> `checkpoint:human-verify` bloqueante e está AGUARDANDO A CONFERÊNCIA VISUAL DO
-> USUÁRIO.** Um agente de continuação registra a resposta aqui e fecha o plano.
+> **Estado: plano fechado.** As tarefas 1 a 3 foram commitadas pelo executor; a tarefa 4
+> (`checkpoint:human-verify` bloqueante) foi apresentada ao usuário pelo orquestrador em
+> 2026-09-08, com os dez passos do `<how-to-verify>` na íntegra e o pré-requisito do servidor
+> de signaling em dev (`npx tsx apps/server/src/index.ts` com `DG2_RELEASE=dev`). Resposta do
+> usuário: **"Aprovado"** — os dez passos conferiram e nenhum exigiu abrir o DevTools.
 
 ## Performance
 
@@ -183,10 +185,13 @@ Nada novo. As três mitigações que o `<threat_model>` deste plano atribui a es
 | `npm run lint` | **0** |
 | `npm run sw:verify` | **0** — 13 caminhos de precache batendo com o `dist/` |
 | `npx vitest run tests/dom-ids.test.ts tests/room-ui.test.ts tests/net-vocabulary.test.ts tests/build-base.test.ts tests/workspaces.test.ts` | **0** |
-| Checkpoint visual (Task 4) | **AGUARDANDO O USUÁRIO** |
+| Checkpoint visual (Task 4) | **Aprovado pelo usuário em 2026-09-08** — os dez passos conferiram; a rota apareceu sem `direto` e `▶ INICIAR` sem ação, ambos previstos e a cargo do 03-10 |
 
 Critérios de aceitação medidos: `@media` = 0, `btn-pixel:disabled` = 1, `focus-visible` = 2, `#touch-ui.enabled ~ #net-badge` = 1 e a forma com `+` = 0, `innerHTML` = 0, `setInterval` = 0, `detail === 0` = 0, `announce(` = 1, `.focus()` = 9, `mouseOnly` = 1, `location.href` em `room.ts` = 0, `navigator.clipboard` = 1, `playerSheet =` = 1, `room-ui` com 15 testes.
 
-## Self-Check
+## Self-Check: PASSED
 
-Preenchido pelo agente que fecha o plano depois do checkpoint.
+- **Arquivos criados, conferidos no disco:** `src/ui/room.ts`, `tests/room-ui.test.ts` — presentes; modificados `index.html`, `src/ui/dom.ts`, `src/style.css`, `src/render/sprites.ts`, `src/main.ts`, `tests/net-vocabulary.test.ts` — presentes.
+- **Commits conferidos em `git log`:** `bb996ea`, `58141e0`, `a42e116`, `b51fa9f`, `cf0b447` — todos presentes; branch do worktree mesclada em `main` como `4e80cf7`.
+- **Portões após o merge em `main`:** `npm run build` 0 · `npm test` 0 (59 arquivos, 865 testes) · `npm run lint` 0.
+- **Task 4:** resposta do usuário "Aprovado" registrada acima; critérios de aceitação do checkpoint satisfeitos (dez passos confirmados, nenhum exigiu DevTools).
