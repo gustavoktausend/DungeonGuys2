@@ -24,9 +24,53 @@ export interface GoldEntryTable {
   confirmed: number | null;
 }
 
-/** Every table this server knows about. Exactly one, deliberately (D2-01). */
+/**
+ * How one ICE negotiation ended, as db/migrations.ts `002_ice_outcome` stores
+ * it. The five nullable columns mirror `IceOutcome` in @dg2/protocol field for
+ * field: a connection that failed found no candidate pair, so it knows neither
+ * the pair, nor its transport, nor a round trip.
+ *
+ * `room_code`, `slot` and `account_id` are the three the SERVER fills in from
+ * the socket rather than from the message body (T-3-24). They are typed the
+ * same as any other column, so nothing here enforces that — signaling/outcome.ts
+ * is where it is enforced, and this comment is what points at it.
+ *
+ * There is no field for a player's public network endpoint, and its absence is
+ * a decision rather than an omission; the migration says why.
+ */
+export interface IceOutcomeTable {
+  id: string;
+  room_code: string;
+  slot: string;
+  account_id: string;
+  route: string;
+  local_candidate: string | null;
+  remote_candidate: string | null;
+  protocol: string | null;
+  relay_protocol: string | null;
+  rtt_ms: number | null;
+  result: string;
+  at: number;
+}
+
+/**
+ * Every table this server knows about. Two, and the second one arrived with a
+ * reason worth writing down next to it.
+ *
+ * `ice_outcome` is here because the relay rate has to be MEASURED (D3-14): the
+ * alternative is a published average from somebody else's user base, and the
+ * bandwidth this deployment budgets for coturn would be sized against it.
+ *
+ * A ROOM IS STILL NEVER PERSISTED, and that is the line this table does not
+ * cross (C-12). A room is ephemeral state that dies with the process on
+ * purpose: persisted, it would come back from a restart naming peers that no
+ * longer exist, holding slots nobody can claim, in a lobby nobody can start.
+ * What reaches SQLite is the OUTCOME of a connection — a fact that stays true
+ * after everyone involved has gone home.
+ */
 export interface Schema {
   gold_entry: GoldEntryTable;
+  ice_outcome: IceOutcomeTable;
 }
 
 /** A database, in the two shapes the process needs it. */

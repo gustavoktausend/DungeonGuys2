@@ -39,6 +39,23 @@ export interface ServerEnv {
    * deliberate change here rather than as a comma somebody added.
    */
   origin: string;
+  /**
+   * The string this process and coturn both know and neither sends, or null
+   * when there is no relay configured.
+   *
+   * NULL IS A LEGITIMATE ANSWER HERE, and it is the only key in this interface
+   * of which that is true. Everything else refuses a missing value because a
+   * wrong default is worse than a crash; this one is absent on every machine
+   * that has no coturn beside it — which is every developer's, and every wave
+   * of phase 3 that precedes the box. The server starts, warns once, and serves
+   * an ICE configuration with STUN alone.
+   */
+  turnSecret: string | null;
+  /**
+   * The realm coturn was configured with, which doubles as the domain the relay
+   * and our own STUN are advertised under. Null exactly when turnSecret is.
+   */
+  turnRealm: string | null;
 }
 
 /** The shape of `process.env`, spelled without needing Node's types. */
@@ -100,6 +117,35 @@ function required(source: EnvSource, name: string, fallback: string): string {
 }
 
 /**
+ * Reads one key that is allowed to be ABSENT but still not allowed to be blank.
+ *
+ * The sibling of `required()` above, and the two differ in exactly one place on
+ * purpose. There is no fallback argument — not "the fallback is empty", but no
+ * such parameter at all — because the keys that reach this function are secrets
+ * and the domain a secret is scoped to, and A DEFAULT SECRET IS A
+ * VULNERABILITY (T-3-10): it would be a value published in a public repository
+ * and shared by every deployment that never overrode it. Absent means "this
+ * deployment has no relay", which is a real and supported state.
+ *
+ * Blank is still an error, on the same reasoning `required()` gives: an
+ * operator who wrote the line meant something by it. Treating a blank secret as
+ * absent would turn one typo into a silently relay-less deployment, and the
+ * symptom of that is one specific friend who never manages to join —
+ * indistinguishable, from the outside, from ordinary bad luck with NAT.
+ */
+function optional(source: EnvSource, name: string): string | null {
+  const raw = source[name];
+  if (raw === undefined) return null;
+  const value = raw.trim();
+  if (value === '') {
+    throw new Error(
+      `/env/${name}: definida e vazia — ponha um valor em /etc/dg2/env ou apague a linha`,
+    );
+  }
+  return value;
+}
+
+/**
  * Validates the environment or throws. The caller decides what a failure
  * means; on the box it means exit 1 before anything is opened or bound.
  *
@@ -142,5 +188,25 @@ export function readEnv(source: EnvSource): ServerEnv {
     );
   }
 
-  return { dbPath, port, release, origin };
+  // The relay pair. Absent together is the supported state; present together is
+  // the configured one; ONE WITHOUT THE OTHER IS REFUSED, and that refusal is
+  // the point of reading them as a pair rather than as two keys.
+  //
+  // A secret with no realm mints a credential coturn will not accept, because
+  // the realm is part of what the other side derives. A realm with no secret is
+  // an operator who set up coturn and forgot the single line that lets this
+  // process talk to it. Both produce the same symptom — the relay never works —
+  // and neither produces a single line anywhere saying so. Half a configuration
+  // is the one shape that is worse than none, because none is honest.
+  const turnSecret = optional(source, 'DG2_TURN_SECRET');
+  const turnRealm = optional(source, 'DG2_TURN_REALM');
+  if ((turnSecret === null) !== (turnRealm === null)) {
+    throw new Error(
+      '/env/DG2_TURN_SECRET+DG2_TURN_REALM: as duas andam juntas — ' +
+        'defina as duas em /etc/dg2/env ou nenhuma (sem elas o servidor sobe e ' +
+        'emite ICE só com STUN)',
+    );
+  }
+
+  return { dbPath, port, release, origin, turnSecret, turnRealm };
 }

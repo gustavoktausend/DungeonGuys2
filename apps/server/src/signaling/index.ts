@@ -29,6 +29,7 @@ import type {
 
 import { parseSignal } from './schema';
 import { clientIp, type Limiter, type RemoteSocket } from './limiter';
+import type { OutcomeSource } from './outcome';
 import type { Rooms } from './rooms';
 
 /**
@@ -85,9 +86,26 @@ export interface SignallingDeps {
   joinLimiter: Limiter;
   log: (event: string, fields?: Record<string, unknown>) => void;
   now: () => number;
-  /** Plan 03-06 writes the row; this wave is handed a no-op. */
-  recordOutcome: (row: IceOutcome) => void;
-  /** Plan 03-06 mints the TURN credential; this wave returns public STUN. */
+  /**
+   * Writes one ICE telemetry row.
+   *
+   * TWO ARGUMENTS, AND THE SECOND ONE IS THE SECURITY PROPERTY. The message
+   * names a room and a slot; this handler does not pass them on. It resolves
+   * both from the socket, along with the reporter's account, and hands them
+   * over separately — so a peer cannot file reports against a room it never
+   * entered and tilt a measurement it has no part in (T-3-24).
+   */
+  recordOutcome: (row: IceOutcome, from: OutcomeSource) => void;
+  /**
+   * Releases a reporter's telemetry quota when its socket closes.
+   *
+   * Paired with `recordOutcome` because the quota it releases is the one that
+   * function spends. The two are separate arguments rather than one object so
+   * that a caller with nothing to release — a test, or a deployment that does
+   * not store telemetry — can pass a no-op for this alone.
+   */
+  forgetOutcomes: (peerId: string) => void;
+  /** Mints the ephemeral TURN credential and describes the ICE servers. */
   iceConfig: (code: string, slot: Slot) => { ice: IceConfig; turn: TurnCredential };
   /**
    * Arms the heartbeat, in the shape shutdown.ts established with
@@ -291,6 +309,11 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
     ws.on('close', () => {
       sessions.delete(ws);
       byPeerId.delete(session.peerId);
+      // Third map keyed by this peerId, released beside the other two. The
+      // telemetry quota outlives nothing: a peerId dies with its socket, so a
+      // counter that survived it would be an entry per connection ever
+      // accepted, growing for as long as the process runs.
+      deps.forgetOutcomes(session.peerId);
       if (session.code === null) return;
 
       const room = deps.rooms.get(session.code);
@@ -397,15 +420,31 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       }
 
       case 'iceOutcome': {
+        // THE REPORTER IS RESOLVED, NOT ASKED. `message.code` and
+        // `message.slot` are on the wire and are deliberately not read: the
+        // room comes from this socket's session and the slot and account from
+        // that room's own occupant record. A peer with no room has nothing to
+        // attribute a report to, so there is nothing to write (T-3-24).
+        const room = session.code === null ? undefined : deps.rooms.get(session.code);
+        const occupant = room?.occupants.get(session.peerId);
+        if (!room || !occupant) return;
+
         try {
-          deps.recordOutcome(message);
+          deps.recordOutcome(message, {
+            peerId: session.peerId,
+            code: room.code,
+            slot: occupant.slot,
+            accountId: occupant.accountId,
+          });
         } catch (error) {
           // Swallowed on purpose, in the shape health.ts established: a write
           // that fails is worth a line in the journal and must never be worth a
           // dropped room. Telemetry about how connections went cannot be
           // allowed to end one.
           deps.log('ice-outcome', {
-            code: message.code,
+            // The resolved room and not the one the message named, so a log
+            // line cannot be steered anywhere either.
+            code: room.code,
             error: error instanceof Error ? error.message : String(error),
           });
         }

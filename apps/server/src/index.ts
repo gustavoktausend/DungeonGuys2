@@ -15,7 +15,9 @@ import { createApp } from './app';
 import { readEnv, type ServerEnv } from './env';
 import { createShutdown, SHUTDOWN_GRACE_MS } from './shutdown';
 import { attachSignalling, HEARTBEAT_MS } from './signaling';
+import { createOutcomeRecorder } from './signaling/outcome';
 import { createRooms } from './signaling/rooms';
+import { DEV_STUN_DOMAIN, iceServers, NO_TURN, turnCredential } from './signaling/turn';
 import {
   createLimiter,
   JOIN_LIMIT,
@@ -85,13 +87,49 @@ const app = createApp({ sqlite, release: env.release });
  */
 export const server = serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
 
+/**
+ * One JSON object per line, which is what the journal wants and what a later
+ * pino would emit unchanged. Correlated by room code, because debugging a
+ * WebRTC failure without being able to group the lines of one room is not
+ * debugging.
+ *
+ * Named rather than written inline now that two consumers share it: the
+ * signalling leg and the telemetry recorder both log through this one function,
+ * so a change to the format cannot reach one and miss the other.
+ */
+const log = (event: string, fields?: Record<string, unknown>): void => {
+  console.log(JSON.stringify({ event, ...fields }));
+};
+
+// The ICE telemetry recorder, built AFTER migrateToLatest above — the table it
+// writes to is created by `002_ice_outcome`, and a recorder constructed before
+// the migration would be one whose first write is the one that discovers the
+// schema is missing.
+const outcomes = createOutcomeRecorder({ sqlite, log, now: () => Date.now() });
+
+// The relay, or the honest absence of one.
+//
+// WARNED ONCE, AT BOOT, AND NOT PER ROOM. A deployment without coturn is a
+// supported state — it is what every wave of phase 3 before the box runs
+// against — so this is not an error; but it is also not something to discover
+// from a player's complaint. One line at startup is where an operator looks
+// when relay stops working, and a line per room would bury it.
+const turnDomain = env.turnRealm ?? DEV_STUN_DOMAIN;
+if (env.turnSecret === null) {
+  log('turn-disabled', {
+    // No key names beyond the one to set, and no path: the operator can act on
+    // this, and the rest is topology (D2-15).
+    detail: 'DG2_TURN_SECRET ausente — ICE será emitido só com STUN, sem relay',
+  });
+}
+
 // The signalling leg, wired with everything time-like and stateful passed in.
 //
-// Two of these dependencies are DELIBERATELY INERT in this wave and are filled
-// by plan 03-06: `recordOutcome` writes the ICE telemetry row, and `iceConfig`
-// mints the ephemeral TURN credential. They are arguments now rather than
-// later so that adding them is a change to this file only — the signalling
-// module never learns that they became real.
+// The two dependencies plan 03-04 left inert are real from here on:
+// `recordOutcome` writes the telemetry row and `iceConfig` mints the ephemeral
+// TURN credential. They were arguments from the start precisely so that filling
+// them in would be a change to THIS file only — signaling/index.ts learned
+// nothing about either, beyond resolving the reporter from its own socket.
 attachSignalling(server, {
   origin: env.origin,
   rooms: createRooms({ randomBytes, now: () => Date.now() }),
@@ -105,27 +143,24 @@ attachSignalling(server, {
     limit: JOIN_LIMIT,
     windowMs: LIMIT_WINDOW_MS,
   }),
-  // One JSON object per line, which is what the journal wants and what a later
-  // pino would emit unchanged. Correlated by room code, because debugging a
-  // WebRTC failure without being able to group the lines of one room is not
-  // debugging.
-  log: (event, fields) => {
-    console.log(JSON.stringify({ event, ...fields }));
-  },
+  log,
   now: () => Date.now(),
-  recordOutcome: () => {
-    // Plan 03-06. A no-op and not a throw: the handler already swallows a
-    // failure here, and a stub that threw would exercise that path on every
-    // single connection and fill the journal with a defect that does not exist.
+  recordOutcome: outcomes.record,
+  forgetOutcomes: outcomes.forget,
+  // Minted PER ENTRY, per room and per seat, so the pair a peer holds names the
+  // session it was issued for and stops being useful when that session ends
+  // (D3-10). Seconds and not milliseconds: the expiry inside the username is
+  // what coturn enforces, and it reads unix seconds.
+  iceConfig: (code, slot) => {
+    const cred =
+      env.turnSecret === null
+        ? null
+        : turnCredential(env.turnSecret, code, slot, Math.floor(Date.now() / 1000));
+    return {
+      ice: { iceServers: iceServers(turnDomain, cred) },
+      turn: cred ?? NO_TURN,
+    };
   },
-  iceConfig: () => ({
-    // Public STUN only, until plan 03-06 brings up coturn. This is enough to
-    // discover a reflexive address and therefore enough for two peers on
-    // ordinary NATs; it is NOT enough for the symmetric-NAT and CGNAT cases
-    // that TURN exists to cover, which is why 03-06 is not optional.
-    ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
-    turn: { username: '', credential: '', ttl: 0 },
-  }),
   // .unref() for the same reason shutdown.ts gives: a periodic timer must not
   // itself be a reason for the process to stay alive.
   startHeartbeat: (tick) => {
