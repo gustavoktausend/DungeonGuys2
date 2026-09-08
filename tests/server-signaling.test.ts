@@ -20,6 +20,7 @@ import { WebSocket } from 'ws';
 import { isRoomCode } from '@dg2/protocol';
 import type { IceOutcome, SignalMessage } from '@dg2/protocol';
 import { attachSignalling, type SignallingDeps } from '../apps/server/src/signaling';
+import type { OutcomeSource } from '../apps/server/src/signaling/outcome';
 import { createRooms } from '../apps/server/src/signaling/rooms';
 import { createLimiter, JOIN_LIMIT, LIMIT_WINDOW_MS, UPGRADE_LIMIT } from '../apps/server/src/signaling/limiter';
 
@@ -29,11 +30,17 @@ let server: Server;
 let port: number;
 let heartbeat: () => void;
 let recorded: IceOutcome[];
+/** What the SERVER said about each report, beside what the peer sent. */
+let sources: OutcomeSource[];
+/** Every peerId whose telemetry quota was released. */
+let forgotten: string[];
 let recordThrows: boolean;
 let open: WebSocket[];
 
 beforeEach(async () => {
   recorded = [];
+  sources = [];
+  forgotten = [];
   recordThrows = false;
   open = [];
   server = createServer();
@@ -53,11 +60,16 @@ beforeEach(async () => {
     }),
     log: () => {},
     now: () => Date.now(),
-    recordOutcome: (row) => {
-      // The failing INSERT of plan 03-06, simulated. A room must not die
-      // because telemetry did.
+    recordOutcome: (row, from) => {
+      // The failing INSERT, simulated. A room must not die because telemetry
+      // did — outcome.ts swallows for real, and this proves the handler around
+      // it survives even a dependency that does not.
       if (recordThrows) throw new Error('banco indisponível');
       recorded.push(row);
+      sources.push(from);
+    },
+    forgetOutcomes: (peerId) => {
+      forgotten.push(peerId);
     },
     iceConfig: () => ({
       ice: { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] },
@@ -371,6 +383,50 @@ describe('a telemetria de ICE não pode derrubar a sala', () => {
     send(ws, { kind: 'join', code: 'ZZZZZZ', accountId: 'c', name: 'n', versions: VERSIONS });
     expect((await waiting).kind).toBe('error');
     expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('a sala e o slot do reporte vêm do socket, não do corpo (T-3-24)', async () => {
+    const { ws, created } = await openRoom();
+    // The peer names a room it is not in and a slot it does not hold. If either
+    // reached the recorder, a peer could pour rows into the telemetry of a room
+    // it never entered — and the relay rate this table exists to MEASURE would
+    // become something anyone could tilt.
+    send(ws, { ...outcomeFor('ZZZZZZ'), slot: 'p3' });
+
+    await waitFor(() => sources.length === 1);
+    expect(sources[0]?.code).toBe(created.code);
+    expect(sources[0]?.slot).toBe('p0');
+    expect(sources[0]?.peerId).toBe(created.peerId);
+    // The account comes from the room's own occupant record, which is what
+    // `create` put there — not from anything this message carried.
+    expect(sources[0]?.accountId).toBe('conta-a');
+    // And the body still arrives intact: the server resolves the ATTRIBUTION,
+    // it does not rewrite the measurement.
+    expect(recorded[0]?.route).toBe('direct');
+  });
+
+  it('um iceOutcome de quem não está em sala nenhuma não vira linha', async () => {
+    // Nothing to attribute the report to, so there is nothing to write. Not an
+    // error either: a peer that reports after leaving is ordinary, and refusing
+    // it would spend a message saying so.
+    const ws = await connect();
+    send(ws, outcomeFor('ABCDEF'));
+
+    const waiting = nextMessage(ws);
+    send(ws, { kind: 'join', code: 'ZZZZZZ', accountId: 'c', name: 'n', versions: VERSIONS });
+    expect((await waiting).kind).toBe('error');
+    expect(recorded).toHaveLength(0);
+  });
+
+  it('a cota de telemetria é devolvida quando o socket fecha', async () => {
+    const { ws, created } = await openRoom();
+    ws.close();
+
+    // Keyed by peerId, and a peerId dies with its socket. Without this the map
+    // in outcome.ts grows by one entry per connection the process ever
+    // accepted, which is the unbounded remotely-keyed map limiter.ts refuses.
+    await waitFor(() => forgotten.includes(created.peerId));
+    expect(forgotten).toContain(created.peerId);
   });
 });
 

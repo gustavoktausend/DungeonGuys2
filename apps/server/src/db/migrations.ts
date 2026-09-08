@@ -114,6 +114,111 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('gold_entry').execute();
     },
   },
+
+  /**
+   * How each ICE negotiation actually ended (SALA-05, D3-14).
+   *
+   * The relay rate of this group of friends is, today, somebody else's number:
+   * 10-20% per link from published WebRTC surveys, which composes to 27-49% for
+   * a room of four. This table exists to replace an estimate with a
+   * measurement, so that "how many of our rooms needed relay" is a SELECT
+   * rather than a guess — and so the coturn bandwidth budget is sized against
+   * this deployment rather than against an average of everyone else's.
+   *
+   * THE FAILED ROW IS WRITTEN TOO, and that is the half that makes the number
+   * mean anything. A table fed only by successful connections measures the
+   * successes and nothing else, and the rate it reports is wrong upwards
+   * forever, with no symptom: every row in it is true.
+   *
+   * Additive, per D2-07. `001_gold_entry` is untouched, so ops/rollback.sh
+   * moving the symlink back to a release that predates this file leaves a
+   * database with one extra table the older code never looks at.
+   */
+  '002_ice_outcome': {
+    async up(db: Kysely<unknown>): Promise<void> {
+      await db.schema
+        .createTable('ice_outcome')
+        // Client-generated ULID, and the deduplication mechanism exactly as in
+        // gold_entry: the recorder inserts with OR IGNORE, so a peer that
+        // reports the same connection twice — a retry, a reconnect, a doubled
+        // event handler — leaves one row instead of doubling its own weight in
+        // every query the table serves.
+        //
+        // `notNull` is explicit for the same reason spelled out above: SQLite
+        // permits NULL in any PRIMARY KEY that is not INTEGER, a documented bug
+        // kept for backward compatibility, and NULLs never collide under the
+        // implied unique index. Without this word the OR IGNORE ignores nothing
+        // and the id stops deduplicating anything.
+        .addColumn('id', 'text', c => c.primaryKey().notNull())
+        // Resolved by the SERVER from the socket, never read from the body the
+        // peer sent (T-3-24). A client that chose this value could file its
+        // reports against somebody else's room and poison telemetry it has no
+        // part in.
+        .addColumn('room_code', 'text', c => c.notNull())
+        // p0..p3. Server-resolved for the same reason as the line above.
+        .addColumn('slot', 'text', c => c.notNull())
+        // The unclaimed local ULID of ADR 0002 — the ONLY personal identifier
+        // D3-14 allows into this table, and it is an opaque value the client
+        // minted for itself. Phase 6 turns it into a real account by claim, and
+        // the rows written before that keep pointing at the same string.
+        .addColumn('account_id', 'text', c => c.notNull())
+        // One of ICE_ROUTE (unknown, direct, relay), stored as its text and not
+        // as an index into the frozen table: an integer here would make every
+        // row depend on the ORDER of a list that append-only rules allow to
+        // grow, and re-reading old rows would silently mean something else.
+        // Validated against the table before the INSERT, in outcome.ts.
+        .addColumn('route', 'text', c => c.notNull())
+        // The two candidate types of the pair that won, from ICE_CANDIDATE_TYPE.
+        //
+        // WHAT IS DELIBERATELY ABSENT, AND WHY IT IS ABSENT RATHER THAN UNUSED:
+        // there is no column for either peer's public network endpoint. D3-14
+        // caps this telemetry at the local ULID, and an endpoint identifies a
+        // person by any reading (T-3-09). The candidate TYPE plus the transport
+        // below answer the entire question this table was created to ask — how
+        // often is relay needed — so the identifying fields buy nothing that
+        // would justify storing them. `IceOutcome` in @dg2/protocol does not
+        // declare them either, so a caller that tried to send one would not
+        // compile; this is the second lock, at the layer that would store it.
+        //
+        // NULLABLE, and that is the design: a connection that failed never
+        // found a pair, so it knows neither. A notNull default would turn "we
+        // never got there" into a value that reads as though it were measured.
+        .addColumn('local_candidate', 'text')
+        .addColumn('remote_candidate', 'text')
+        // udp | tcp — the transport of the winning pair. Nullable for the same
+        // reason as the pair itself.
+        .addColumn('protocol', 'text')
+        // udp | tcp | tls — how the client reached the relay. NULL whenever the
+        // route was not relay, which is most rows and is the point.
+        .addColumn('relay_protocol', 'text')
+        // Round trip of the pair, in milliseconds, as the statistics reported it
+        // at the moment the connection settled. NOT the ping on screen (D3-13),
+        // which is a game message on the peer-to-peer channel and never reaches
+        // this process.
+        .addColumn('rtt_ms', 'integer')
+        // connected | failed. The second value is what keeps the rate honest.
+        .addColumn('result', 'text', c => c.notNull())
+        // Epoch milliseconds, stamped by the SERVER. A timestamp chosen by the
+        // reporter would let one peer decide where its rows land in the index
+        // every other row is read through.
+        .addColumn('at', 'integer', c => c.notNull())
+        .execute();
+
+      // The one read this table exists for: "what was the relay rate over the
+      // last month" is a range scan on time. Without this index that question
+      // is a full scan the operator writes a script around instead of asking.
+      await db.schema
+        .createIndex('ice_outcome_at')
+        .on('ice_outcome')
+        .columns(['at'])
+        .execute();
+    },
+
+    /** Development only, on exactly the terms `001_gold_entry` states above. */
+    async down(db: Kysely<unknown>): Promise<void> {
+      await db.schema.dropTable('ice_outcome').execute();
+    },
+  },
 };
 
 /** The provider index.ts hands to the Kysely Migrator. */
