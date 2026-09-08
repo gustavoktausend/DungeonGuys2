@@ -72,10 +72,22 @@ const FORBIDDEN: RegExp[] = [
   /\bglobalThis\b/, /\bfetch\b/, /\bprocess\b/,
 ];
 
-/** Any import/export-from whose specifier mentions render/, ui/ or app/ —
- *  bare directory (`'../render'`) included. */
+/** Any import/export-from whose specifier mentions render/, ui/, app/ or net/ —
+ *  bare directory (`'../render'`) included.
+ *
+ *  `net` joined the list in phase 3, when src/net/ was born (C-2). The
+ *  direction that IS allowed is the other one: src/net/lossy.ts imports `Rng`
+ *  from @dg2/sim to seed its fault injection, and the lobby imports the run
+ *  manifest types. What must never happen is the simulation learning that a
+ *  network exists — the moment it can reach for a socket it stops being
+ *  replayable from seed and inputs alone, which is the property every replay,
+ *  every desync check and the whole co-op design is bought with.
+ *
+ *  EXPECTED_FILE_COUNT above is untouched by that addition and should stay
+ *  untouched: it counts the modules of packages/sim, and src/net/ is not one
+ *  of them. */
 const LAYER_IMPORT = /\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
-const FORBIDDEN_LAYER = /(^|[/\\])(render|ui|app)([/\\]|$)/;
+const FORBIDDEN_LAYER = /(^|[/\\])(render|ui|app|net)([/\\]|$)/;
 
 describe('pureza de packages/sim', () => {
   it('encontrou exatamente os arquivos do pacote', () => {
@@ -103,7 +115,7 @@ describe('pureza de packages/sim', () => {
     expect(bad).toEqual([]);
   });
 
-  it('nenhum arquivo importa de render/, ui/ ou app/', () => {
+  it('nenhum arquivo importa de render/, ui/, app/ ou net/', () => {
     const bad: string[] = [];
     for (const [path, src] of Object.entries(FILES)) {
       const noComments = scan(src, true);

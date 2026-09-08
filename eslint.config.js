@@ -124,10 +124,19 @@ export default tseslint.config(
       // AFTER 'render/', so a bare-directory import (`from '../render'`)
       // slips past it. The '**/render' forms close that hole.
       // tests/purity.test.ts asserts the same rule independently.
+      //
+      // 'net' joined the list in phase 3, when src/net/ was born (C-2), and it
+      // gets BOTH forms for the reason the paragraph above already gives — a
+      // half-added entry would refuse `from '../../../src/net/transport'` and
+      // wave `from '../../../src/net'` through, which is the same import.
+      // The permitted direction is the other one: src/net/ imports `Rng` and
+      // the run manifest types from @dg2/sim. What this line forbids is the
+      // simulation learning that a network exists, because a sim that can
+      // reach a socket is a sim that no longer replays from seed and inputs.
       'no-restricted-imports': ['error', {
         patterns: [
-          '**/render/**', '**/ui/**', '**/app/**',
-          '**/render', '**/ui', '**/app',
+          '**/render/**', '**/ui/**', '**/app/**', '**/net/**',
+          '**/render', '**/ui', '**/app', '**/net',
         ],
       }],
     },
