@@ -27,8 +27,14 @@ import SQLite from 'better-sqlite3';
 // 'kysely/migration', not 'kysely': 0.29 moved the migrator behind a subpath
 // export and the root name is now a deprecated sentinel. See db/migrations.ts.
 import { Migrator } from 'kysely/migration';
+import type { IceOutcome } from '@dg2/protocol';
 import { openDb } from '../apps/server/src/db/open';
 import { provider } from '../apps/server/src/db/migrations';
+import {
+  createOutcomeRecorder,
+  MAX_OUTCOMES_PER_PEER,
+  type OutcomeSource,
+} from '../apps/server/src/signaling/outcome';
 
 /** What `PRAGMA table_info(<table>)` gives back, in the columns we read. */
 interface ColumnInfo {
@@ -46,6 +52,53 @@ interface ColumnInfo {
  */
 const COLUMNS = ['account_id', 'amount', 'at', 'confirmed', 'id', 'reason'];
 
+/**
+ * The twelve columns of ice_outcome, sorted. Sibling of COLUMNS above, and it
+ * carries one assertion the list itself cannot say out loud: there is no column
+ * for a player's network endpoint. D3-14 limits this telemetry to the local
+ * ULID, and `IceOutcome` in @dg2/protocol does not even declare the fields —
+ * this list is the second lock, at the layer that would actually store them.
+ */
+const ICE_COLUMNS = [
+  'account_id',
+  'at',
+  'id',
+  'local_candidate',
+  'protocol',
+  'relay_protocol',
+  'remote_candidate',
+  'result',
+  'room_code',
+  'route',
+  'rtt_ms',
+  'slot',
+];
+
+/** A well-formed report, as the wire spells it. Each test perturbs one field. */
+const OUTCOME: IceOutcome = {
+  kind: 'iceOutcome',
+  id: '01JQ0000000000000000000ICE',
+  // Ignored by the recorder on purpose: the server resolves both from the
+  // socket (T-3-24). They are here because the wire carries them.
+  code: 'ZZZZZZ',
+  slot: 'p3',
+  route: 'relay',
+  localCandidate: 'relay',
+  remoteCandidate: 'srflx',
+  protocol: 'udp',
+  relayProtocol: 'tls',
+  rttMs: 47,
+  result: 'connected',
+};
+
+/** Who the SERVER says sent it, resolved from the socket and never from the body. */
+const SOURCE: OutcomeSource = {
+  peerId: 'peer-a',
+  code: 'ABCDEF',
+  slot: 'p1',
+  accountId: '01JQ00000000000000000ACCT',
+};
+
 /** A migrated in-memory database, plus the handles to inspect and close it. */
 function migrated(): ReturnType<typeof openDb> & { migrator: Migrator } {
   const opened = openDb(':memory:');
@@ -53,7 +106,7 @@ function migrated(): ReturnType<typeof openDb> & { migrator: Migrator } {
 }
 
 describe('migração do servidor (D2-01, D2-07)', () => {
-  it('aplica exatamente uma migração, sem erro', async () => {
+  it('aplica exatamente duas migrações, na ordem, sem erro', async () => {
     const { db, migrator } = migrated();
     const { error, results } = await migrator.migrateToLatest();
 
@@ -61,10 +114,13 @@ describe('migração do servidor (D2-01, D2-07)', () => {
     // Length AND content: a provider that returned nothing would produce an
     // empty results array and no error, which is indistinguishable from
     // success unless the count is asserted.
-    expect(results).toHaveLength(1);
-    expect(results?.[0]?.migrationName).toBe('001_gold_entry');
-    expect(results?.[0]?.direction).toBe('Up');
-    expect(results?.[0]?.status).toBe('Success');
+    expect(results).toHaveLength(2);
+    // ORDER, not merely membership. Kysely runs migrations in the sort order of
+    // their names, so the numeric prefix is the mechanism and not decoration —
+    // and D2-07's additive rule only means anything if the sequence is fixed.
+    expect(results?.map(r => r.migrationName)).toEqual(['001_gold_entry', '002_ice_outcome']);
+    expect(results?.every(r => r.direction === 'Up')).toBe(true);
+    expect(results?.every(r => r.status === 'Success')).toBe(true);
 
     await db.destroy();
   });
@@ -98,9 +154,9 @@ describe('migração do servidor (D2-01, D2-07)', () => {
 
     const rows = await db.selectFrom('gold_entry').selectAll().execute();
     expect(rows).toHaveLength(1);
-    // And exactly one migration is still recorded, not two.
+    // And exactly two migrations are still recorded, not four.
     const applied = sqlite.prepare('select name from kysely_migration').all() as { name: string }[];
-    expect(applied.map(r => r.name)).toEqual(['001_gold_entry']);
+    expect(applied.map(r => r.name).sort()).toEqual(['001_gold_entry', '002_ice_outcome']);
 
     await db.destroy();
   });
@@ -246,6 +302,276 @@ describe('esquema de gold_entry', () => {
     expect(rows[0]?.confirmed).toBeNull();
 
     await db.destroy();
+  });
+});
+
+describe('esquema de ice_outcome (SALA-05, D3-14)', () => {
+  it('tem exatamente as doze colunas da telemetria', async () => {
+    const { db, sqlite, migrator } = migrated();
+    await migrator.migrateToLatest();
+
+    const info = sqlite.prepare('PRAGMA table_info(ice_outcome)').all() as ColumnInfo[];
+    expect(info).toHaveLength(ICE_COLUMNS.length);
+    expect(info.map(c => c.name).sort()).toEqual(ICE_COLUMNS);
+
+    await db.destroy();
+  });
+
+  it('nenhuma coluna guarda o endpoint de rede de um jogador', async () => {
+    const { db, sqlite, migrator } = migrated();
+    await migrator.migrateToLatest();
+
+    const info = sqlite.prepare('PRAGMA table_info(ice_outcome)').all() as ColumnInfo[];
+    const names = info.map(c => c.name);
+    // The assertion above already pins the set, so this one is redundant by
+    // construction — and it is here anyway because it is the one that says WHY
+    // out loud. D3-14 caps this table at the local ULID; a public endpoint is
+    // personal data by any reading, and the day somebody widens ICE_COLUMNS to
+    // make a new column pass, this line is what refuses (T-3-09).
+    for (const forbidden of ['address', 'port', 'ip', 'endpoint', 'candidate_address']) {
+      expect(names, `${forbidden} não pode existir nesta tabela`).not.toContain(forbidden);
+    }
+
+    await db.destroy();
+  });
+
+  it('id é PK e notNull; as cinco opcionais do protocolo são anuláveis', async () => {
+    const { db, sqlite, migrator } = migrated();
+    await migrator.migrateToLatest();
+
+    const info = sqlite.prepare('PRAGMA table_info(ice_outcome)').all() as ColumnInfo[];
+    const nullable = info.filter(c => c.notnull === 0).map(c => c.name).sort();
+
+    // Exactly the five that `IceOutcome` declares as `| null`. A failed
+    // connection knows none of them, and a notNull default would turn "we never
+    // found a pair" into a fact the table states as though it were measured.
+    expect(nullable).toEqual([
+      'local_candidate',
+      'protocol',
+      'relay_protocol',
+      'remote_candidate',
+      'rtt_ms',
+    ]);
+    // Same reasoning as gold_entry: SQLite lets a TEXT PRIMARY KEY hold NULL,
+    // and NULLs never collide — so without `notNull` the id stops being the
+    // deduplication mechanism the whole design leans on.
+    expect(info.find(c => c.name === 'id')?.pk).toBe(1);
+    expect(info.find(c => c.name === 'id')?.notnull).toBe(1);
+
+    await db.destroy();
+  });
+
+  it('tem um índice em (at), que é o que faz a taxa de relay ser um SELECT', async () => {
+    const { db, sqlite, migrator } = migrated();
+    await migrator.migrateToLatest();
+
+    const indexes = sqlite.prepare('PRAGMA index_list(ice_outcome)').all() as { name: string }[];
+    const named = indexes.find(i => i.name === 'ice_outcome_at');
+    expect(named, 'o índice em (at) não existe').toBeTruthy();
+
+    const columns = sqlite.prepare("PRAGMA index_info('ice_outcome_at')").all() as {
+      name: string;
+    }[];
+    // The column too, and not merely the name: an index named for `at` that
+    // covered something else would answer "does the index exist" and none of
+    // the questions the index was created for.
+    expect(columns.map(c => c.name)).toEqual(['at']);
+
+    await db.destroy();
+  });
+});
+
+describe('createOutcomeRecorder (SALA-05, T-3-24, T-3-25, T-3-26)', () => {
+  /** A migrated database plus a recorder over it, with the log captured. */
+  async function recorder(): Promise<{
+    opened: ReturnType<typeof migrated>;
+    record: ReturnType<typeof createOutcomeRecorder>['record'];
+    forget: ReturnType<typeof createOutcomeRecorder>['forget'];
+    lines: { event: string; fields?: Record<string, unknown> }[];
+  }> {
+    const opened = migrated();
+    await opened.migrator.migrateToLatest();
+    const lines: { event: string; fields?: Record<string, unknown> }[] = [];
+    const { record, forget } = createOutcomeRecorder({
+      sqlite: opened.sqlite,
+      log: (event, fields) => lines.push({ event, fields }),
+      // Fixed, so the `at` assertion below is about the server stamping the row
+      // and not about a clock that happened to tick.
+      now: () => 1_756_000_000_123,
+    });
+    return { opened, record, forget, lines };
+  }
+
+  it('grava um desfecho connected e o lê de volta com todas as colunas', async () => {
+    const { opened, record } = await recorder();
+
+    expect(record(OUTCOME, SOURCE)).toBe(true);
+
+    const rows = opened.sqlite.prepare('select * from ice_outcome').all() as Record<
+      string,
+      unknown
+    >[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      id: OUTCOME.id,
+      // FROM THE SERVER, not from the message: OUTCOME says 'ZZZZZZ'/'p3'.
+      room_code: SOURCE.code,
+      slot: SOURCE.slot,
+      account_id: SOURCE.accountId,
+      route: 'relay',
+      local_candidate: 'relay',
+      remote_candidate: 'srflx',
+      protocol: 'udp',
+      relay_protocol: 'tls',
+      rtt_ms: 47,
+      result: 'connected',
+      // Server-stamped. A client-chosen timestamp would let one peer decide
+      // where its rows land in the index every other row is read through.
+      at: 1_756_000_000_123,
+    });
+
+    await opened.db.destroy();
+  });
+
+  it('grava um desfecho failed com route unknown — a metade que corrige a taxa', async () => {
+    const { opened, record } = await recorder();
+
+    // Without this row the table measures only the successes, and the relay
+    // rate it answers is wrong upwards forever (D3-14). A failed attempt knows
+    // no pair, so five of the twelve columns are NULL and that is the truth.
+    expect(
+      record(
+        {
+          ...OUTCOME,
+          id: '01JQ000000000000000000FAIL',
+          route: 'unknown',
+          localCandidate: null,
+          remoteCandidate: null,
+          protocol: null,
+          relayProtocol: null,
+          rttMs: null,
+          result: 'failed',
+        },
+        SOURCE,
+      ),
+    ).toBe(true);
+
+    const row = opened.sqlite.prepare('select * from ice_outcome').get() as Record<string, unknown>;
+    expect(row.result).toBe('failed');
+    expect(row.route).toBe('unknown');
+    expect(row.local_candidate).toBeNull();
+    expect(row.rtt_ms).toBeNull();
+
+    await opened.db.destroy();
+  });
+
+  it('o mesmo id duas vezes deixa uma linha só (idempotência por id)', async () => {
+    const { opened, record } = await recorder();
+
+    expect(record(OUTCOME, SOURCE)).toBe(true);
+    // The second report is a retry, not a second connection. Same mechanism as
+    // D-27 in the ledger: the id is what makes reporting twice a no-op instead
+    // of a duplicated row that doubles this peer's weight in every SELECT.
+    expect(record({ ...OUTCOME, rttMs: 999 }, SOURCE)).toBe(true);
+
+    const rows = opened.sqlite.prepare('select * from ice_outcome').all() as Record<
+      string,
+      unknown
+    >[];
+    expect(rows).toHaveLength(1);
+    // And the FIRST row won: an INSERT OR IGNORE ignores, it does not overwrite.
+    expect(rows[0]?.rtt_ms).toBe(47);
+
+    await opened.db.destroy();
+  });
+
+  it('recusa uma route fora de ICE_ROUTE, antes de tocar o banco', async () => {
+    const { opened, record } = await recorder();
+
+    // `route` is compared against the frozen table and not merely stored: this
+    // column is read as an enumeration by every query the table exists for, and
+    // a thirteenth value would make the relay rate quietly not add up to one.
+    const bogus = { ...OUTCOME, route: 'tunnel' } as unknown as IceOutcome;
+    expect(record(bogus, SOURCE)).toBe(false);
+
+    const rows = opened.sqlite.prepare('select count(*) as n from ice_outcome').get() as {
+      n: number;
+    };
+    expect(rows.n).toBe(0);
+
+    await opened.db.destroy();
+  });
+
+  it('recusa um result fora dos dois literais', async () => {
+    const { opened, record } = await recorder();
+
+    const bogus = { ...OUTCOME, result: 'maybe' } as unknown as IceOutcome;
+    expect(record(bogus, SOURCE)).toBe(false);
+
+    const rows = opened.sqlite.prepare('select count(*) as n from ice_outcome').get() as {
+      n: number;
+    };
+    expect(rows.n).toBe(0);
+
+    await opened.db.destroy();
+  });
+
+  it('recusa acima de 20 desfechos do mesmo peerId, sem lançar (T-3-25)', async () => {
+    const { opened, record } = await recorder();
+
+    expect(MAX_OUTCOMES_PER_PEER).toBe(20);
+    for (let i = 0; i < MAX_OUTCOMES_PER_PEER; i++) {
+      expect(record({ ...OUTCOME, id: `01JQ00000000000000000000${i}` }, SOURCE)).toBe(true);
+    }
+    // An honest peer reports one per connection; twenty is an order of
+    // magnitude of slack and still stops one socket from filling the table.
+    expect(record({ ...OUTCOME, id: '01JQ000000000000000000OVER' }, SOURCE)).toBe(false);
+
+    const rows = opened.sqlite.prepare('select count(*) as n from ice_outcome').get() as {
+      n: number;
+    };
+    expect(rows.n).toBe(MAX_OUTCOMES_PER_PEER);
+
+    // Acceptance half: the cap is PER PEER, so a different socket is unaffected.
+    // A cap that had leaked into a global counter would pass every assertion
+    // above while letting one peer mute the telemetry of the whole room.
+    expect(record({ ...OUTCOME, id: '01JQ0000000000000000OTHER1' }, { ...SOURCE, peerId: 'peer-b' }))
+      .toBe(true);
+
+    await opened.db.destroy();
+  });
+
+  it('forget devolve a cota junto com o socket, e é o que impede o vazamento', async () => {
+    const { opened, record, forget } = await recorder();
+
+    for (let i = 0; i < MAX_OUTCOMES_PER_PEER; i++) {
+      record({ ...OUTCOME, id: `01JQ00000000000000000000${i}` }, SOURCE);
+    }
+    expect(record({ ...OUTCOME, id: '01JQ000000000000000000OVR2' }, SOURCE)).toBe(false);
+
+    // The counter is keyed by peerId, and a peerId dies with its socket. Without
+    // this call the map grows by one entry for every connection the process
+    // ever accepted, which is the unbounded map the limiter refuses to be.
+    forget(SOURCE.peerId);
+    expect(record({ ...OUTCOME, id: '01JQ000000000000000000OVR3' }, SOURCE)).toBe(true);
+
+    await opened.db.destroy();
+  });
+
+  it('um banco fechado não lança para o chamador: engole, loga e devolve false', async () => {
+    const { opened, record, lines } = await recorder();
+
+    // The room must survive its own telemetry (T-3-26). This is the shape
+    // health.ts established: the caller gets a boolean, the reason stays in the
+    // journal, and nothing about how a connection went can end one.
+    opened.sqlite.close();
+
+    expect(() => record(OUTCOME, SOURCE)).not.toThrow();
+    expect(record(OUTCOME, SOURCE)).toBe(false);
+    // Logged, not silent: swallowing without a line is how a table that stopped
+    // being written stays green for a month.
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]?.event).toBe('ice-outcome-write');
   });
 });
 
