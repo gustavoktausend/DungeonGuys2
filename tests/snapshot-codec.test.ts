@@ -29,6 +29,7 @@ import {
   MUTATOR_KEY,
   PHASE,
   PLAYER_SLOT,
+  PROTOCOL_VERSION,
   SNAPSHOT_HEADER_BYTES,
   SNAPSHOT_MAX_BYTES,
   SNAPSHOT_PART,
@@ -41,9 +42,18 @@ import {
   type SnapshotRecord,
 } from '@dg2/protocol';
 import { wave16SwarmElite, wave40Endless, wave1FourPlayers } from './worlds';
+import GOLDEN_FIXTURE from './snapshots/snapshot-codec.json';
 
 /** The wire index of the `snapshot` message — 6, and asserted, not assumed. */
 const SNAPSHOT_KIND = MSG_KIND.indexOf('snapshot');
+
+/** The versioned bytes both legs of the cross-engine gate compare against. */
+const GOLDEN = GOLDEN_FIXTURE as {
+  protocolVersion: string;
+  tick: number;
+  byteLengths: number[];
+  parts: number[][];
+};
 
 /**
  * Field-by-field identity over a whole snapshot record.
@@ -295,16 +305,26 @@ describe('as três partes (D3-19)', () => {
     // O bench nunca exercita este caminho — pela fórmula do sim, 1014 inimigos
     // é a wave ~210. Este teste é o que impede alguém de olhar para o código de
     // partição, concluir que é código morto e apagá-lo.
-    let crossing = -1;
-    for (let n = 900; n <= 1100; n++) {
+    const partZeroBytes = (n: number): number => {
       const record = emptyRecord(4242);
       record.players = [0, 1, 2, 3].map(somePlayer);
       for (let i = 0; i < n; i++) record.enemies.push(someEnemy(i + 1));
-      if (encodeSnapshot(record)[0].byteLength > SNAPSHOT_MAX_BYTES) { crossing = n; break; }
+      return encodeSnapshot(record)[0].byteLength;
+    };
+
+    // O piso da busca TEM de caber, senão `crossing` sairia 900 e a asserção da
+    // faixa passaria sem que cruzamento algum tivesse sido encontrado.
+    expect(partZeroBytes(900)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES);
+
+    let crossing = -1;
+    for (let n = 901; n <= 1100; n++) {
+      if (partZeroBytes(n) > SNAPSHOT_MAX_BYTES) { crossing = n; break; }
     }
     // A faixa tem folga porque o ponto exato depende do número de jogadores:
-    // cada jogador a menos são 29 bytes, quase dois inimegos de margem.
+    // cada jogador a menos são 29 bytes, quase dois inimigos de margem.
     expect(`${crossing >= 900 && crossing <= 1100} (${crossing})`).toBe(`true (${crossing})`);
+    // E o cruzamento é de verdade: um inimigo a menos ainda cabe.
+    expect(partZeroBytes(crossing - 1)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES);
   });
 
   it('a partição forçada mantém as três partes decodificáveis isoladamente', () => {
@@ -405,6 +425,29 @@ describe('o decodificador recusa antes de alocar (T-3-08)', () => {
     expect(() => decodeSnapshot([parts[0], parts[1]])).toThrow(/três|partes/);
     const otherTick = encodeSnapshot(extractSnapshot(wave16SwarmElite()));
     expect(() => decodeSnapshot([parts[0], parts[1], otherTick[2]])).toThrow(/tick/);
+  });
+});
+
+describe('o ouro versionado (a perna do Node)', () => {
+  it('a wave 16 codifica exatamente os bytes gravados em tests/snapshots', () => {
+    // O MESMO ouro que tests/cross-engine.test.ts confere em Chromium, Firefox
+    // e WebKit. Ele mora em tests/snapshots/ e NÃO em tests/golden/, porque
+    // aquele diretório é reservado a hashes de simulação — o cabeçalho de
+    // tools/golden/rebaseline.mjs explica por quê, e um arquivo de bytes de
+    // protocolo entre os hashes do sim faria a ferramenta de rebaseline
+    // prometer mais do que faz.
+    const parts = encodeSnapshot(extractSnapshot(wave16SwarmElite()));
+    expect(parts.map(p => p.byteLength)).toEqual(GOLDEN.byteLengths);
+    expect(parts.map(p => Array.from(new Uint8Array(p)))).toEqual(GOLDEN.parts);
+    // O ouro é de uma versão do protocolo. Se PROTOCOL_VERSION andar sem que
+    // este arquivo ande junto, o ouro passa a descrever outro formato.
+    expect(GOLDEN.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(GOLDEN.tick).toBe(28800);
+  });
+
+  it('o ouro decodifica de volta no mesmo registro', () => {
+    const record = extractSnapshot(wave16SwarmElite());
+    expectDeepIs(decodeSnapshot(GOLDEN.parts.map(bytes => Uint8Array.from(bytes).buffer)), record);
   });
 });
 
