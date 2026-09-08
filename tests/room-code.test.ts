@@ -60,7 +60,12 @@ describe('código de sala (SALA-01)', () => {
     expect(ROOM_CODE_LENGTH).toBe(6);
   });
 
-  it.each(CASES)('normalizeRoomCode(%j) === %j — %s', (entrada, esperado, _porque) => {
+  // The third column of the table is the test's NAME, not an argument: `%s`
+  // consumes it into the title, and the callback takes only the two values it
+  // asserts on. A third parameter would be an unused binding, which the lint
+  // gate refuses — correctly, since the reason belongs in the report and not
+  // in the body.
+  it.each(CASES)('normalizeRoomCode(%j) === %j — %s', (entrada, esperado) => {
     expect(normalizeRoomCode(entrada)).toBe(esperado);
   });
 
