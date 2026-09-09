@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
+stopped_at: VPS inventariada; fase 2 a replanejar sob D-VPS-03
 last_updated: "2026-09-09T00:00:00.000Z"
-last_activity: 2026-09-09 -- UAT da fase 3 pausada no teste 1; dados da VPS a caminho para 02-04/02-12/03-11
+last_activity: 2026-09-09 -- VPS inventariada; D-VPS-01/02/03 decididas; fase 2 a replanejar como app do Coolify
 progress:
   total_phases: 9
   completed_phases: 1
@@ -153,10 +153,63 @@ e o limiter genérico por socket (CR-02) espera a medição da primeira sessão 
 existir passo de certificado no runbook (WR-09). Os informativos IN-01..IN-10 não foram tocados. A `03-VERIFICATION.md` é
 anterior às correções e precisa ser refeita antes de a fase 4 abrir.
 
+## Decisão de infraestrutura — 2026-09-09 (muda a fase 2)
+
+A caixa foi encontrada, inventariada e **não está vazia**: é o host do projeto `infraKring`
+(`Documents/Projetos/infraKring`), com Coolify sobre Docker, **Traefik dono de 80 e 443** (TCP e
+UDP) e produção viva de outro projeto (`militias3dstore.kring.tech`). Debian 13, cgroup v2,
+7,8 GiB de RAM com 5,7 livres, 85 GB de disco livres — folga bem maior que a KVM 2 de D2-19.
+Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso: `ssh dg2vps`
+(usuário `deploy`; root não loga pela internet, é do Coolify).
+
+**Decisões de Gustavo:**
+
+- **D-VPS-01** O jogo vive em **`dg2.kring.tech`**. O wildcard A já resolve; não se mexe no DNS.
+- **D-VPS-02** **Não mexer no infraKring.** Há produção viva ali. Dois achados de segurança
+  daquele projeto (a 8080 do Traefik fora da lista do lockdown; `coolify-lockdown.service`
+  inativo) ficam como observação registrada, sem ação. Alterações no host só aditivas e
+  confirmadas antes.
+- **D-VPS-03** **O jogo vira um app do Coolify**, containerizado, com deploy por push do GitHub.
+  Escolhido sobre as alternativas (Caddy nativo atrás do Traefik; só o Node atrás do Traefik)
+  por ter **um único modelo operacional na caixa** — e de quebra fecha a tarefa T8 do infraKring.
+
+**Consequência: a fase 2 precisa ser replanejada.** Ela está em 10/12, e os dois pendentes
+(02-04 e 02-12) são justamente os que a decisão reescreve. Impacto por artefato:
+
+| Artefato de `ops/` | Destino sob D-VPS-03 |
+|---|---|
+| `Caddyfile` | **sobrevive dentro do container**, sem TLS/ACME, escutando porta interna — a política HTTP (CSP, HSTS, as três classes de cache, o 404 honesto, o 503 em JSON) é o que há de mais caro para reescrever |
+| `deploy.sh`, `rollback.sh`, `deploy-forced.sh`, `prune-releases.sh` | **morrem** — deploy e rollback passam a ser do Coolify |
+| `dg2.service` | **morre** — quem supervisiona é o Docker; os limites de memória viram limites do container |
+| `cert-check.sh/.service/.timer` | **morrem** — o TLS é do Traefik |
+| `litestream.service`, `litestream.yml` | **redesenhar** — como processo do container ou sidecar, sobre volume persistente do Coolify |
+| `turnserver.conf`, `coturn-dropin.conf` | **provavelmente seguem nativos** — a faixa de portas de relay não convive bem com NAT de container |
+| job `deploy` do `.github/workflows/ci.yml` | **muda** — o Coolify puxa do GitHub; os quatro secrets e `DEPLOY_ENABLED` podem deixar de existir |
+| `tests/ops-config.test.ts` | **reescrever** as asserções dos arquivos que morrem |
+
+**Perguntas abertas para o discuss da fase 2:**
+
+1. Dentro do container, quem serve os estáticos: o Caddy (preserva a política inteira) ou o Node?
+2. coturn nativo ou container com rede do host? A faixa de relay decide.
+3. SQLite em volume do Coolify — e o Litestream roda onde, com qual ciclo de vida?
+4. Deploy pelo GitHub App do Coolify (fecha T8 do infraKring) ou webhook a partir do CI?
+5. O build passa a rodar na caixa, com 2 vCPU. `npm run build` faz `sim:build`, `tsc` e
+   `vite build`; medir antes de assumir que cabe.
+6. Sem `deploy-forced.sh`, a chave restrita de deploy e seu wrapper deixam de existir — confirmar
+   que o modelo de acesso do Coolify substitui a defesa que aquele wrapper comprava.
+
+**Bugs de `ops/` achados contra a caixa real (valem em qualquer arquitetura):**
+
+- `ops/turnserver.conf` **não declara `min-port`/`max-port`**, e `ops/README.md` §12 manda abrir
+  só 3478 e 5349. Sem a faixa, o coturn aloca relay em 49152-65535/udp, que o UFW `deny incoming`
+  bloqueia. Sintoma: "um amigo específico nunca entra" — indistinguível de NAT ruim.
+- `DG2_PORT` tem **8080** como padrão e o Traefik já ocupa `0.0.0.0:8080`.
+- `rsync` não existe na caixa (só importa se algum caminho de deploy voltar a precisar dele).
+
 ## Session Continuity
 
 Last session: 2026-09-09
-Stopped at: UAT da fase 3 pausada (`03-UAT.md`, status partial): portões automatizados verdes (testes 15 e 17 pass), fluxo manual parado no teste 1 com reporte "ERR_CONNECTION_REFUSED" sem URL/terminal informados (diagnóstico: servidor só em 127.0.0.1:8080, Vite só em [::1]:5173; `localhost` funciona nos dois). Gustavo decidiu atacar o bloqueio da VPS: vai fornecer os dados da caixa para executar 02-04 → 02-12 → 03-11 com o Claude operando por SSH.
-Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-UAT.md
+Stopped at: VPS encontrada, inventariada e acessível (`ssh dg2vps`). Três decisões tomadas (D-VPS-01/02/03). A fase 2 precisa de replanejamento sob D-VPS-03; a UAT da fase 3 segue pausada em `03-UAT.md` (portões automatizados verdes, fluxo manual parado no teste 1).
+Resume file: .planning/STATE.md § Decisão de infraestrutura — 2026-09-09
 
-Next: dados da VPS num arquivo local ignorado pelo git; `/gsd-execute-phase 2` (02-04, 02-12); `/gsd-execute-phase 3` (03-11); depois retomar `/gsd-verify-work 3` pelo teste 1
+Next: `/gsd-discuss-phase 2` para responder as seis perguntas abertas e replanejar 02-04/02-12 como app do Coolify; depois `/gsd-execute-phase 2`, `/gsd-execute-phase 3` (03-11) e retomar `/gsd-verify-work 3`
