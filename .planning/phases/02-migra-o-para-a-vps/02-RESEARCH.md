@@ -1813,7 +1813,11 @@ Medido na caixa em 2026-09-09 por `ssh dg2vps`.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **Todas as cinco foram fechadas em 2026-09-09**, antes de os planos serem escritos. A
+> resolução de cada uma está inline abaixo. Mantidas no documento com a pergunta original
+> visível, para que a trilha de decisão fique auditável — não reabrir sem motivo novo.
 
 1. **Como o integrador alcança o Coolify? (DM-7)**
    - **O que sabemos:** 8000 e 8080 dão timeout de fora; não há FQDN para a instância; o
@@ -1822,6 +1826,12 @@ Medido na caixa em 2026-09-09 por `ssh dg2vps`.
    - **Recomendação:** **pergunta ao usuário antes do plano fechar.** Quatro saídas custeadas
      em DM-7; a recomendada é A (FQDN + token `Deploy` + expiração + 2FA), com D (chave SSH de
      `command=` literal) como segunda escolha se A for recusada.
+   - **RESOLVED — a recomendação foi RECUSADA, e as quatro saídas junto.** Gustavo decidiu, em
+     2026-09-09: *"não vamos alterar NADA sobre o coolify, se por hora eu ter que abrir o tunnel
+     com o coolify e subir manualmente não é um problema, vamos deployar na mão primeiro"*. Isso
+     virou **D2-32** em `02-CONTEXT.md`, que **revoga D2-31** e suspende D2-08. O integrador
+     continua publicando a imagem no registro (D2-23 intacta); o disparo do deploy é humano,
+     pelo túnel. A recomendação A desta seção está **superada** — não a siga.
 
 2. **Quantas imagens ficam no disco, e quem poda?**
    - **O que sabemos:** o Coolify guarda a tag anterior (medido: duas tags de dois meses no

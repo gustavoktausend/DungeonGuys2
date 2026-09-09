@@ -236,32 +236,46 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 ## Session Continuity
 
 Last session: 2026-09-09
-Stopped at: Phase 2 research redone under containerization; D2-32 decided (deploy volta a ser manual)
-Resume file: .planning/phases/02-migra-o-para-a-vps/02-RESEARCH.md
+Stopped at: Phase 2 replanned under containerization — 5 plans written, checker passed with 0 blockers
+Resume file: .planning/phases/02-migra-o-para-a-vps/02-04-PLAN.md
 
-Next: **`/gsd-plan-phase 2`** — planejar com a pesquisa de 2026-09-09, que substitui a de 2026-08-31 e
-traz no cabeçalho o mapa "continua valendo / foi revogado". Todas as decisões de arquitetura estão
-fechadas: **D2-32 fixou que nada no Coolify se altera e o deploy desta fase é disparado à mão pelo
-túnel**, o que revoga D2-31, suspende D2-08 e apaga todos os segredos de deploy.
+Next: **`/gsd-execute-phase 2`** — os cinco planos estão escritos, commitados e verificados. O
+plan-checker passou com **zero bloqueadores** e seis observações, todas tratadas ou registradas
+(2026-09-09). **D2-32 fixou que nada no Coolify se altera e o deploy desta fase é disparado à mão
+pelo túnel**, o que revoga D2-31, suspende D2-08 e apaga todos os segredos de deploy.
 
-A pesquisa recomenda **cinco planos, em ordem fixa**:
+Os cinco planos, em ordem fixa (waves 8 a 12, `depends_on` em cadeia):
 
-1. **02-04′** — a caixa, os segredos e a forma do disparo manual; provar a suposição A1 (o Coolify
-   aceita a composição de dois serviços vinda do repositório). Vem primeiro porque decide a forma
-   do 02-11′. Aqui se escolhe entre clique no painel pelo túnel e um script local que faz o `curl`
-   para a porta encaminhada — os dois alteram nada na caixa, e o segundo preserva a letra do
-   critério 4 ("o deploy é um comando").
-2. **02-13** — delta de código: o bind de DM-9, o `Caddyfile` sem TLS/ACME, `trusted_proxies`,
+1. **`02-04`** (wave 8, reescrito, **`autonomous: false`**) — a caixa, os segredos, `docs/OPERACAO.md`,
+   as quatro regras de UFW do coturn, e a forma do disparo manual. Prova a suposição A1 com um
+   andaime descartável (`ops/probe/docker-compose.yml`, fora do glob dos testes, apagado pelo
+   02-14) que de quebra **arranca o primeiro certificado do Traefik**. Aqui se escolhe entre clique
+   no painel pelo túnel e um script local que faz o `curl` para a porta encaminhada — os dois
+   alteram nada na caixa, e o segundo preserva a letra do critério 4 ("o deploy é um comando").
+2. **`02-13`** (wave 9) — delta de código: o bind de DM-9, os cinco comentários órfãos que citam
+   `dg2.service`/`ops/deploy.sh`, o `Caddyfile` sem TLS/ACME, `trusted_proxies` (DM-10),
    `auto_https off`, o upstream do contêiner.
-3. **02-14** — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34 testes de
-   `tests/ops-config.test.ts` no mesmo commit**, incluindo o piso anti-vacuidade.
-4. **02-11′** — o `ci.yml` de publicação de imagem, com `docker build`/`push` em passos `run:` para
-   não quebrar o portão T-2-SC, mais o delta de `tests/workflows.test.ts` (DM-8).
-5. **02-12′** — a caixa de verdade: primeiro certificado pelo Traefik, deploy, reversão por imagem,
-   restauração verificada e o vigia externo.
+3. **`02-14`** (wave 10) — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34
+   testes de `tests/ops-config.test.ts` no mesmo commit**, com o piso anti-vacuidade descendo a 9.
+4. **`02-15`** (wave 11, **novo — não reescreve o `02-11`, que já foi executado**) — o `ci.yml` de
+   publicação de imagem, com `docker build`/`push` em passos `run:` para não quebrar o portão
+   T-2-SC, mais a exceção nomeada de `packages: write` em `tests/workflows.test.ts` (DM-8).
+   `DEPLOY_ENABLED` morre aqui.
+5. **`02-12`** (wave 12, reescrito, **`autonomous: false`**) — a caixa de verdade: primeiro
+   certificado pelo Traefik, deploy, reversão por imagem, restauração verificada e o vigia externo.
 
-**Escopo que vazou para a fase 3:** o `03-11` ganha uma dependência que não tinha — as três regras de
-UFW (`3478/udp`, `3478/tcp`, `5349/tcp`) e a faixa de relay de D2-27. **Nenhuma existe na caixa hoje.**
+**Escopo que vazou para a fase 3 — `03-11-PLAN.md` precisa de ajuste ANTES de executar.** O `02-04`
+Task 3 abre as **quatro** regras de UFW (`3478/udp`, `3478/tcp`, `5349/tcp` e a faixa de relay
+`49200:49299/udp`) e cola o resultado em `docs/OPERACAO.md`. Mas o `03-11-PLAN.md`, escrito em
+2026-09-05 e não revisado no replanejamento, ainda tem `user_setup` próprio mandando abrir só as
+**três** portas base, sem menção nenhuma à faixa de relay, e não cita `docs/OPERACAO.md` em
+`read_first` nem em `context`. Achado pelo plan-checker em 2026-09-09 (W2).
+
+Consequência se ninguém ajustar: o trabalho do `02-04` existe, mas não está registrado onde a fase 3
+vai olhar — e se a faixa de relay for revertida ou não pegar, o checklist do `03-11` não tem como
+flagrar. O sintoma é "um amigo específico nunca entra", indistinguível de NAT ruim. **Ajuste
+necessário:** fazer o `03-11` referenciar `docs/OPERACAO.md` § Firewall do coturn e **verificar** a
+faixa de relay, em vez de reabrir cegamente só as três portas base.
 
 Depois: `/gsd-execute-phase 2` → `/gsd-execute-phase 3` (só o 03-11, que fecha SALA-04 contra o coturn
 real) → retomar `/gsd-verify-work 3`, que está pausada em `03-UAT.md` (status `partial`: os testes 15 e

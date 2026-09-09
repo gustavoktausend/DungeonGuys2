@@ -1,5 +1,19 @@
 # Phase 2: Migração para a VPS - Pattern Map
 
+> ## ⚠ SUPERADO PELA CONTAINERIZAÇÃO — não use para os planos das ondas 8 a 12
+>
+> Este mapa é de **2026-08-31**, anterior às emendas D2-22..D2-32. Ele descreve analogs para
+> arquivos que D2-30 apaga (`ops/dg2.service`, `ops/deploy.sh`, `ops/rollback.sh`,
+> `ops/deploy-forced.sh`, `ops/prune-releases.sh`, os três de `cert-check`) e **não tem entrada
+> nenhuma** para os artefatos que o replanejamento cria (`ops/Dockerfile.web`,
+> `ops/Dockerfile.api`, `ops/docker-compose.yml`, `tools/ops/deploy.mjs`).
+>
+> Os cinco planos replanejados (`02-04`, `02-13`, `02-14`, `02-15`, `02-12`) **não o
+> referenciam**, de propósito. Ele continua no diretório porque as partes sobre `apps/server`,
+> `tests/` e a política do `Caddyfile` seguem descrevendo código que existe — mas quem for ler
+> precisa saber, antes da primeira linha, que a camada de entrega aqui descrita foi aposentada.
+> A fonte para as ondas 8 a 12 é `02-RESEARCH.md` (2026-09-09).
+
 **Mapped:** 2026-08-31
 **Files analyzed:** 39 (14 editados/removidos, 25 criados)
 **Analogs found:** 27 / 39 (12 sem analog no repositório — todos em `ops/` e `apps/server/`)
