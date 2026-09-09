@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-09-08T13:28:27.741Z"
-last_activity: 2026-09-08 -- Phase 03 execution started
+last_updated: "2026-09-09T00:00:00.000Z"
+last_activity: 2026-09-09 -- Sessão retomada; revisão da fase 3 corrigida 13/13, reverificação pendente
 progress:
   total_phases: 9
   completed_phases: 1
@@ -146,10 +146,17 @@ versão D-08 (`checkVersions`) não é chamado em nenhum lugar; **WR-01** nenhum
 registrado" do critério 4 está implementada só do lado do servidor. Caminho sugerido:
 `/gsd-code-review 3 --fix` (críticos + avisos) e depois reverificar antes de abrir a fase 4.
 
+**Correção da revisão (`03-REVIEW-FIX.md`, 2026-09-08, `349cb7d`): 13/13 corrigidos (CR-01..03, WR-01..10), 33 testes novos,
+919 verdes, lint 0, build ok, e2e de sala 1 passed.** Integrada a `main` por fast-forward a partir de `8f9cb93`. Dois sub-itens
+ficaram adiados por decisão registrada: `authorityReturned` (WR-02) segue sem gatilho até a mensagem `rejoin` da fase 5 (TEMP-04),
+e o limiter genérico por socket (CR-02) espera a medição da primeira sessão real (03-11). `turns:` saiu da lista de ICE até
+existir passo de certificado no runbook (WR-09). Os informativos IN-01..IN-10 não foram tocados. A `03-VERIFICATION.md` é
+anterior às correções e precisa ser refeita antes de a fase 4 abrir.
+
 ## Session Continuity
 
-Last session: 2026-09-08
-Stopped at: Phase 3 executed 10/11 — 03-11 deferred until the VPS exists
-Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-VERIFICATION.md
+Last session: 2026-09-09
+Stopped at: Sessão retomada — revisão da fase 3 corrigida (13/13, `349cb7d`); falta reverificar a fase e abrir a fase 4
+Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-REVIEW-FIX.md
 
-Next: `/gsd-code-review 3 --fix` e reverificar; depois `/gsd-discuss-phase 4`; `/gsd-execute-phase 3` de novo quando a VPS existir (03-11)
+Next: reverificar a fase 3 (`/gsd-verify-work 3`, a `03-VERIFICATION.md` é anterior às correções); depois `/gsd-discuss-phase 4`; `/gsd-execute-phase 3` de novo quando a VPS existir (03-11)
