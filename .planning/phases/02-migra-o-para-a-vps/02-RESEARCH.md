@@ -1,11 +1,58 @@
-# Phase 2: Migração para a VPS — Research
+# Phase 2: Migração para a VPS — Research (replanejamento sob containerização)
 
-**Researched:** 2026-08-31
-**Domain:** deploy em VPS única (TLS, reverse proxy, supervisão de processo), PWA/service worker, SQLite com backup contínuo e restauração verificada
-**Confidence:** ALTA para o que foi medido neste repositório e verificado em documentação oficial; MÉDIA para o teste de offline no Playwright e para o comportamento de `workflow` agendado
+**Researched:** 2026-09-09
+**Domain:** deploy containerizado sob Coolify + Traefik numa caixa que já é produção de
+outro projeto; política HTTP em Caddy sem TLS; SQLite + Litestream em volume; coturn nativo
+**Confidence:** HIGH na camada medida (a caixa foi inspecionada); MEDIUM na camada de
+integração com o Coolify (documentada, não executada); um bloqueador de arquitetura aberto
 
-> Rótulos de estrutura ficam em inglês porque são lidos por ferramenta.
-> O conteúdo é em português, como o resto dos documentos do projeto.
+> **Este documento SUBSTITUI a pesquisa de 2026-08-31.** Aquela supunha uma caixa vazia onde
+> o Caddy seria dono da 443, o deploy seria `rsync` sobre SSH, os releases seriam diretórios
+> por sha com symlink atômico, e o `systemd` supervisionaria o Node. A caixa real é o host do
+> **infraKring**: Coolify 4.3.18 sobre Docker 29.6.0, **Traefik v3.6 dono de 80 e 443**,
+> produção viva de outro projeto. As emendas **D2-22 a D2-31** trocaram a arquitetura de
+> deploy inteira. A camada de PWA, service worker, testes de Playwright e verificação de
+> restauração sobreviveu quase intacta e foi **recarregada aqui** — o planejador não precisa
+> abrir o arquivo antigo.
+>
+> Rótulos de estrutura em inglês porque são lidos por ferramenta. Conteúdo em português.
+
+---
+
+## O que da pesquisa anterior continua valendo, e o que foi revogado
+
+Mapa explícito, para que o planejador não precise abrir a versão de 2026-08-31.
+
+| Item da pesquisa de 2026-08-31 | Estado hoje | Onde está neste documento |
+|---|---|---|
+| **DM-1** — o repositório nunca foi publicado, `ci.yml` nunca rodou | **Consumido.** Feito no 02-01; o repo é público, o CI roda | histórico |
+| **DM-2/DM-3** — não há PWA do DG2 para despedir; o do DungeonGuys original está vivo | **VALE.** D2-18 revogou D2-12 por causa disso | § O que NÃO muda |
+| **DM-4** — `needs:` não atravessa workflows | **VALE.** É por isso que o job `deploy` mora no `ci.yml` | § Delta do `ci.yml` |
+| **DM-5** — `index.html` tem caminhos relativos que o Vite não reescreve → nada de `try_files` | **VALE, e mais forte.** É o 404 honesto do Caddyfile, que sobrevive dentro do contêiner | § Caddyfile de contêiner |
+| **DM-6** — `manifest.json` com `start_url`/`scope` em `"."` | **VALE.** Intocado de propósito | § O que NÃO muda |
+| **P-1** — trocar `base` e o escopo do SW junto com a reescrita do `sw.js` | **Consumido** (02-02 antes de 02-05 antes de 02-06) | histórico |
+| **P-2** — `cache.put` sem checar `res.ok` | **VALE, resolvido e testado** (`api-isolation.spec.ts`) | § O que NÃO muda |
+| **P-3** — nome de cache estático nunca limpa | **VALE, resolvido** (`dg2-<16 hex>` derivado do build) | § O que NÃO muda |
+| **P-4** — `cache.addAll` usa o cache HTTP | **VALE, resolvido** (`{cache:'reload'}` + `no-cache` no shell) | § Caddyfile de contêiner |
+| **P-5** — `handle` é reordenado, `route` não | **VALE integralmente** | § Caddyfile de contêiner |
+| **P-6** — `{$VAR}` vs `{env.VAR}` no endereço do site, e o reload que não relê o env | **REVOGADO EM PARTE.** Não há mais endereço de domínio no Caddyfile nem `EnvironmentFile` do systemd; sobra a regra para `{$DG2_UPSTREAM}` | § Delta do teste de ops |
+| **P-7** — offline que depende das fontes do Google | **VALE, resolvido** (D2-20, fontes auto-hospedadas) | § O que NÃO muda |
+| **P-8** — Litestream v0.5 usa `replica:` singular | **VALE.** `ops/litestream.yml` já está certo | § Litestream |
+| **P-9** — migração que falha vira crash-loop invisível | **VALE, com dono novo.** Quem limita o laço deixa de ser `StartLimitBurst` e passa a ser a política de restart do Docker | § Convivência com o vizinho |
+| **P-10** — `MemoryMax` sem limitar o heap do V8 troca GC por OOM-kill | **VALE integralmente**, agora como `mem_limit` + `NODE_OPTIONS` | § Compose |
+| **P-11** — Cache Storage e `localStorage` não são particionados por escopo | **VALE.** É o argumento de DM-2/D2-18 | § O que NÃO muda |
+| **P-12** — `--link-dest` relativo não dedupa | **REVOGADO.** Não há `rsync` no caminho | — |
+| Padrão "release por sha com symlink e hardlinks" | **REVOGADO por D2-24** | § Deploy e reversão |
+| Padrão "allowlist no service worker" | **VALE, construído** (02-06) | § O que NÃO muda |
+| Padrão "passo de build que deriva o precache" | **VALE, construído** (`tools/sw/emit.mjs` + `verify.mjs`) | § O que NÃO muda |
+| Padrão "migration provider estático" | **VALE, construído** (02-08) | § O que NÃO muda |
+| `ops/Caddyfile` como exemplo de código | **VALE ~80%.** Muda o cabeçalho, o endereço do site, o `root` e o bloco global | § Code Examples |
+| `ops/dg2.service` como exemplo de código | **REVOGADO.** Substituído por `mem_limit`/`cpus`/`stop_grace_period` no compose | § Compose |
+| `.github/workflows/ci.yml` job de deploy por rsync | **REVOGADO por D2-23/D2-31** | § Delta do `ci.yml` |
+| `tools/ops/restore-verify.mjs` | **VALE integralmente**, com o ambiente de execução mudado (contêiner descartável) | § Backup e restauração |
+| `ops/cert-check.sh` + timer | **REVOGADO por D2-30.** O certificado é do Traefik. **A capacidade que ele comprava (alarme com 30 dias) precisa de substituto** | § Vigilância |
+| Notas de projeto do teste de PWA (Playwright é Chromium-only etc.) | **VALEM integralmente** | § Validation Architecture |
+| Lacuna aceita de iOS/Safari (D2-11, `docs/PARIDADE.md`) | **VALE** | § Validation Architecture |
 
 ---
 
@@ -14,1375 +61,1577 @@
 
 ### Locked Decisions
 
-**Servidor, banco e layout do monorepo**
+Copiadas de `02-CONTEXT.md`. As de 2026-09-09 (D2-22..D2-31) prevalecem sobre as anteriores
+onde houver conflito.
 
-- **D2-01:** **`apps/server` nasce nesta fase, com banco real.** Um processo Node com
-  `/health` e um SQLite criado por migração, supervisionado por systemd e alcançado pelo
-  Caddy por reverse proxy. Motivo: INFRA-04 exige backup "verificado restaurando, não só
-  gerando" — sem arquivo de banco não há o que restaurar, e adiar isso faria o primeiro
-  processo Node subir no mesmo dia em que a rede estreia, que é exatamente o que esta fase
-  existe para impedir.
-- **D2-02:** **O esquema nasce mínimo: só o migrator do Kysely e a tabela do ledger**
-  (`docs/adr/0010-soul-gold-ledger-append-only.md`) — `UNIQUE` no ULID, gasto como evento
-  negativo, marca d'água de confirmação. **Não** se criam tabelas de perfil, run, replay,
-  temporada nem placar: seriam especulativas por meses, e a chave estrangeira para a tabela
-  `user` do Better Auth não pode ser desenhada antes de o Better Auth existir (fase 6).
-- **D2-03:** **A restauração é um script repetível mais um ensaio anotado.** Um script em
-  `tools/ops/` restaura o backup mais recente num diretório descartável e confere contagem
-  de linhas e soma do ledger contra o banco vivo, imprimindo verde ou vermelho. Rodado uma
-  vez nesta fase, com o resultado registrado em `docs/` (data, tempo até restaurar, o que
-  faltou). Não vira timer recorrente: numa VPS sem plantão, automação silenciosa é mais uma
-  coisa que quebra sem avisar.
-- **D2-04:** **O monorepo ganha `apps/*`, mas só o servidor se muda.** `workspaces` passa a
-  `["packages/*", "apps/*"]` e `apps/server` nasce com `package.json` próprio, confinando
-  Hono, `better-sqlite3` e Kysely longe da raiz — onde `dependencies: {}` é a doutrina do
-  jogo publicado. `src/`, `index.html` e `vite.config.ts` **ficam na raiz**: esta fase já
-  move `base`, service worker e alvo de deploy, e mover o cliente junto é o que D-15 (fase
-  1) recusou. Virar `apps/web` depois é `git mv` mais dois caminhos.
+**Servidor, banco e monorepo**
+
+- **D2-01:** `apps/server` nasce nesta fase, com banco real. Um processo Node com `/health` e
+  um SQLite criado por migração. *(Construído no 02-08.)*
+- **D2-02:** O esquema nasce mínimo: só o migrator do Kysely e a tabela do ledger. *(Feito.)*
+- **D2-03:** A restauração é um script repetível mais um ensaio anotado, em `tools/ops/`, com
+  o resultado registrado em `docs/`. **Não vira timer recorrente.** *(Script feito; ensaio
+  pendente.)*
+- **D2-04:** O monorepo ganha `apps/*`, mas só o servidor se muda. *(Feito.)*
 
 **Deploy e reversão**
 
-- **D2-05:** **O CI constrói e o CI empurra.** `deploy.yml` para de falar com o GitHub
-  Pages e passa a fazer rsync sobre SSH para a VPS, depois de os portões do `ci.yml`
-  passarem. Chave de deploy nos secrets do GitHub, usuário sem shell, diretório restrito.
-  Consequência que decide a escolha: **o que é publicado é sempre o que passou no portão
-  cross-engine** — não existe caminho para publicar um `dist/` da máquina de alguém.
-- **D2-06:** **Releases por sha com symlink atômico.** `/srv/dg2/releases/<sha>/` recebe o
-  rsync; `current` é um symlink e o Caddy serve por ele. Publicar é trocar o symlink;
-  reverter é trocar de volta — um comando, sem rede, sem rebuild, funcionando com o GitHub
-  fora do ar. Elimina também a janela de `index.html` novo com `assets/` velho.
-- **D2-07:** **A migração roda no start do serviço, e é sempre aditiva.** `dg2.service`
-  executa o migrator do Kysely antes de aceitar requisição. O banco mora em
-  `/var/lib/dg2/`, **fora da árvore de releases**, então reverter o symlink não toca no
-  dado. Regra escrita que torna o rollback seguro: **nenhuma migração faz `DROP` ou rename
-  na mesma versão** — a versão anterior tem de continuar funcionando contra o esquema novo.
-- **D2-08:** **Todo push na `main` que passar no CI publica.** `main` é sempre o que está no
-  ar, o que faz a reversão ser compreensível: o symlink anterior corresponde ao commit
-  anterior. Publicar durante uma partida é risco nulo enquanto o jogo for single-player, e
-  a partir da fase 3 quem cobre isso é D2-09, não o gatilho do deploy.
+- **D2-05:** O CI constrói e o CI empurra. **Emendada por D2-23** — o argumento sobrevive
+  inteiro: *o que é publicado é sempre o que passou no portão cross-engine*.
+- **D2-06:** ~~Releases por sha com symlink atômico.~~ **REVOGADA por D2-24.**
+- **D2-07:** A migração roda no start do serviço e é sempre aditiva; o banco mora fora da
+  árvore de releases; **nenhuma migração faz `DROP` ou rename na mesma versão**.
+- **D2-08:** Todo push na `main` que passar no CI publica.
 
 **Service worker, PWA e o fim do espelho**
 
-- **D2-09:** **Fim do `skipWaiting()` + `clients.claim()`.** O service worker novo instala e
-  **espera**; o jogo mostra um aviso ("versão nova pronta — recarregar") e a troca só
-  acontece **fora de partida** — e, da fase 3 em diante, também fora de sala. É a
-  contrapartida direta de D-08 (fase 1): mandamos recusar versões diferentes sem bypass, e
-  um deploy que troca a `sim/` sob os pés dos peers produziria essa recusa no meio do jogo.
-- **D2-10:** **O precache é derivado do manifesto do build, e cobre tudo.** Um passo de
-  build lê o `dist/` e injeta a lista real de arquivos no `sw.js`, incluindo
-  `assets/index-<hash>.js` e `.css`, que hoje ninguém consegue precachear porque o nome muda
-  a cada build. Instalação limpa deixa o jogo **100% jogável offline sem nunca ter sido
-  jogado**, por 350 KB. Mata também o defeito que o próprio cabeçalho do `sw.js` documenta:
-  lista escrita à mão que dá 404 e faz `cache.addAll` rejeitar a instalação inteira.
-- **D2-11:** **A verificação de instalação, atualização e offline é só Playwright no CI** —
-  instalação limpa, service worker antigo cedendo lugar ao novo, jogo abrindo com a rede
-  desligada, e `/api/` nunca aparecendo no Cache Storage (INFRA-03 vira teste, não
-  promessa). **Sem checklist manual em aparelho real.** Consequência aceita e registrada:
-  PWA em iOS/Safari físico continua sem cobertura, e a caixa correspondente em
-  `docs/PARIDADE.md` **permanece aberta** — o verificador da fase deve ler o critério 2 com
-  essa ressalva, que é escolha deliberada e não lacuna.
-- **D2-12:** **O GitHub Pages recebe um último deploy de despedida.** Uma página estática
-  apontando para o domínio novo, e um `sw.js` que **se desregistra e limpa o próprio Cache
-  Storage**. Motivo: um PWA instalado é offline-first — simplesmente desligar o Pages
-  deixaria o jogo velho abrindo do cache, jogando e gravando progresso num domínio que não
-  existe mais, sem nunca dizer isso ao jogador. Depois disso o Pages não recebe mais build
-  (INFRA-01).
+- **D2-09:** Fim do `skipWaiting()` + `clients.claim()`; a troca só acontece fora de partida.
+  *(Feito nos 02-06/02-07.)*
+- **D2-10:** O precache é derivado do manifesto do build e cobre tudo. *(Feito no 02-06.)*
+- **D2-11:** A verificação de instalação, atualização e offline é só Playwright no CI. A
+  lacuna de iOS/Safari físico fica registrada e a caixa de `docs/PARIDADE.md` permanece
+  aberta. *(Feito nos 02-05/02-09.)*
+- **D2-12:** ~~Último deploy de despedida no Pages.~~ **REVOGADA por D2-18.**
 
 **Domínio, configuração e operação**
 
-- **D2-13:** **O domínio está comprado e o DNS já aponta para a VPS.** O plano pode assumir
-  que o ACME do Caddy emite certificado no primeiro boot; passo de DNS e espera de
-  propagação **não** estão no caminho crítico.
-- **D2-14:** **Sem staging.** Uma caixa, um domínio. A confiança mora na reversão de D2-06
-  mais os portões do CI. Enquanto o jogo for single-player e o público for o desenvolvedor,
-  produção ainda é barata de quebrar — e é precisamente esse crédito que esta fase existe
-  para gastar, antes de haver amigos numa sala.
-- **D2-15:** **Configuração versionada, segredos e domínio na máquina.** `Caddyfile`,
-  `dg2.service`, os scripts de deploy e o de restauração moram em `ops/` **dentro do
-  repositório** — revisáveis em diff e reversíveis junto com o código. O nome do domínio e
-  os segredos vivem em `/etc/dg2/env`, lidos pelo `EnvironmentFile` do systemd e por
-  variável no `Caddyfile`. Consequências: reconstruir a caixa é clonar o repo mais
-  restaurar um arquivo de env, e o repositório público nunca diz onde a máquina mora.
-- **D2-16:** **Vigilância em duas pernas.** Um timer do systemd na própria VPS confere a
-  validade real do certificado servido (coisa que um monitor externo só infere), **mais**
-  uma checagem externa mínima de `/health` — serviço gratuito ou GitHub Action agendada.
-  Alarme de certificado com **30 dias**, não 7. As duas pernas existem porque falham em
-  cenários diferentes: o timer local cala junto com a caixa; o monitor externo não vê o
-  arquivo. O Let's Encrypt encerrou o aviso de expiração por e-mail em jun/2025 — ninguém
-  mais avisa de graça.
-- **D2-17:** **Backup por Litestream para bucket S3-compatível** (Backblaze B2 ou
-  equivalente), replicando o WAL do SQLite continuamente, com unit própria do systemd.
-  Ponto de recuperação em segundos em vez de um dia — para um ledger de moeda, um dia
-  perdido é soul gold que sumiu. Fora da VPS por princípio: a Hostinger cair leva o snapshot
-  junto. É exatamente esse caminho que o script de D2-03 exercita.
+- **D2-13:** O domínio está comprado e o DNS já aponta. **Confirmada e especificada:** é
+  `dg2.kring.tech`; o wildcard já resolve e o DNS não se toca.
+- **D2-14:** Sem staging. Uma caixa, um domínio.
+- **D2-15:** Configuração versionada em `ops/`; segredos e domínio fora do repositório.
+  **Emendada por D2-29** — `/etc/dg2/env` deixa de ser o lugar único.
+- **D2-16:** Vigilância em duas pernas, alarme de certificado com **30 dias**. **Vale com o
+  dono trocado:** o certificado é do Traefik, o timer local sai (D2-30), sobra a perna
+  externa.
+- **D2-17:** Backup por Litestream para bucket S3-compatível, réplica contínua do WAL.
+- **D2-18:** A despedida do Pages é cortada; o SW do DungeonGuys **original** apaga todo cache
+  que não seja dele, e Cache Storage é por origem — domínio próprio é o que faz o PWA
+  funcionar.
+- **D2-19:** ~~A VPS é KVM 2 (2 GB).~~ **Desatualizada:** são 8 GB. Os limites de memória
+  continuam obrigatórios pelo motivo original, agora como limites de contêiner.
+- **D2-20:** As fontes do Google passam a ser auto-hospedadas. *(Feito no 02-02.)*
+- **D2-21:** A segunda perna de D2-16 é serviço externo de terceiro, não Action agendada,
+  apontando para `/api/health` com keyword matching em `"status":"ok"`.
+
+**Emendas de containerização (2026-09-09) — prevalecem**
+
+- **D2-22:** O jogo vira um app do Coolify, containerizado, publicado por push. O servidor
+  escuta 8080 **dentro do contêiner**, nada é publicado no host.
+- **D2-23:** O integrador contínuo constrói a imagem e a publica no registro; o Coolify só
+  puxa. Deixar o Coolify construir a partir do git contornaria o portão cross-engine.
+- **D2-24:** Reverter é apontar para a imagem anterior, **que já está no disco**.
+  Consequência a planejar: **quantas imagens ficam antes da poda.**
+- **D2-25:** Caddy e Node como **dois serviços de uma composição**. O Caddy do contêiner
+  **não termina TLS**: quem termina é o Traefik, em `dg2.kring.tech`.
+- **D2-26:** O coturn roda **nativo no host, com systemd** — exceção consciente a D2-22.
+  `ops/turnserver.conf` e `ops/coturn-dropin.conf` continuam versionados e testados.
+- **D2-27:** A faixa de portas de relay é **declarada e pequena**; `total-quota` desce junto
+  para casar com a faixa. Cerca de cem portas ≈ vinte e cinco salas inteiramente por relay.
+- **D2-28:** O Litestream **envolve o processo do servidor** (`litestream replicate -exec`).
+- **D2-29:** Segredos: painel do Coolify para o app, arquivo no host para o coturn. **O
+  `static-auth-secret` passa a existir em dois lugares de naturezas diferentes** e isso tem
+  de estar escrito no runbook em voz alta.
+- **D2-30:** `ops/` perde `deploy.sh`, `rollback.sh`, `deploy-forced.sh`, `prune-releases.sh`,
+  `dg2.service` e os três de `cert-check`. As asserções correspondentes de
+  `tests/ops-config.test.ts` são reescritas **no mesmo commit**.
+- **D2-31:** A publicação é um gancho do Coolify chamado pelo integrador; **um** segredo no
+  lugar dos quatro de SSH.
+
+**Restrições novas que a caixa impõe**
+
+- **D-VPS-01** O jogo vive em `dg2.kring.tech`. O wildcard A já resolve; não se mexe no DNS.
+- **D-VPS-02** **Não mexer no infraKring.** Alterações no host são **só aditivas e
+  confirmadas antes**. Os dois achados de segurança daquele projeto ficam como observação.
+- **D-VPS-03** O jogo vira um app do Coolify, containerizado.
+- `rsync` não existe na caixa.
 
 ### Claude's Discretion
 
-- **Hono ou Fastify** em `apps/server`, e a porta interna do processo.
-- **O que `/health` responde** e com que forma — status do banco, `SIM_VERSION`, versão do
-  release, ou só `200 OK`. Só há duas restrições: precisa ser consumível pela checagem
-  externa de D2-16, e não pode vazar nada que não seja público.
-- **`MemoryMax` e o resto do sandbox do systemd** (`NoNewPrivileges`, `ProtectSystem`,
-  `ReadWritePaths`) por serviço.
-- **rsync ou tar, e quantos releases ficam no disco** antes de serem podados.
-- **Forma exata do passo de build que gera o precache** de D2-10: plugin do Vite,
-  script `post-build`, ou `define()` com a lista. Inclui como o nome do cache passa a
-  derivar do hash do build em vez de `'dungeonguys2-v1'` literal.
-- **Onde o aviso de atualização de D2-09 aparece na UI** e com que texto.
-- **Se a exclusão de `/api/` no service worker já nasce com `/ws` junto.**
-- **Se o servidor reinicia em todo deploy** ou só quando `apps/server` muda.
-- **Uma página de manutenção estática** servida quando o processo Node está fora.
-- **Ordem interna da fase.** Restrição registrada: a mudança de `base: '/DungeonGuys2/'`
-  para `'/'` toca `vite.config.ts` e o escopo do service worker ao mesmo tempo, e deve ser
-  **tarefa própria**, com o teste de instalação limpa e de atualização feito em cima dela —
-  não misturada com a reescrita do `sw.js`.
+- **Hono ou Fastify** em `apps/server` e a porta interna. *(Resolvido: Hono, feito no 02-08.)*
+- **O que `/health` responde.** *(Resolvido: três chaves, `no-store`.)*
+- **`MemoryMax` e o resto do sandbox por serviço.** *(Reabre como limites de contêiner.)*
+- **rsync ou tar, e quantos releases ficam no disco.** *(Reabre como: quantas **imagens**
+  ficam no disco.)*
+- **Forma exata do passo de build que gera o precache.** *(Resolvido: template com sentinelas
+  + `tools/sw/emit.mjs`.)*
+- **Onde o aviso de atualização aparece na UI.** *(Resolvido no 02-07.)*
+- **Se a exclusão de `/api/` no SW já nasce com `/ws` junto.** *(Resolvido: nasce junto.)*
+- **Se o servidor reinicia em todo deploy.** *(Reabre: sob contêiner, o `up -d` recria só o
+  serviço cuja imagem mudou.)*
+- **Uma página de manutenção estática** — sugerida, não decidida.
+- **Ordem interna da fase.**
 
 ### Deferred Ideas (OUT OF SCOPE)
 
-- **`apps/web`** — o cliente fica na raiz (D2-04). Reavaliar na fase 3.
-- **Tabelas de perfil, run, replay, temporada e placar** — fora de D2-02. Nascem nas fases 6 e 9.
-- **Subdomínio de staging** — recusado em D2-14. Volta entre as fases 5 e 6.
-- **Timer recorrente de verificação de restauração** — recusado em D2-03. Vira timer na fase 6.
-- **Página de manutenção estática** quando o processo Node está fora — deixada como discrição
-  do planejador; só passa a importar quando alguma tela do jogo depender da API (fase 6).
-- **Exclusão de `/ws` no service worker** — a rota de signaling da fase 3.
-- **Disputa da porta 443 com o TURN sobre TLS** — questão da fase 3.
-- **Cobertura de PWA em aparelho real (iOS/Safari)** — fora por D2-11. A caixa de
-  `docs/PARIDADE.md` continua aberta.
-- **Limpar Cache Storage e IndexedDB no logout** — não há logout até a fase 6.
-
-**Fora do escopo desta fase, explicitamente (do `<domain>` da CONTEXT.md):** zero linha de
-rede de jogo (sala, signaling, WebRTC, coturn — fase 3); nenhuma rota de negócio nem
-autenticação (fase 6); nenhuma leitura ou escrita de progresso pela rede; nenhuma mudança em
-`packages/sim` (`SIM_VERSION` não se move); nenhuma mudança de arte, HUD ou balanceamento.
+`apps/web`; tabelas de perfil/run/replay/temporada/placar; subdomínio de staging; timer
+recorrente de verificação de restauração; página de manutenção estática; exclusão de `/ws` no
+SW (já entrou); disputa da 443 com TURN sobre TLS; cobertura de PWA em aparelho real; limpar
+Cache Storage e IndexedDB no logout. Acrescentados em 2026-09-09: os dois achados de
+segurança do infraKring; a tarefa T9 (backup off-site) do infraKring; remover
+`hello.kring.tech`; TLS na 5349 do coturn.
 </user_constraints>
-
----
 
 <phase_requirements>
 ## Phase Requirements
 
-| ID | Descrição (literal de REQUIREMENTS.md) | Research Support |
-|----|----------------------------------------|------------------|
-| **INFRA-01** | O jogo single-player roda na VPS sob domínio único com TLS, e o GitHub Pages deixa de ser alvo de deploy — **[decidido]** o espelho morre | § Standard Stack (Caddy 2.11.4, TLS automático); § Architecture Patterns "Padrão 1: release por sha + symlink"; § Descobertas que Mudam o Plano DM-1/DM-2 (o Pages **nunca recebeu** deploy — INFRA-01 já está metade satisfeito por acidente); § Code Examples "Caddyfile" |
-| **INFRA-02** | O PWA continua instalável e funcional offline servido da VPS | § Architecture Patterns "Padrão 3: precache derivado"; § Common Pitfalls P-4 (`cache.addAll` + `{cache:'reload'}`), P-7 (fontes do Google não são precacheadas); § Validation Architecture critério 2; medido: `dist/` = 350 KB em 11 arquivos |
-| **INFRA-03** | O service worker deixa `/api/` passar sem cachear, só guarda respostas `ok`, e deriva o nome do cache do build | § Architecture Patterns "Padrão 2: allowlist em vez de denylist"; § Don't Hand-Roll; § Code Examples "sw.js"; § Common Pitfalls P-2, P-3; § Validation Architecture critério 3 |
-| **INFRA-04** | O deploy é um comando, com o processo supervisionado e backup do banco restaurável — verificado restaurando, não só gerando | § Standard Stack (systemd, Litestream 0.5.16, Kysely 0.29.5, better-sqlite3 13.0.3); § Code Examples "dg2.service", "litestream.yml", "restore-verify"; § Common Pitfalls P-8 (`replica` singular no v0.5), P-9 (crash-loop de migração); § Validation Architecture critério 4 |
+| ID | Descrição | Como esta pesquisa sustenta a implementação |
+|---|---|---|
+| **INFRA-01** | O jogo single-player roda na VPS sob domínio único com TLS, e o GitHub Pages deixa de ser alvo de deploy | Metade já provada e travada: `tests/workflows.test.ts` (02-01) assere que nenhum workflow publica no Pages. A outra metade é o app do Coolify em `dg2.kring.tech` com certificado do Traefik — **e depende do bloqueador DM-7**. Ver § Deploy e reversão, § Vigilância |
+| **INFRA-02** | O PWA continua instalável e funcional offline servido da VPS | Já construído e testado (02-02, 02-05, 02-06, 02-07, 02-09). A containerização **não o toca**; a única verificação nova é que o Caddy atrás do Traefik continua mandando os cabeçalhos de cache. Ver § O que NÃO muda |
+| **INFRA-03** | O SW deixa `/api/` passar sem cachear, só guarda respostas `ok`, e deriva o nome do cache do build | Já construído e testado (`api-isolation.spec.ts`, `update.spec.ts`, `sw:verify`). Intocado pela containerização |
+| **INFRA-04** | O deploy é um comando, com o processo supervisionado e backup do banco restaurável — verificado restaurando | Reescrito inteiro: supervisão passa a ser do Docker/Coolify; o deploy é o gancho de D2-31; o backup é Litestream em `-exec`; o ensaio de restauração roda em contêiner descartável. Ver § Deploy e reversão, § Backup e restauração |
 </phase_requirements>
 
 ---
 
 ## Summary
 
-Esta fase é menos "escolher tecnologia" e mais "fechar um circuito que hoje não existe em
-lugar nenhum". A pesquisa da `STACK.md` já decidiu as peças (Caddy, Node 24, Hono, SQLite,
-Kysely, Litestream, systemd) e a verificação de hoje **confirma todas elas na versão
-corrente**, com três correções de detalhe: o Litestream v0.5 usa `replica:` no singular e
-não o array `replicas:` de todo blog post existente; o `better-sqlite3` v13 passou a
-embarcar os binários pré-compilados no próprio pacote, o que apaga a preocupação de
-"recompila a cada major do Node"; e o Caddy **ordena os blocos `handle` por especificidade
-do matcher**, então "`handle /api/*` antes do estático" é uma regra de legibilidade, não de
-corretude — o que muda é que quem escrever um `route` em vez de `handle` perde essa rede.
+A fase 2 está **11/12 executada** e boa parte do que foi construído continua válida sem uma
+linha de mudança: o `base: '/'`, as fontes auto-hospedadas, o service worker derivado do build
+com allowlist e nome por hash, o aviso de atualização, as quatro specs de Playwright, o
+`apps/server` com migração e `/api/health`, e o `tools/ops/restore-verify.mjs`. O que morreu
+foi **a camada de entrega**: releases por sha com symlink, `rsync` sobre SSH, `systemd`
+supervisionando o Node, o Caddy dono da 443 e o `cert-check` local. Nove dos catorze arquivos
+de `ops/` saem, e **34 dos 74 testes de `tests/ops-config.test.ts` morrem com eles**.
 
-A descoberta que mais mexe no plano não é de biblioteca, é de fato: **este repositório não
-tem remote nenhum, o repo `gustavoktausend/DungeonGuys2` não existe no GitHub, e
-`https://gustavoktausend.github.io/DungeonGuys2/` responde 404.** O `ci.yml` — os oito
-portões que a fase 1 inteira construiu — nunca rodou num runner. O `deploy.yml` nunca
-publicou nada. E `https://gustavoktausend.github.io/DungeonGuys/` — o jogo **original**, que
-o PROJECT.md diz que "segue vivo e independente" — está no ar, com um service worker cujo
-`activate` apaga **todo cache da origem** que não se chame `dungeonguys-v3`. Isso inverte a
-premissa de D2-12 (não há PWA velho do DungeonGuys2 para avisar, porque nunca houve URL) e
-cria um perigo novo: um `sw.js` de despedida que faça `caches.keys()` e delete tudo levaria
-junto o cache do jogo original, que continua sendo um produto vivo.
+A caixa foi inspecionada nesta sessão e a arquitetura nova é implementável quase inteira: o
+Coolify aceita uma composição de dois serviços vinda do próprio repositório, referenciando
+imagens já construídas no registro; o Traefik já resolve `dg2.kring.tech` e emite certificado
+por ACME quando um roteador existir; o Docker guarda a imagem anterior por sha e o Coolify tem
+reversão para imagem local; o Litestream, medido no código-fonte, **encaminha o SIGTERM exato
+ao filho de `-exec` e espera ele sair**, o que preserva o desligamento gracioso que o 02-08
+construiu. Mas há **um bloqueador de arquitetura**: a API do Coolify **não é alcançável da
+internet** (medido: 8000 e 8080 dão timeout de fora), e D2-31 pressupõe que o integrador
+chame um gancho. Sem resolver isso, não existe "todo push na main publica".
 
-A recomendação técnica central para o `sw.js` é trocar a forma da regra, não só a lista:
-**sair de um denylist (`/api/` não entra) para um allowlist (só o que está no precache
-derivado, mais `/assets/` com nome hasheado, é servido do cache)**. Um denylist está sempre a
-uma rota esquecida de cachear resposta autenticada — a fase 3 traz `/ws`, a 6 traz
-`/api/auth/*`, a 9 traz `/api/leaderboard`. Um allisted derivado do build fecha isso por
-construção e é exatamente o mesmo movimento que o `tools/sim-version/emit.mjs` já fez para o
-`SIM_VERSION`: derivar do artefato em vez de manter à mão.
+Existem também **três defeitos de código que a containerização torna fatais e que nenhum
+teste hoje pega**: o `apps/server` faz bind em `127.0.0.1`, o que o torna inalcançável a
+partir do contêiner do Caddy; o `tests/workflows.test.ts` recusa **toda** ação que não seja
+`actions/*` e **todo** `: write`, o que reprova qualquer caminho de publicação em registro; e
+o Caddy, por padrão, **descarta** o `X-Forwarded-For` de origem não confiável, o que colapsa
+o limitador da fase 3 em um balde só.
 
-**Primary recommendation:** copiar a forma de `tools/sim-version/emit.mjs` para um
-`tools/sw/emit.mjs` que reescreve `dist/sw.js` a partir de um template com sentinelas,
-derivando nome de cache e precache do conteúdo real do `dist/`; publicar por `rsync
---link-dest` para `/srv/dg2/releases/<sha>/` com troca de symlink; e fundir o `deploy.yml`
-dentro do `ci.yml` como um job com `needs:`, porque `needs:` não atravessa workflows e essa é
-a única forma de garantir literalmente que "o que é publicado é o que passou no portão
-cross-engine" (D2-05).
+**Primary recommendation:** planeje **cinco planos** — (1) resolver o bloqueador de
+alcançabilidade do Coolify com o usuário e criar a caixa/bucket/segredos; (2) o delta de
+código do servidor e do Caddyfile (bind, upstream, trusted_proxies, `auto_https off`);
+(3) `ops/` containerizado: Dockerfiles, compose, README reescrito e os 34 testes reescritos;
+(4) o `ci.yml` de imagem-e-gancho mais o delta de `tests/workflows.test.ts`; (5) a caixa de
+verdade. A ordem 1→2→3→4→5 não pode ser trocada: o 1 decide a forma do 4, e o 5 não existe
+sem os quatro.
 
 ---
 
 ## Architectural Responsibility Map
 
-| Capability | Primary Tier | Secondary Tier | Rationale |
-|------------|-------------|----------------|-----------|
-| Terminação TLS e renovação de certificado | CDN/Edge (Caddy) | — | ACME automático sem cron é o argumento que escolheu Caddy; nenhuma outra camada deve saber que TLS existe |
-| Roteamento `/api/*` vs estático | CDN/Edge (Caddy) | — | Uma origem só; a fronteira entre jogo e API é uma decisão de roteamento, não de código |
-| Servir `dist/` | CDN/Edge (Caddy `file_server`) | Browser (service worker) | O SW é *cache secundário* da mesma origem; a fonte da verdade é o `file_server` apontando para o symlink `current` |
-| Cache offline e instalabilidade do PWA | Browser (service worker) | — | Só o browser tem Cache Storage; nada no servidor participa |
-| Aviso e aplicação de atualização | Browser (`src/main.ts` + `src/ui/screens.ts`) | — | O gate "fora de partida" só existe no cliente (`gameStarted`); o servidor não tem como saber |
-| `base` / resolução de caminhos | Build (Vite) | Browser | `import.meta.env.BASE_URL` já propaga; a decisão é de build |
-| Derivação do precache e do nome do cache | Build (`tools/sw/emit.mjs`) | — | Mesma propriedade do `SIM_VERSION`: o hash de um artefato não pode viver dentro dele |
-| Migração de esquema | API/Backend (`dg2.service` no start) | — | D2-07. Não é do deploy nem do Caddy: é do processo que fala com o banco |
-| Persistência do ledger (tabela) | Database (SQLite `/var/lib/dg2/`) | — | Fora da árvore de releases, para o rollback de symlink não tocar em dado (D2-07) |
-| Replicação contínua do banco | Ops (`litestream.service`) | — | Processo separado por desenho: se o Node morrer, o backup continua |
-| Verificação de restauração | Ops (`tools/ops/restore-verify.mjs`) | — | Roda fora do serviço, contra um diretório descartável (D2-03) |
-| Supervisão, limite de memória e sandbox | Ops (systemd) | — | Um processo não pode derrubar os outros numa caixa de 1–2 GB (armadilha 13) |
-| Publicação e reversão | CI (GitHub Actions) + Ops (symlink) | — | D2-05 põe a publicação no CI; D2-06 põe a reversão na caixa, para funcionar com o GitHub fora do ar |
-| Vigilância de certificado | Ops (systemd timer, local) + Externo (monitor) | — | D2-16: as duas pernas falham em cenários diferentes |
-| Progresso do jogador (save, ledger) | Browser (`localStorage`) | — | **Não muda nesta fase.** D-29 (fase 1) e o `<domain>` da CONTEXT.md são explícitos |
+| Capacidade | Tier primário | Tier secundário | Por quê |
+|---|---|---|---|
+| Terminação TLS e emissão de certificado | **Traefik (host, contêiner do Coolify)** | — | É quem tem 80 e 443; o ACME dele já roda para o vizinho. O Caddy do jogo perde essa responsabilidade inteira (D2-25) |
+| Roteamento por domínio para o app | **Traefik** | Coolify (gera os labels) | Medido: os labels `traefik.http.routers.https-0-*` são gerados pelo Coolify a partir do FQDN do recurso |
+| Redirecionamento HTTP→HTTPS | **Traefik** | — | Medido no vizinho: middleware `redirect-to-https` no roteador `http` |
+| Política HTTP (CSP, HSTS, três classes de cache, 404 honesto, 503 em JSON) | **Caddy (dentro do contêiner)** | — | **Medido: o Traefik do Coolify não manda nenhum cabeçalho de segurança.** Se o Caddy não mandar, ninguém manda |
+| Servir os estáticos do jogo | **Caddy (contêiner `web`)** | — | D2-25. Reescrever a política em Node seria o item mais caro da migração |
+| API `/api/*` e signaling `/ws` | **Node (contêiner `api`)** | Caddy repassa | Inalterado de 02-08 |
+| Persistência do ledger | **SQLite em volume do Coolify** | — | D2-28 |
+| Réplica contínua fora da caixa | **Litestream, como PID 1 do contêiner `api`** | — | D2-28; envolve o Node por `-exec` |
+| Supervisão e reinício do processo | **Docker (`restart:`) + Coolify** | — | D2-22; o `systemd` sai do caminho do app |
+| Limites de memória e CPU | **Compose (`mem_limit`, `cpus`) + `NODE_OPTIONS`** | — | D2-19 reinterpretada; o par de P-10 continua obrigatório |
+| Relay TURN (fase 3) | **coturn nativo, systemd, no host** | UFW | D2-26; faixa larga de UDP não convive com NAT de contêiner |
+| Publicação (build da imagem) | **GitHub Actions** | GHCR | D2-23; é o que preserva o portão cross-engine |
+| Disparo do deploy | **Coolify (gancho/API)** | GitHub Actions chama | D2-31 — **bloqueado por DM-7** |
+| Vigilância de disponibilidade e de certificado | **Monitor externo de terceiro** | — | D2-16/D2-21; a perna local morreu com `cert-check` |
 
 ---
 
 ## Descobertas que Mudam o Plano
 
-> Fatos medidos nesta sessão que a CONTEXT.md não podia conhecer. Cada um é verificável em
-> um comando. Nenhum deles reabre decisão travada — todos mudam **como** a decisão se
-> executa, e dois deles precisam de confirmação humana antes de virar tarefa.
+Continuando a numeração da pesquisa de 2026-08-31 (DM-1..DM-6, todas consumidas ou
+preservadas no mapa acima).
 
-### DM-1 — O repositório nunca foi publicado. O `ci.yml` nunca rodou. `[VERIFIED: git + GitHub API]`
+### DM-7 — A API do Coolify **não é alcançável da internet**. D2-31 não é implementável como está. `[VERIFIED: curl externo + iptables na caixa]`
+
+Medido em 2026-09-09:
+
+| Alvo | Resultado |
+|---|---|
+| `http://dg2.kring.tech:8000/` (painel/API do Coolify) | **timeout após 12 s** |
+| `http://dg2.kring.tech:8080/` (porta publicada do Traefik) | **timeout após 12 s** |
+| `https://dg2.kring.tech/` | **503**, com certificado autoassinado |
+| `APP_URL` em `/data/coolify/source/.env` | **ausente** — a instância não tem FQDN |
+| `iptables -L DOCKER-USER` | `DROP tcp dpt:6002`, `dpt:6001`, `dpt:8000` |
+| Roteadores em `/data/coolify/proxy/dynamic/` | só o `catchall` → serviço `noop` → 503 |
+
+O 503 com certificado autoassinado é exatamente o `catchall` de prioridade `-1000` que o
+Coolify instala: nenhum roteador casa `dg2.kring.tech`, então o Traefik responde com o
+certificado padrão e um serviço sem servidores. É o comportamento esperado de um domínio
+ainda não configurado — o DNS está certo, o app é que não existe.
+
+**A consequência é a que decide o plano:** D2-31 diz "a publicação é um gancho do Coolify,
+chamado pelo integrador", e **não há endereço para o integrador chamar**. Toda forma de deploy
+por push — gancho do CI, GitHub App do Coolify, webhook do GitHub — exige que a instância do
+Coolify seja alcançável de fora. Hoje não é, por decisão do infraKring (o
+`21-coolify-lockdown.sh` daquele projeto), e mexer nisso é mexer no vizinho (D-VPS-02).
+
+As quatro saídas, custeadas:
+
+| # | Saída | O que muda no host | Superfície nova | D2-08 preservada? |
+|---|---|---|---|---|
+| **A** | **Dar FQDN ao Coolify** (Settings → Instance Domain), o que faz o Coolify pôr labels do Traefik no próprio contêiner | Aditivo: um roteador novo no Traefik do vizinho | O **login do painel** passa a ser público. Mitigável com token de permissão `Deploy`, expiração e IP allowlist | **Sim** |
+| **B** | **Expor só `/api/v1/deploy`** por um arquivo de configuração dinâmica do Traefik com `Host(...) && PathPrefix('/api/v1/deploy')` | Aditivo: um arquivo em `/data/coolify/proxy/dynamic/`, diretório do vizinho, que o Coolify gerencia | Só o endpoint de deploy. Mais cirúrgico que A | **Sim** |
+| **C** | **Puxar em vez de empurrar:** um timer no host que compara a tag publicada no GHCR e chama a API do Coolify em `localhost` | Aditivo: uma unit + um timer + um script no host | **Nenhuma.** Nada entra | Sim, com atraso de até N minutos |
+| **D** | **Chave SSH com `command=` fixo** que só executa o `curl` para `localhost:8000/api/v1/deploy` | Aditivo: uma linha em `authorized_keys` | Uma chave em serviço de terceiro — mas com **zero** poder de escrita, ao contrário da de `deploy-forced.sh` | **Sim** |
+
+**Recomendação: A, com token de permissão `Deploy` e expiração, tratada como portão humano.**
+Motivo: é a única que mantém o modelo operacional do Coolify inteiro (D2-22), fecha a tarefa
+T8 do infraKring que D2-22 cita como ganho colateral, e o painel do Coolify precisa de um
+domínio de qualquer jeito para deixar de ser acessível só por túnel. **Se Gustavo recusar
+expor o painel**, a segunda escolha é **D**: uma chave com `command=` fixo tem superfície
+menor que o `deploy-forced.sh` que D2-31 celebrou aposentar, porque não aceita argumento
+nenhum — o comando é literal, sem `$SSH_ORIGINAL_COMMAND`. **C** é a única com zero exposição,
+mas reintroduz host-as-code que D2-22 estava eliminando.
+
+**Isto precisa virar pergunta ao usuário antes do planejamento fechar.** É a única decisão da
+fase que não é técnica: é sobre o vizinho.
+
+`[VERIFIED: medição própria de 2026-09-09]`
+
+### DM-8 — `tests/workflows.test.ts` reprova, hoje, todo caminho de publicação em registro `[VERIFIED: leitura do teste]`
+
+Duas asserções escritas de propósito no 02-11 barram D2-23:
 
 ```
-$ git remote -v                                   # (vazio)
-$ git rev-parse --abbrev-ref --symbolic-full-name @{u}
-fatal: no upstream configured for branch 'main'
-$ git rev-list --count HEAD
-161
-$ curl -o /dev/null -w '%{http_code}' https://api.github.com/repos/gustavoktausend/DungeonGuys2
-404
+describe('nenhuma ação de terceiro roda no CI (T-2-SC)')
+  it('todo `uses:` é uma ação da própria GitHub')
+    const bad = found.filter((a) => !/^actions\/[A-Za-z0-9._-]+@\S+$/.test(a));
+    expect(bad).toEqual([]);
+
+  it('nenhum escopo de permissão é concedido para escrita')
+    const raised = src.split('\n').filter((l) => /^\s+[a-z-]+:\s*write\s*\r?$/.test(l));
+    expect(raised).toEqual([]);
 ```
 
-161 commits, nenhum remote, nenhum upstream, e o repositório não existe no GitHub. Isso é
-coerente com `docs/DECISOES-MARCO0.md:86` ("o repositório não tem remote algum e o branch
-nunca foi publicado"), escrito no Marco 0 e ainda verdadeiro.
+Ou seja: `docker/login-action` e `docker/build-push-action` **reprovam**, e `packages: write`
+— necessário para empurrar no GHCR com o `GITHUB_TOKEN` — **reprova**.
 
-**Consequências para o plano:**
+**Resolução recomendada, e ela é barata:**
 
-1. **Criar o repositório e empurrar é pré-requisito de D2-05**, e ninguém o escreveu. O
-   `gh` CLI está instalado nesta máquina (`gh version 2.83.2`), então é um comando.
-2. **A primeira execução do `ci.yml` num runner é um evento não testado.** Os oito portões
-   — incluindo `npm run test:browser` (Chromium+Firefox+WebKit por Vitest browser mode) e
-   `sim:version:verify` (três builds completos) — foram validados só localmente, em Windows
-   com Node 24.11.1. Num `ubuntu-latest` com Node 24.x mais recente, o `SIM_VERSION`
-   **pode dar outro valor**: o hash é do bundle minificado pelo esbuild embutido no Vite, e
-   esbuild emite binários por plataforma. Isso não quebra `sim:version:verify` (que só exige
-   reprodutibilidade *dentro* de uma execução) mas significa que o valor visto localmente e o
-   do CI podem diferir. **Não é bloqueador desta fase** — `SIM_VERSION` não se move aqui e
-   ninguém compara os dois — mas é bom saber antes de a fase 3 usá-lo no handshake.
-3. **O gate de deploy depende de um CI cuja saúde é hipótese.** A primeira tarefa útil da
-   fase é "empurrar e ver o `ci.yml` verde", antes de qualquer trabalho de VPS.
+1. **Não use ação de terceiro nenhuma.** O runner hospedado do GitHub já traz `docker` e
+   `buildx`. `docker login ghcr.io --password-stdin`, `docker build`, `docker push` em passos
+   `run:` fazem o trabalho inteiro e **deixam o portão T-2-SC intacto** — que é um ganho, não
+   um contorno: o pipeline que publica continua sem uma linha de código de estranho.
+2. **`packages: write` precisa de exceção explícita.** A asserção passa a admitir exatamente
+   um `packages: write`, e exatamente no job que empurra a imagem — a mesma forma da asserção
+   `deployJob()` que já existe. A alternativa (um PAT clássico com `write:packages` num
+   secret) é pior: credencial longeva contra token efêmero de job.
 
-### DM-2 — Não existe PWA do DungeonGuys2 para despedir. O do DungeonGuys **original** está vivo. `[VERIFIED: HTTP]`
+Para referência, se a opção de ação de terceiro voltar à mesa, as quatro relevantes foram
+medidas e **todas** já são `node24` — `docker/login-action@v4.6.0`,
+`docker/build-push-action@v7.3.0`, `docker/metadata-action@v6.2.0`,
+`docker/setup-buildx-action@v4.3.0` — então não brigariam com o portão de runtime.
+`[VERIFIED: action.yml de cada tag]`
 
-```
-$ curl -o /dev/null -w '%{http_code}' https://gustavoktausend.github.io/DungeonGuys2/
-404
-$ curl -o /dev/null -w '%{http_code}' https://gustavoktausend.github.io/DungeonGuys/
-200
-$ curl -o /dev/null -w '%{http_code}' https://gustavoktausend.github.io/DungeonGuys/sw.js
-200
+### DM-9 — `apps/server` faz bind em `127.0.0.1`; num contêiner isso o torna inalcançável pelo Caddy `[VERIFIED: apps/server/src/index.ts:88]`
+
+```ts
+export const server = serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
 ```
 
-A listagem pública de repositórios de `gustavoktausend` (23 repos, todos públicos) contém
-`DungeonGuys` (push em 2026-06-22) e **não** contém `DungeonGuys2`.
+O comentário acima dessa linha diz, corretamente para a arquitetura antiga: *"o bind é
+controle de acesso, não configuração: em loopback, o processo é alcançável só através do
+Caddy"*. Em dois contêineres, `127.0.0.1` é o loopback **do contêiner do Node**, e o contêiner
+do Caddy não tem como chegar lá. O sintoma seria 503 em `/api/*` desde o primeiro deploy, com
+tudo o mais verde.
 
-**A premissa literal de D2-12 é falsa para o DungeonGuys2:** não há jogador com o PWA
-instalado, porque nunca houve URL de onde instalar. Publicar a página de despedida no Pages
-significaria que o **primeiro** deploy do DungeonGuys2 no GitHub Pages seria também o
-último, e que a página existiria para avisar zero pessoas.
+**Resolução recomendada:** um `DG2_BIND` novo em `env.ts`, com padrão `127.0.0.1` — o padrão
+preserva a defesa original em desenvolvimento e em qualquer execução nativa — e valor
+`0.0.0.0` posto **no compose**, onde é uma escolha revisável em diff. A defesa não se perde:
+sob D2-22 nada é publicado no host, então `0.0.0.0` dentro do contêiner significa "alcançável
+pela rede isolada que o Coolify criou", e mais nada. O teste que morreu junto com o
+`dg2.service` (`não publica a API fora do loopback`) renasce como **"o serviço `api` do
+compose não declara `ports:`"** — que é a asserção certa para esta arquitetura.
 
-Isso **não** reabre D2-12 — a decisão é do usuário. É informação nova que a discussão não
-tinha, e o planejador deve tratá-la como `checkpoint:human-verify` antes de gastar uma
-tarefa: *"medimos que o Pages do DungeonGuys2 nunca existiu; a despedida de D2-12 ainda faz
-sentido, ou INFRA-01 já está satisfeito por não haver espelho para matar?"*
+### DM-10 — O Caddy descarta o `X-Forwarded-For` de origem não confiável; sem `trusted_proxies`, o limitador da fase 3 vira um balde só `[VERIFIED: docs do Caddy + código do limiter]`
 
-### DM-3 — Um `sw.js` de despedida escrito do jeito óbvio destrói o cache do jogo original `[VERIFIED: conteúdo servido]`
+A documentação do `reverse_proxy` é literal: o proxy *"ignora os valores vindos da requisição,
+para prevenir spoofing"*, a menos que a origem esteja em `trusted_proxies`. E
+`apps/server/src/signaling/limiter.ts` faz exatamente o que o comentário dele descreve:
 
-O service worker vivo em `https://gustavoktausend.github.io/DungeonGuys/sw.js`:
-
-```js
-const CACHE = 'dungeonguys-v3';
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
-});
+```ts
+export function clientIp(req, socket) {
+  const forwarded = req.headers['x-forwarded-for'];
+  ...
+  if (first.length > 0) return first;
+  return socket.remoteAddress ?? 'desconhecido';
+}
 ```
 
-**Cache Storage é por origem, não por escopo.** `caches.keys()` num service worker de
-escopo `/DungeonGuys2/` enxerga e pode apagar `dungeonguys-v3`, que pertence ao jogo
-original — um produto que o PROJECT.md declara vivo e independente. Duas consequências:
+A cadeia nova é **cliente → Traefik → Caddy → Node**. O Traefik, por padrão, **não** confia
+em `X-Forwarded-For` de cliente não listado em `trustedIPs` e o substitui pelo endereço real
+do peer TCP `[CITED: doc.traefik.io/traefik/reference/install-configuration/entrypoints]` — ou
+seja, o que chega ao Caddy está certo. Mas o Caddy, sem `trusted_proxies`, **sobrescreve**
+esse valor com o IP do contêiner do Traefik. O Node então vê um único endereço para a internet
+inteira, e o limitador de upgrade de WebSocket entra no cenário que o próprio comentário dele
+nomeia: *"os dois desfechos são 'ninguém é limitado' ou 'todo mundo é'"*.
 
-1. **Se D2-12 sobreviver**, o `sw.js` de despedida **não pode** fazer `caches.keys()` e
-   deletar tudo. Tem de deletar por allowlist de prefixo próprio (`dungeonguys2-`, `dg2-`) e
-   chamar `registration.unregister()`. Escrever `caches.keys().then(ks => ks.map(caches.delete))`
-   ali é sabotar o jogo irmão.
-2. **Retroativamente, isso valida INFRA-01 mais forte do que o requisito diz.** Os dois
-   jogos compartilhando `gustavoktausend.github.io` nunca teriam funcionado offline ao mesmo
-   tempo: o `activate` do original já apagava qualquer cache que não fosse o dele, então
-   `dungeonguys2-v1` teria sido destruído toda vez que o original atualizasse. O
-   `src/app/save.ts:6-11` viu metade do problema (colisão de `localStorage`) e resolveu com
-   chave própria; a metade do Cache Storage não tem solução por nome — só por origem
-   separada. **Domínio próprio não é conforto, é o que faz o PWA funcionar.**
+**Resolução:** bloco global no Caddyfile do contêiner:
 
-### DM-4 — `needs:` não atravessa workflows `[CITED: docs.github.com/actions]`
-
-`jobs.<job_id>.needs` referencia **ids de job do mesmo workflow**. Encadear `deploy.yml`
-depois de `ci.yml` exige `on: workflow_run:` (outro gatilho, outro checkout, e o arquivo do
-workflow lido é o da branch padrão), ou fundir os dois. Como D2-05 quer literalmente "o que
-foi publicado é o que passou no portão", e como o `deploy.yml` atual **duplica**
-`lint`/`test`/`build` com **Node 20** enquanto o `ci.yml` usa **Node 24**:
-
-**Recomendação: apagar `deploy.yml` e acrescentar um job `deploy` ao `ci.yml`**, com
-`needs: test`, `if: github.ref == 'refs/heads/main' && github.event_name == 'push'`, e o
-`dist/` viajando entre os jobs por `actions/upload-artifact` / `download-artifact`. Assim o
-artefato publicado é **byte a byte** o que o job `test` produziu depois do cross-engine — não
-um rebuild que por acaso deu no mesmo. Isso resolve a duplicação e a divergência de Node de
-uma vez.
-
-### DM-5 — `index.html` tem caminhos relativos que o Vite não reescreve `[VERIFIED: build local]`
-
-`npm run build` executado nesta sessão. O `dist/index.html` gerado:
-
-```html
-<link rel="manifest" href="manifest.json" />          <!-- relativo, NÃO reescrito -->
-<link rel="icon" href="icons/icon-192.png" />          <!-- relativo, NÃO reescrito -->
-<script type="module" crossorigin src="/DungeonGuys2/assets/index-DuyWLVhi.js"></script>
-<link rel="stylesheet" crossorigin href="/DungeonGuys2/assets/index-BIs87PxM.css">
+```
+{
+    servers {
+        trusted_proxies static private_ranges
+    }
+}
 ```
 
-O Vite prefixa `base` só nas entradas que ele gera (`assets/*`). Os `href` escritos à mão
-ficam relativos ao **documento**. Hoje funciona porque o documento é sempre
-`/DungeonGuys2/`. Com `base: '/'` e `try_files {path} /index.html`, qualquer URL fundo
-(`/qualquer/coisa`) serve o `index.html` e então `manifest.json` resolve para
-`/qualquer/manifest.json` → 404, e o PWA deixa de ser instalável naquela navegação.
+`private_ranges` cobre a rede bridge do Coolify (172.16/12), que é a única origem capaz de
+alcançar o contêiner, porque nada é publicado no host. Isso não afrouxa nada: um cliente da
+internet não fala com o Caddy diretamente.
 
-**Recomendação:** ao trocar `base`, tornar esses dois `href` **absolutos de raiz**
-(`/manifest.json`, `/icons/icon-192.png`) — e considerar **não** usar `try_files ... /index.html`,
-já que o jogo não tem roteamento de cliente nenhum: um 404 honesto é melhor que um
-`index.html` servido com 200 numa URL errada, que o service worker então guardaria no cache.
+**Impacto declarado:** este é um defeito da **fase 3** que só aparece contra a caixa. O plano
+da fase 2 deve corrigi-lo aqui, porque aqui é onde o Caddyfile é reescrito, e o `03-11` vai
+medir o desfecho ICE contra este mesmo caminho.
 
-### DM-6 — `public/manifest.json` usa `start_url` e `scope` com `"."` `[VERIFIED: arquivo]`
+### DM-11 — O Traefik do Coolify não manda **nenhum** cabeçalho de segurança `[VERIFIED: curl no vizinho]`
 
-`"start_url": "."` e `"scope": "."` resolvem contra a URL do manifesto. Servido de
-`/manifest.json`, ambos viram `/` — que é exatamente o que se quer com `base: '/'`. **Não
-precisa mudar**, mas precisa ser conferido no teste de instalação limpa (o escopo do SW e o
-escopo do manifesto têm de bater, ou o Chrome recusa a instalação como "fora do escopo").
+Resposta medida de `https://militias3dstore.kring.tech/`:
+
+```
+HTTP/2 200
+alt-svc: h3=":443"; ma=2592000
+cache-control: private, no-cache, no-store, max-age=0, must-revalidate
+content-type: text/html; charset=utf-8
+vary: rsc, next-router-state-tree, ...
+x-powered-by: Next.js
+```
+
+Sem `strict-transport-security`, sem `x-content-type-options`, sem `referrer-policy`, sem
+`content-security-policy`. Os labels do vizinho confirmam: os únicos middlewares que o Coolify
+gera são `gzip.compress=true` e `redirect-to-https.redirectscheme.scheme=https`.
+
+**Consequência:** o dono do HSTS, do CSP, do `nosniff` e do `Referrer-Policy` continua sendo o
+Caddy do contêiner, exatamente como o `ops/Caddyfile` já faz — e o bloco `header` de nível de
+site sobrevive **sem uma linha de mudança**. O HSTS funciona porque o navegador só o honra em
+conexão HTTPS, e a conexão do navegador é com o Traefik, que é HTTPS; o salto interno em texto
+plano não interfere.
+
+O `alt-svc: h3=":443"` é o Traefik anunciando HTTP/3 (medido: `--entrypoints.https.http3` na
+linha de comando dele). Nada a fazer.
+
+### DM-12 — `better-sqlite3@13.0.3` traz os binários pré-compilados **dentro do tarball do npm**, inclusive para musl `[VERIFIED: node_modules local + GitHub Releases]`
+
+`node_modules/better-sqlite3/prebuilds/` contém oito arquivos:
+
+```
+darwin-arm64  darwin-x64  linux-arm64  linux-x64
+linuxmusl-arm64  linuxmusl-x64  win32-arm64  win32-x64
+```
+
+E a release `v13.0.3` no GitHub tem **zero** assets — ou seja, o pacote **não** depende de
+`prebuild-install` baixando de lá. Isso derruba duas suposições:
+
+- **Não é preciso compilador na imagem.** Nem `python3`, nem `make`, nem `g++`. Um
+  `npm ci --omit=dev` dentro do build resolve, e a imagem pode ser `slim` sem penalidade.
+- **Alpine também serve** (`linuxmusl-x64` está lá), embora `node:24-trixie-slim` seja a
+  escolha mais conservadora e case com o Debian 13 da caixa.
+
+Isso **elimina de vez** o passo manual de `/srv/dg2/node_modules` que o `ops/README.md` §3
+documenta — que era, junto com a chave de deploy, o passo mais frágil do modelo antigo.
+Custo: 27 MB instalados, dos quais ~16 MB são os oito prebuilds. Podados ou não, cabem.
+
+> Nota de discrepância: `CLAUDE.md` § Version Compatibility diz *"Módulo nativo: recompila a
+> cada major do Node. Prebuilds cobrem Linux x64/arm64"*. A primeira metade continua
+> verdadeira em espírito; a segunda estava certa mas subestimava — os prebuilds vêm no npm,
+> não no GitHub, e cobrem musl também.
+
+### DM-13 — O Litestream **encaminha o sinal exato** ao filho de `-exec` e espera ele sair antes de terminar `[VERIFIED: código-fonte v0.5, cmd/litestream]`
+
+Medido em `cmd/litestream/main.go` e `main_notwindows.go`:
+
+```go
+func signalChan() <-chan os.Signal {
+    ch := make(chan os.Signal, 2)
+    signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+    return ch
+}
+...
+case sig := <-signalCh:
+    slog.Info("signal received, litestream shutting down", "signal", sig)
+    if err := c.cmd.Process.Signal(sig); err != nil { ... }
+    if err := <-c.execCh; err != nil && !strings.HasPrefix(err.Error(), "signal:") { ... }
+```
+
+Isso é a resposta direta à pergunta 3 do `STATE.md`. Com `litestream replicate -exec "node
+/srv/server.mjs"` como PID 1:
+
+1. O Docker manda `SIGTERM` ao PID 1 (litestream).
+2. O litestream repassa **o mesmo sinal** ao Node.
+3. O Node roda `apps/server/src/shutdown.ts` — para de aceitar, drena, fecha o SQLite, com
+   watchdog de `SHUTDOWN_GRACE_MS = 5_000`.
+4. O litestream **espera** o filho sair (`<-c.execCh`) e só então faz a sincronização final.
+
+Nenhum `tini`, nenhum script de entrypoint com `trap`, nenhum `s6-overlay`. O desligamento
+gracioso que o 02-08 construiu e o `02-REVIEW` WR-07 exigiu **sobrevive intacto**.
+
+**Consequência de dimensionamento:** o Docker mata com SIGKILL após o `stop_grace_period`, que
+por padrão é **10 s**. O `dg2.service` usava `TimeoutStopSec=10` para os 5 s de watchdog do
+Node — mas agora há uma etapa a mais depois: a sincronização final do litestream para o
+bucket. **Recomende `stop_grace_period: 30s`** no serviço `api`, e mantenha a asserção de
+ordenação que `tests/ops-config.test.ts` já faz importando `SHUTDOWN_GRACE_MS` — só que agora
+comparando com o valor do compose.
+
+Versão medida: **Litestream v0.5.17, publicada em 2026-08-31.** Imagem
+`litestream/litestream:0.5.17` existe no Docker Hub (com variante `-scratch`).
+
+### DM-14 — Debian 13 traz **coturn 4.6.1-2**, não 4.17/4.18 `[VERIFIED: apt-cache policy na caixa]`
+
+```
+coturn:
+  Installed: (none)
+  Candidate: 4.6.1-2
+```
+
+`CLAUDE.md` § Recommended Stack recomenda coturn 4.17.2 e a última release upstream é
+**4.18.0** (2026-09-08). O `ops/coturn-dropin.conf` foi escrito de propósito como **drop-in
+sobre a unit do distribuidor**, o que continua sendo a decisão certa (o Debian mantém os
+patches de segurança). Todas as diretivas que `ops/turnserver.conf` usa —
+`use-auth-secret`, `denied-peer-ip`, `no-multicast-peers`, `user-quota`, `total-quota`,
+`no-cli`, `fingerprint`, `min-port`/`max-port` — existem desde muito antes do 4.6.
+
+**O que o plano deve escrever:** que a versão instalada é 4.6.1-2 do Debian, que isso é uma
+escolha (manutenção pelo distribuidor) e não um acidente, e que o `no-cli` continua sendo a
+mitigação certa porque os CVEs históricos do coturn moraram na interface de gestão.
+
+### DM-15 — O UFW **não governa** porta publicada por contêiner, mas **governa** processo nativo. Por isso o bug de D2-27 é real e o coturn nativo precisa de regra `[VERIFIED: iptables na caixa]`
+
+Medido:
+
+```
+Chain FORWARD (policy DROP)
+1  DOCKER-USER
+2  DOCKER-FORWARD
+3  ufw-before-logging-forward
+...
+```
+
+`DOCKER-USER` e `DOCKER-FORWARD` vêm **antes** das cadeias do UFW na `FORWARD`. Uma porta
+publicada por `docker run -p` é DNAT'ada e atravessa a `FORWARD`, então o UFW nunca a vê — é a
+interação documentada Docker/UFW, e é por isso que o infraKring precisou do
+`21-coolify-lockdown.sh` com regras em `DOCKER-USER` para trancar 6001, 6002 e 8000.
+
+Um processo **nativo**, ao contrário, é destino do próprio host: a `INPUT` decide, e a `INPUT`
+tem `policy DROP` com o UFW governando. O estado medido do UFW:
+
+```
+Default: deny (incoming), allow (outgoing), deny (routed)
+22/tcp ALLOW IN Anywhere   # SSH
+80/tcp ALLOW IN Anywhere   # HTTP
+443/tcp ALLOW IN Anywhere  # HTTPS
+```
+
+**Consequências, todas com ação:**
+
+1. **O bug de D2-27 é confirmado e é de dois lados.** `ops/turnserver.conf` não declara
+   `min-port`/`max-port`, então o coturn aloca relay em 49152–65535/udp — faixa que o UFW
+   bloqueia inteira. E `ops/README.md` §581 manda abrir só `3478/udp`, `3478/tcp` e
+   `5349/tcp`. O plano precisa de **duas** correções: a faixa declarada no `.conf` **e** a
+   faixa aberta no UFW no runbook. Uma sem a outra continua produzindo "um amigo específico
+   nunca entra".
+2. **O coturn nativo precisa de três regras novas no UFW** que hoje não existem: `3478/udp`,
+   `3478/tcp`, `5349/tcp`. Nenhuma delas existe na caixa. São alterações **aditivas**, o único
+   tipo que D-VPS-02 admite, e a única exigência desta fase e da fase 3 sobre o host.
+3. **Contêiner com `network_mode: host` não ajudaria** — também cai na `INPUT`. E publicar
+   ~100 portas UDP por `-p` criaria uma centena de regras e de processos `docker-proxy`. **A
+   decisão D2-26 (nativo) está certa pelo motivo certo**, e agora com medição por trás.
+4. `443/udp` **não** está aberto no UFW, mas o Traefik responde HTTP/3 mesmo assim — porque a
+   publicação por Docker o contorna. Observação, não ação (é do vizinho).
+
+**Dimensionamento recomendado para D2-27:** `min-port=49200`, `max-port=49299` (100 portas).
+Cada alocação TURN consome uma porta de relay, então **`total-quota` tem de descer para no
+máximo 100** — hoje está em 1200, que promete doze vezes o que a faixa entrega. `user-quota=12`
+pode ficar, mas fica desproporcional; considere baixar para 6.
+
+### DM-16 — O Coolify guarda a imagem anterior por sha, e tem reversão **só para imagem local** — mas a limpeza automática pode apagá-la `[VERIFIED: docker images na caixa + docs do Coolify]`
+
+Medido no disco da caixa:
+
+```
+nkdw9iz9wjsz0scw8qc25gr0:da708dee973a44d874eb8389b4fd166782fcba39  441MB  2 months ago
+nkdw9iz9wjsz0scw8qc25gr0:39d7982fd2735568a0c61dbffaa45e1b26c4bc63  441MB  2 months ago
+```
+
+Duas tags, por sha de commit, da mesma aplicação — a atual e a anterior, ambas ainda em disco
+**dois meses depois**. E a documentação do Coolify diz, sobre reversão: *"At the moment, only
+local images are supported, so you can only rollback to a locally available docker image."*
+`[CITED: coolify.io/docs/applications]` Ou seja, **o requisito de D2-24 é exatamente a
+capacidade que o Coolify oferece**, e o `docker system df` da caixa mostra 5,78 GB de imagens
+com 2,87 GB recuperáveis, contra **85 GB livres**.
+
+**O risco, e ele é real:** a "Automated Docker Cleanup" do Coolify remove *"unused Docker
+images"*, e uma imagem de release anterior é, por definição, não usada por nenhum contêiner. O
+gatilho padrão é **percentual de disco** (o exemplo da doc é 80 %); há também agendamento por
+cron opcional. **Essa configuração é do SERVIDOR, compartilhada com o vizinho** — lê-se, não
+se mexe (D-VPS-02).
+
+**O que o plano deve fazer:**
+
+1. **Ler e registrar** a configuração de limpeza do servidor no `docs/OPERACAO.md`
+   (`Servers > … > Configuration > Advanced`). Com o disco em 11 %, um gatilho de 80 % está
+   longe.
+2. **Fixar o número de D2-24 em 5 imagens por serviço**, herdando a retenção que o
+   `prune-releases.sh` já tinha decidido — continuidade de operação, não um número novo.
+   Custo real: com o `COPY package*.json` → `npm ci` → `COPY dist-server` na ordem certa, a
+   camada de `node_modules` é compartilhada entre builds e cada deploy custa alguns MB de
+   camada nova, não 130 MB.
+3. **Provar a reversão sem rede no 02-12**, e o método honesto é: `pull_policy: missing` no
+   compose (o Docker só busca no registro o que não estiver em disco) mais um teste com o
+   `ghcr.io` inalcançável — uma linha temporária em `/etc/hosts` da caixa, removida em
+   seguida. Sem esse teste, "reverte sem rede" continua sendo uma promessa.
+4. **Registrar honestamente a degradação:** o symlink de D2-06 era uma garantia estrutural
+   (o diretório está lá ou não está). A imagem local é uma garantia **probabilística**,
+   dependente de uma rotina de limpeza que este projeto não controla. É uma perda real, e
+   deve estar escrita no runbook em vez de descoberta na noite em que importa.
+
+### DM-17 — O usuário `deploy` **não está no grupo docker**, mas tem `sudo` sem senha `[VERIFIED: id + sudo -n na caixa]`
+
+```
+uid=1001(deploy) gid=1001(deploy) groups=1001(deploy),27(sudo),100(users)
+docker: permission denied while trying to connect to the docker API
+sudo -n true → ok
+```
+
+Todo comando de Docker do runbook precisa de `sudo`. Isso é uma decisão razoável do infraKring
+(estar no grupo `docker` é equivalente a root) e **não deve ser mexida** — mas o runbook novo
+tem de escrever `sudo docker …` em todo lugar, ou o operador tropeça no primeiro comando.
+Consequência secundária: qualquer script de operação que este projeto ponha no host precisa
+ou de `sudo` ou de rodar como root por systemd.
+
+### DM-18 — `dg2.kring.tech` resolve e já responde; falta só o roteador `[VERIFIED: getent + curl]`
+
+```
+187.x.x.x  dg2.kring.tech          (o mesmo A do wildcard, idêntico ao do vizinho)
+https://dg2.kring.tech/ → 503, certificado autoassinado
+```
+
+D2-13/D-VPS-01 confirmadas: **o DNS não está no caminho crítico e não se toca.** O certificado
+válido nasce quando o Coolify criar o roteador com `tls.certresolver=letsencrypt` — que é o
+label medido no vizinho. O desafio é HTTP-01 pela entrypoint `http`
+(`--certificatesresolvers.letsencrypt.acme.httpchallenge`), e a 80 está aberta, então não há
+passo de DNS-01 nem de wildcard a configurar.
+
+### DM-19 — A caixa não tem Node, nem rsync, nem litestream, nem coturn `[VERIFIED: which/apt na caixa]`
+
+| Binário | Estado |
+|---|---|
+| `node` | **ausente** |
+| `rsync` | **ausente** |
+| `litestream` | **ausente** |
+| `turnserver` | **ausente** (candidato 4.6.1-2) |
+| `docker` | 29.6.0 (via `sudo`) |
+| `docker compose` | v5.1.4 |
+
+Isso **confirma a pergunta 5 do `STATE.md` pela negativa**: não é que o build "cabe" na caixa —
+é que **não há como buildar lá**, porque não há Node. Sob D2-23 o build é do CI, e o custo na
+caixa é `git clone` do repositório (pequeno, público) + `docker pull` das camadas novas + `up
+-d`. Os dois vCPU do vizinho não são disputados por `tsc` nem por `vite build`.
+Consequência secundária: `litestream` e `coturn` são instalações **novas** no host — a segunda
+é nativa (D2-26), a primeira vai **dentro da imagem**, não no host.
+
+### DM-20 — `tests/ops-config.test.ts` tem 74 testes; **34 morrem** com D2-30, e o piso anti-vacuidade quebra `[VERIFIED: contagem no arquivo]`
+
+Contagem por bloco:
+
+| `describe` | Testes | Destino |
+|---|---:|---|
+| `ops/Caddyfile` | 9 | **6 sobrevivem, 3 mudam**, +2 nascem |
+| `scripts de ops/` | 18 | **todos morrem** |
+| `ops/dg2.service` | 7 | **todos morrem**; 4 renascem como asserções sobre o compose |
+| `ops/turnserver.conf` | 4 | sobrevivem, **+2 nascem** (faixa de relay, cota casada) |
+| `ops/coturn-dropin.conf` | 2 | sobrevivem intactos |
+| `ops/litestream.yml` | 3 | sobrevivem, **1 muda** (caminho do banco) |
+| `ops/litestream.service` | 3 | **todos morrem**; 2 renascem sobre o `-exec` do compose |
+| `cert-check` | 6 | **todos morrem** |
+| `ops/README.md` | 11 | **9 mudam**, 2 sobrevivem |
+| `tools/ops/restore-verify.mjs` | 5 | sobrevivem intactos |
+| D2-15 (endereço/segredo) | 5 | sobrevivem, **mas o piso quebra** |
+| LF/CRLF | 1 | sobrevive |
+| **Total** | **74** | **34 removidos, ~15 reescritos, ~10 nascem** |
+
+O piso que quebra em silêncio:
+
+```ts
+expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
+  .toBeGreaterThanOrEqual(13);
+```
+
+`ops/` tem hoje **14** arquivos e `tools/ops/` tem 1, dando 15 entradas. Depois de D2-30 saem
+9 e entram ~3, dando **~9 entradas** — abaixo do piso, e o bloco inteiro da D2-15 fica
+vermelho por um motivo que não é o dele. O número tem de descer no mesmo commit.
+
+Também: `const SCRIPTS = ['deploy-forced.sh', 'deploy.sh', 'rollback.sh',
+'prune-releases.sh', 'cert-check.sh']` — a lista fica **vazia**, e a asserção "o glob
+encontrou exatamente os scripts esperados" passa a exigir que `ops/*.sh` seja vazio. Vale
+manter a asserção invertida: **nenhum `.sh` em `ops/`** é uma propriedade que D2-30 quer
+preservar (o Docker é quem executa agora), e ela impede alguém de reintroduzir um script de
+deploy por hábito.
 
 ---
 
 ## Standard Stack
 
-Todas as versões abaixo foram consultadas no registro npm / releases oficiais **em
-2026-08-31**.
-
 ### Core
 
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| **Caddy** | **2.11.4** (2026-06-03) | TLS automático + estático + reverse proxy | `[VERIFIED: github.com/caddyserver/caddy/releases]` ACME sem cron, HTTP/2+3 por padrão, binário único. Numa VPS sem plantão, a peça que não precisa de manutenção é a que não quebra num domingo |
-| **Node.js** | **24.20.0 LTS** ("Krypton", 2026-08-26) | Runtime do `apps/server` | `[VERIFIED: nodejs.org/dist/index.json]` LTS ativo. O `ci.yml` já usa `node-version: '24'`; a máquina de dev está em 24.11.1 |
-| **Hono** | **4.13.5** | Framework HTTP do `apps/server` | `[VERIFIED: npm registry]` `[CITED: STACK.md]` Web-standard `Request`/`Response`; o Better Auth da fase 6 monta direto |
-| **`@hono/node-server`** | **2.1.1** | Cola Hono ↔ `node:http` | `[VERIFIED: npm registry]` O `serve()` devolve o `http.Server` real — **este é o motivo de escolher Hono agora**, porque a fase 3 precisa anexar o `ws` no evento `upgrade` |
-| **`better-sqlite3`** | **13.0.3** | Driver SQLite síncrono | `[VERIFIED: npm registry]` 10,4M downloads/semana. **v13 embarca os prebuilds no próprio pacote** e removeu o `prebuild-install` — sem `install`/`postinstall` script nenhum |
-| **Kysely** | **0.29.5** | Query builder tipado + migrator | `[VERIFIED: npm registry]` `[CITED: kysely.dev/docs/migrations]` `Migrator` + `MigrationProvider` embutidos; SQL portável para Postgres se a fase 9 exigir |
-| **Litestream** | **0.5.16** (2026-08-05) | Replicação contínua do SQLite para bucket S3 | `[VERIFIED: github.com/benbjohnson/litestream/releases]` Binário único + unit systemd. Ponto de recuperação em segundos |
-| **systemd** | (do SO) | Supervisão, sandbox e limites de memória | Já instalado, sobrevive a reboot, journald de graça, `MemoryMax` por unit |
+| Tecnologia | Versão | Papel | Por que esta |
+|---|---|---|---|
+| **Docker Engine** | **29.6.0** (na caixa) | Runtime dos dois contêineres | Medido. API 1.55 |
+| **Docker Compose** | **v5.1.4** (na caixa) | Orquestração dos dois serviços | Medido. Suporta `pull_policy`, `mem_limit`, `cpus`, `stop_grace_period` |
+| **Coolify** | **4.3.18** (na caixa, atualizado há 19 h) | Plataforma: recurso, domínio, variáveis, deploy, reversão | Medido. É a decisão D-VPS-03; a última release upstream é a mesma 4.3.18 (2026-09-08) |
+| **Traefik** | **v3.6** (na caixa) | TLS/ACME, roteamento por Host, redirect HTTP→HTTPS | Medido. Última upstream é 3.7.12, mas a versão é do vizinho e **não se mexe** (D-VPS-02) |
+| **Caddy** | **2.11.4-alpine** (imagem, 23,9 MB) | Política HTTP e estáticos dentro do contêiner | D2-25. Mesma versão do `CLAUDE.md`; a imagem oficial existe e foi verificada |
+| **Node** | **24-trixie-slim** (imagem, 85,3 MB; 24.20.0) | Runtime do `apps/server` | Node 24 é o LTS ativo; `trixie-slim` casa o Debian 13 da caixa. Node 26 é *Current*, fora por doutrina |
+| **Litestream** | **0.5.17** (2026-08-31) | Réplica contínua do WAL, e PID 1 do contêiner `api` | D2-17/D2-28. `-exec` encaminha sinal (DM-13) |
+| **coturn** | **4.6.1-2** (Debian trixie) | Relay TURN, **nativo no host** | D2-26 + DM-14. Instalado pelo distribuidor, configurado por drop-in |
+| **GHCR** (`ghcr.io`) | — | Registro das duas imagens | Tokenização efêmera pelo `GITHUB_TOKEN`; repositório já é público, então o pacote pode ser público e o Coolify puxa sem credencial |
 
 ### Supporting
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| **`@playwright/test`** | **1.62.1** | O teste de PWA de D2-11 | **Novo devDependency.** Fixar em `1.62.1` exato, igual ao `playwright` que já está no lock, para reaproveitar o cache de binários do `ci.yml` |
-| **`esbuild`** | **0.28.2** | Bundle do `apps/server` para produção | Só se o servidor virar TypeScript com imports de workspace. Ver § Don't Hand-Roll para a armadilha do `FileMigrationProvider` |
-| **`tsx`** | **4.23.12** | Rodar `apps/server` em TypeScript em dev | Conveniência de dev; não vai para a VPS |
-| **`pino`** | **10.3.1** | Log estruturado JSON no journald | `[VERIFIED: npm registry]` Recomendado pela STACK.md desde o dia 1. **Opcional nesta fase**: um servidor com uma rota e um migrator loga bem com `console.log` estruturado à mão. Adotar quando houver o que correlacionar (fase 3) |
-| **`zod`** | 4.5.4 | Validação de payload de rede | **Não nesta fase.** `/api/health` não recebe entrada. `packages/protocol` hoje declara `dependencies: {}` — manter |
+| Item | Versão | Papel | Quando |
+|---|---|---|---|
+| `sqlite3` (CLI) | do Debian trixie | `tools/ops/restore-verify.mjs` o invoca em `-readonly` | Dentro da imagem `api`, ou num contêiner descartável para o ensaio |
+| Monitor externo | UptimeRobot / Healthchecks.io / Better Stack | Perna única de D2-16 depois que `cert-check` morreu | **Escolha um que tenha alerta de expiração de certificado** — ver § Vigilância |
+| `wget`/`curl` na imagem `api` | do base | `healthcheck:` do compose | Opcional, mas o Coolify usa healthcheck para decidir se o deploy pegou |
 
 ### Alternatives Considered
 
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| Hono 4.13.5 | Fastify 5.x + `@fastify/websocket` | Igualmente sólido. Perde o encaixe direto do Better Auth (fase 6 precisaria de adaptador) e esconde o `http.Server` atrás do plugin de WebSocket, que é justamente o que a fase 3 quer controlar. **Recusado por acoplamento futuro, não por qualidade** |
-| Hono | `node:http` puro | Tentador: uma rota só. Mas `apps/server` cresce em toda fase daqui em diante, e trocar de framework com rotas já escritas é pior que escolher agora |
-| `better-sqlite3` 13 | `node:sqlite` do Node 24 | Stability 1.2 (RC). Elimina o único módulo nativo. Reavaliar quando for Stable — a troca é pequena porque o `SqliteDialectConfig` do Kysely aceita qualquer driver com a mesma forma de interface |
-| Litestream | `VACUUM INTO` noturno + rclone | Ponto de recuperação de um dia. Para um ledger de moeda, um dia é dinheiro que sumiu (D2-17) |
-| Litestream | Snapshot da Hostinger | Cai junto com a caixa. Backup tem de sair da VPS por princípio (armadilha 13) |
-| rsync | `tar \| ssh 'tar -x'` | Funciona e não precisa de rsync na VPS. Perde `--link-dest` (dedup por hardlink entre releases) e o `--delete`. **rsync recomendado**; tar é o plano B se a caixa não puder receber `apt install rsync` |
-| `@playwright/test` | Vitest browser mode (já instalado) | **Recusado.** O Vitest browser roda o teste *dentro* da página, no dev server dele: não dá para servir um `dist/` construído numa origem controlada, nem encenar "build velho → build novo", nem derrubar o servidor para simular offline de verdade |
-| Script post-build `.mjs` | Plugin do Vite | Ver § Architecture Patterns, Padrão 3. O `tools/` já é a convenção do projeto para isso |
-| Script post-build `.mjs` | `define()` do Vite | **Impossível.** Medido: `public/sw.js` e `dist/sw.js` são **byte a byte idênticos** (2549 B) — o Vite copia `public/` verbatim, sem passar pelo pipeline de transform, então `define` não alcança o arquivo |
+| Recomendado | Alternativa | Quando a alternativa é melhor |
+|---|---|---|
+| Dois serviços (Caddy + Node) | **Um contêiner só, com s6-overlay** | Se a rede do Coolify der problema entre serviços. Custo: um init novo no projeto, e a doc do Litestream é explícita que `-exec` supervisiona **um** processo. Não vale antes de um problema medido |
+| Dois serviços | **Só o Node servindo estático** | Se a política do Caddyfile fosse barata de portar — não é: CSP derivado arquivo a arquivo, três classes de cache, 404 honesto (DM-5), 503 em JSON. D2-25 decidiu contra, com razão |
+| Compose vindo do git | **"Docker Compose Empty"** (colar o YAML no painel) | Se o Coolify recusar a composição do repositório. Custo: o compose sai do git e D2-15 ("config revisável em diff") deixa de valer para ele |
+| `docker build/push` em `run:` | `docker/build-push-action@v7.3.0` | Se precisar de cache de camada entre execuções ou multi-plataforma. Custo: reprova em `tests/workflows.test.ts` (DM-8) |
+| GHCR | **Docker Hub** ou o registro do próprio Coolify | Docker Hub exige credencial longeva num secret. O registro do Coolify não existe nesta instalação e criaria mais superfície na caixa. GHCR é o único que usa token efêmero |
+| `node:24-trixie-slim` | `node:24-alpine` | Se o tamanho importar (~50 MB a menos). `linuxmusl-x64.node` existe (DM-12), então funciona — mas glibc é o caminho menos surpreendente e a caixa é Debian |
+| `litestream replicate -exec` | Litestream como serviço irmão no compose | Um serviço irmão reintroduz a janela em que o banco recebe escrita e ninguém replica, que é exatamente o que D2-28 fecha. E dois contêineres montando o mesmo volume para escrever é pior, não melhor |
 
-**Installation:**
-
-```bash
-# apps/server (workspace novo — D2-04 mantém isto FORA da raiz)
-npm i -w apps/server hono @hono/node-server better-sqlite3 kysely
-npm i -D -w apps/server @types/better-sqlite3 tsx esbuild
-
-# raiz: só o runner do teste de PWA, na MESMA versão do playwright já travado
-npm i -D @playwright/test@1.62.1
-
-# VPS (Debian/Ubuntu)
-sudo apt install caddy rsync
-# litestream: binário do release do GitHub (0.5.16) + unit systemd
-# node 24 LTS: NodeSource ou nvm
-```
-
-**Version verification:** todas as versões acima vieram de `npm view <pkg> version` e das
-APIs de release do GitHub, executados nesta sessão (2026-08-31). Nenhuma veio de memória.
+**Instalação:** esta fase **não acrescenta nenhuma dependência npm**. Ver § Package
+Legitimacy Audit.
 
 ---
 
 ## Package Legitimacy Audit
 
-Gate executado com `slopcheck 0.6.1` (`pip install slopcheck --break-system-packages`),
-mais `npm view` no registro correto (npm, ecossistema Node) e checagem de `postinstall`.
+**Nenhum pacote npm ou PyPI novo é instalado nesta fase.** O `package.json` da raiz continua
+com `dependencies: {}` e o de `apps/server` não ganha entrada. O portão de legitimidade de
+pacotes, na forma npm/PyPI, **não se aplica**. `slopcheck` foi procurado na máquina e está
+ausente; como não há pacote para auditar, isso não degrada nada.
 
-| Package | Registry | Downloads | Source Repo | postinstall | slopcheck | Disposition |
-|---------|----------|-----------|-------------|-------------|-----------|-------------|
-| `hono` | npm 4.13.5 | 59,6M/sem | github.com/honojs/hono | nenhum | **[OK]** | Aprovado |
-| `@hono/node-server` | npm 2.1.1 | 57,0M/sem | github.com/honojs/node-server | nenhum | **[OK]** | Aprovado |
-| `better-sqlite3` | npm 13.0.3 | 10,4M/sem | github.com/WiseLibs/better-sqlite3 | nenhum (v13 removeu `prebuild-install`) | **[OK]** | Aprovado |
-| `kysely` | npm 0.29.5 | 16,3M/sem | github.com/kysely-org/kysely | nenhum | **[OK]** | Aprovado |
-| `@playwright/test` | npm 1.62.1 | 58,4M/sem | github.com/microsoft/playwright | nenhum | **[OK]** | Aprovado |
-| `pino` | npm 10.3.1 | — | github.com/pinojs/pino | nenhum | **[OK]** | Aprovado (opcional nesta fase) |
-| `zod` | npm 4.5.4 | — | github.com/colinhacks/zod | nenhum | **[OK]** | Aprovado, **não usado nesta fase** |
+O que **entra** são imagens base e nenhuma ação de terceiro. Auditoria equivalente:
 
-**Packages removed due to slopcheck [SLOP] verdict:** nenhum.
-**Packages flagged as suspicious [SUS]:** nenhum.
+| Artefato | Origem | Verificação | Disposição |
+|---|---|---|---|
+| `caddy:2.11.4-alpine` | Docker Official Image (`library/caddy`) | Tag existe, 23,9 MB, versão idêntica à recomendada em `CLAUDE.md` | **Aprovada.** Fixar a tag exata, nunca `:latest` |
+| `node:24-trixie-slim` | Docker Official Image (`library/node`) | Tag existe, 85,3 MB; 24.20.0 é o LTS ativo | **Aprovada.** Fixar `24.20.0-trixie-slim` para reprodutibilidade |
+| `litestream` v0.5.17 | Release oficial no GitHub (`benbjohnson/litestream`) | Publicada 2026-08-31; imagem `litestream/litestream:0.5.17` também existe | **Aprovada.** Preferir o **tarball da release com sha256 fixado** no `Dockerfile`, seguindo a doutrina que `ops/litestream.service` já escreve ("binário do release oficial, fora do grafo npm") |
+| `coturn` 4.6.1-2 | Debian trixie `main` | `apt-cache policy` na caixa | **Aprovada.** Pacote do distribuidor, com drop-in — não copiar a unit |
+| Ações do CI | só `actions/*` | `tests/workflows.test.ts` já é o portão | **Aprovada por construção**, e a recomendação de DM-8 é **não** acrescentar nenhuma |
 
-Saída literal: `scanned 7 packages / 7 OK`. (O `slopcheck install` termina com um traceback
-ao tentar encadear `npm install` no Windows; a varredura completa antes disso e **nada foi
-instalado**.)
-
-**Não-npm, verificados por release oficial:** Caddy 2.11.4, Litestream 0.5.16, Node 24.20.0.
-Todos instalados por apt / binário de release, fora do grafo npm.
+**Removidos por veredito `[SLOP]`:** nenhum.
+**Sinalizados `[SUS]`:** nenhum.
 
 ---
 
 ## Architecture Patterns
 
-### System Architecture Diagram
+### Diagrama de fluxo
 
 ```
-   push na main
-        │
-┌───────▼─────────────────────────────────────────┐
-│  GitHub Actions — ci.yml, job "test"            │
-│  lint · typecheck:sim · typecheck:protocol      │
-│  test · sim:version:verify · assets(3) ·        │
-│  test:browser (cross-engine) · pwa (NOVO) ·     │
-│  build ─────────────────────────► dist/ 350 KB  │
-│                                    (artifact)   │
-└───────┬─────────────────────────────────────────┘
-        │  needs: test   +   if: main && push
-┌───────▼──────────────────────┐
-│  ci.yml, job "deploy"        │  download-artifact (o MESMO dist/)
-│  ssh-keyscan → known_hosts   │
-│  rsync --link-dest ──────────┼──── SSH ────┐
-│  ssh 'ln -sfn … current.tmp' │             │
-└──────────────────────────────┘             │
-                                             │
-════════════════════════════ VPS ════════════▼══════════════════════
-                                             │
-  /srv/dg2/releases/<sha-1>/  ◄── hardlinks ─┤
-  /srv/dg2/releases/<sha>/    ◄──────────────┘
-  /srv/dg2/current ──symlink──► releases/<sha>          poda: mantém 5
-        ▲
-        │ root *
-┌───────┴────────────────────────────────────────────────────────┐
-│  Caddy :80/:443   TLS automático (ACME)   {$DG2_DOMAIN}        │
-│                                                                 │
-│   handle /api/*  ─► reverse_proxy {$DG2_UPSTREAM} ─────────────┼──┐
-│   handle /ws     ─► (reservado; fase 3)                        │  │
-│   handle         ─► header Cache-Control por classe de arquivo │  │
-│                     file_server root=/srv/dg2/current          │  │
-│   handle_errors  ─► 503 JSON quando o upstream está fora       │  │
-└───────┬─────────────────────────────────────────────────────────┘  │
-        │ HTTPS                                                       │
-        │                                        ┌────────────────────▼───────┐
-        │                                        │  dg2.service (systemd)     │
-        │                                        │  Node 24 · Hono            │
-        │                                        │  ① migrator Kysely         │
-        │                                        │  ② listen 127.0.0.1:8080   │
-        │                                        │  GET /api/health           │
-        │                                        │  StateDirectory=dg2        │
-        │                                        │  MemoryMax=256M            │
-        │                                        └────────────┬───────────────┘
-        │                                                     │ better-sqlite3
-        │                                                     │ WAL
-        │                                        ┌────────────▼───────────────┐
-        │                                        │ /var/lib/dg2/dg2.db        │
-        │                                        │   gold_entry (só ela)      │
-        │                                        │   kysely_migration         │
-        │                                        └────────────┬───────────────┘
-        │                                                     │ lê o WAL
-        │                                        ┌────────────▼───────────────┐
-        │                                        │ litestream.service         │
-        │                                        │ replicate → bucket S3 ─────┼──► fora da VPS
-        │                                        └────────────┬───────────────┘
-        │                                                     │ litestream restore -o
-        │                                        ┌────────────▼───────────────┐
-        │                                        │ tools/ops/restore-verify   │
-        │                                        │ dir descartável            │
-        │                                        │ conta linhas + soma delta  │
-        │                                        │ verde/vermelho + docs/     │
-        │                                        └────────────────────────────┘
-        ▼
-┌──────────────────────────────────────────────┐      ┌──────────────────────┐
-│  Navegador — escopo do SW passa a ser  /     │      │ cert-check.timer     │
-│                                              │      │ openssl -checkend 30d│
-│  ① fetch handler:                            │      │ (local, vê o arquivo)│
-│     não-GET .............. passa direto      │      └──────────────────────┘
-│     /api/*, /ws .......... passa direto      │      ┌──────────────────────┐
-│     no allowlist ......... cache-first       │      │ monitor externo      │
-│     resto ................ passa direto      │      │ GET /api/health      │
-│  ② nunca cache.put sem res.ok                │◄─────┤ (sobrevive à queda)  │
-│  ③ CACHE = 'dg2-' + hash do build            │      └──────────────────────┘
-│  ④ install: addAll(precache) e ESPERA        │
-│     (sem skipWaiting)                        │
-│                                              │
-│  registration.waiting ──► aviso na UI        │
-│         └─ aplica só com gameStarted===false │
-└──────────────────────────────────────────────┘
+                    Internet
+                       │
+              ┌────────┴────────┐
+              │ 80/tcp  443/tcp │  (UFW ALLOW; 443/udp entra por bypass do Docker)
+              └────────┬────────┘
+                       ▼
+        ┌──────────────────────────────┐
+        │  coolify-proxy (Traefik v3.6)│  ← contêiner do infraKring, NÃO se mexe
+        │  · ACME HTTP-01 → acme.json  │
+        │  · redirect http→https       │
+        │  · Host(dg2.kring.tech) ─────┼──┐
+        │  · Host(militias3d...) ──────┼──┼──► vizinho (produção viva)
+        │  · catchall → 503            │  │
+        └──────────────────────────────┘  │
+                                          │  rede bridge `coolify`, sem porta no host
+                        ┌─────────────────┘
+                        ▼
+        ┌───────────────────────────────────────────────────┐
+        │  serviço `web`  —  caddy:2.11.4-alpine            │
+        │  http://:8080   auto_https off                     │
+        │  trusted_proxies static private_ranges  (DM-10)    │
+        │  header: CSP · HSTS · nosniff · Referrer-Policy    │
+        │  ┌──────────────┬──────────────┬────────────────┐  │
+        │  │ handle /api/*│ handle /ws   │ handle (root)  │  │
+        │  └──────┬───────┴──────┬───────┴────────┬───────┘  │
+        │         │              │        /srv/www (dist/)   │
+        │         │              │    3 classes de cache     │
+        │         │              │    404 honesto (DM-5)     │
+        │  handle_errors → 503 {"status":"unavailable"}       │
+        └─────────┼──────────────┼───────────────────────────┘
+                  ▼              ▼
+        ┌───────────────────────────────────────────────────┐
+        │  serviço `api`  —  node:24-trixie-slim            │
+        │                                                    │
+        │  PID 1: litestream replicate -exec "node server"  │
+        │           │ SIGTERM repassado, espera o filho     │
+        │           ▼                                        │
+        │        node /srv/server.mjs                        │
+        │        bind 0.0.0.0:8080  (DG2_BIND, DM-9)         │
+        │        · migrateToLatest() antes de servir         │
+        │        · GET /api/health → {"status":"ok",...}     │
+        │        · upgrade /ws → signaling (fase 3)          │
+        │           │                                        │
+        │           ▼   volume `dg2-data`                    │
+        │        /var/lib/dg2/dg2.db (+ -wal, -shm)          │
+        └───────────┬───────────────────────────────────────┘
+                    │ WAL, contínuo
+                    ▼
+            bucket S3-compatível (fora da caixa)
+
+        ─────────── fora do Docker, no host ───────────
+        ┌───────────────────────────────────────────────────┐
+        │  coturn 4.6.1-2, systemd + drop-in  (fase 3)      │
+        │  3478/udp · 3478/tcp · 5349/tcp                   │
+        │  relay: min-port..max-port (~100)  ← UFW precisa  │
+        │  use-auth-secret ↔ DG2_TURN_SECRET no painel      │
+        └───────────────────────────────────────────────────┘
+
+        ─────────── caminho de publicação ───────────
+        push na main → ci.yml [test | pwa] → job `image`
+           docker build web+api ← baixa os MESMOS artefatos (D2-05/D2-23)
+           docker push ghcr.io/…:<sha>
+           → gancho do Coolify  ← BLOQUEADO por DM-7
+              Coolify: git clone, substitui env, docker compose up -d
 ```
 
-### Component Responsibilities
-
-| Arquivo / unidade | Responsabilidade | Estado |
-|---|---|---|
-| `vite.config.ts` | `base: '/'` | edita (1 linha) |
-| `index.html` | `href` de manifest/ícone viram absolutos de raiz (DM-5) | edita |
-| `src/main.ts:37-42` | Registro do SW; acompanha `BASE_URL` sozinho. Ganha a detecção de `waiting`/`updatefound` e o guard de `controllerchange` | edita |
-| `src/ui/screens.ts` | Aviso de atualização (`announce` + botão na tela inicial). `GAME_URL:180` aponta para o Pages — trocar pelo domínio novo | edita |
-| `public/sw.js` | Vira **template com sentinelas**; reescrito na íntegra | reescreve |
-| `tools/sw/emit.mjs` | Deriva nome de cache + precache do `dist/` e reescreve `dist/sw.js` | **cria** |
-| `tools/sw/verify.mjs` | Falha se `dist/sw.js` ainda tiver sentinela ou se o precache não bater com o `dist/` | **cria** |
-| `apps/server/src/index.ts` | Migrator no start, `GET /api/health`, listen em `127.0.0.1` | **cria** |
-| `apps/server/src/db/migrations.ts` | Provider estático com a migração `001_gold_entry` | **cria** |
-| `ops/Caddyfile` | Roteamento, cabeçalhos de cache, `handle_errors` | **cria** |
-| `ops/dg2.service`, `ops/litestream.service`, `ops/cert-check.{service,timer}` | Units | **cria** |
-| `ops/deploy.sh`, `ops/rollback.sh`, `ops/prune-releases.sh` | Rodam **na VPS**, chamados por ssh | **cria** |
-| `tools/ops/restore-verify.mjs` | Ensaio de restauração de D2-03 | **cria** |
-| `.github/workflows/ci.yml` | Ganha o job `pwa` e o job `deploy` | edita |
-| `.github/workflows/deploy.yml` | **apagado** (fundido no `ci.yml` — DM-4) | remove |
-| `tests/pwa/*.spec.ts` + `playwright.config.ts` | Os quatro testes de D2-11 | **cria** |
-
-### Recommended Project Structure
+### Estrutura de arquivos depois desta fase
 
 ```
-package.json                  # workspaces: ["packages/*", "apps/*"]
-vite.config.ts                # base: '/'
-index.html · src/ · public/   # ficam na raiz (D2-04)
-packages/sim · packages/protocol
-apps/
-  server/
-    package.json              # hono, @hono/node-server, better-sqlite3, kysely
-    src/
-      index.ts                # migrate() → serve()
-      health.ts
-      db/
-        open.ts               # pragmas WAL/NORMAL/foreign_keys/busy_timeout
-        migrations.ts         # provider ESTÁTICO (bundle-safe)
-ops/                          # versionado, sem segredo (D2-15)
-  Caddyfile
-  dg2.service · litestream.service
-  cert-check.service · cert-check.timer
-  litestream.yml
-  deploy.sh · rollback.sh · prune-releases.sh
-  README.md                   # o runbook de reconstruir a caixa
-tools/
-  sw/emit.mjs · sw/verify.mjs
-  ops/restore-verify.mjs
-tests/pwa/                    # specs do @playwright/test (.spec.ts, não .test.ts)
-docs/OPERACAO.md              # onde o ensaio de restauração de D2-03 é anotado
+ops/
+├── Caddyfile               # ALTERADO: sem ACME, sem domínio, trusted_proxies, root novo
+├── Dockerfile.web          # NOVO: caddy + dist/ + Caddyfile
+├── Dockerfile.api          # NOVO: node + server.mjs + node_modules + litestream + sqlite3
+├── docker-compose.yml      # NOVO: dois serviços, volume, limites, sem `networks:`
+├── litestream.yml          # ALTERADO: caminho do banco dentro do contêiner
+├── turnserver.conf         # ALTERADO: min-port/max-port, total-quota casada
+├── coturn-dropin.conf      # INTOCADO
+└── README.md               # REESCRITO
+tools/ops/
+└── restore-verify.mjs      # INTOCADO
 ```
 
-### Padrão 1: Release por sha com symlink e hardlinks
+### Padrão 1: a imagem carrega o artefato que passou no portão, nunca reconstrói
 
-**O quê:** cada deploy vira um diretório imutável; publicar é trocar um symlink.
-**Quando usar:** sempre que reverter precisa funcionar sem rede (D2-06).
+O `ci.yml` já sobe `dist/` e `dist-server/` como artefatos no job `test` e o job de publicação
+os **baixa**. Esse é o coração de D2-05, preservado literalmente por D2-23: o `docker build`
+copia bytes baixados, não roda `npm run build`.
 
-```bash
-# no runner, depois de download-artifact
-rsync -az --delete \
-      -e "ssh -o StrictHostKeyChecking=yes" \
-      --link-dest=/srv/dg2/current/ \
-      dist/ "$USER@$HOST:/srv/dg2/releases/$GITHUB_SHA/"
-
-# na VPS: troca ATÔMICA. `ln -sfn` sobre um symlink existente NÃO é atômico
-# (remove e recria); `ln -sfn` num temporário + `mv -T` é.
-ln -sfn "/srv/dg2/releases/$SHA" /srv/dg2/current.tmp
-mv -T /srv/dg2/current.tmp /srv/dg2/current
+```dockerfile
+# ops/Dockerfile.web — nada aqui constrói nada.
+FROM caddy:2.11.4-alpine
+COPY ops/Caddyfile /etc/caddy/Caddyfile
+COPY dist/ /srv/www/
 ```
 
-- `--link-dest` faz os arquivos idênticos ao release anterior virarem **hardlink**, então 5
-  releases de 350 KB custam ~350 KB mais os deltas. Caminho tem de ser **absoluto**.
-- `mv -T` sobre symlink é `rename(2)`, atômico: nenhum request pega o diretório no meio.
-- **Quantos releases:** **5**. O disco é irrelevante (350 KB); o número real é "até onde
-  você reverteria". 5 cobre uma tarde ruim. A poda tem de resolver `current` e nunca apagar
-  o alvo vivo.
+A alternativa — um `Dockerfile` multi-stage que roda `npm ci && npm run build` — seria mais
+curta de escrever e **anularia a fase 1 inteira**: o que fosse publicado passaria a ser um
+segundo build que por acaso deu no mesmo, e no dia em que não desse, ninguém saberia. O
+comentário que já está no `ci.yml` diz isso com outras palavras; ele continua valendo.
 
-### Padrão 2: Allowlist no service worker, não denylist
+### Padrão 2: `pull_policy: missing` é o que faz a reversão não usar rede
 
-**O quê:** o SW só serve do cache o que está no precache derivado, mais `/assets/` com nome
-hasheado. Tudo mais passa direto para a rede, sem `respondWith`.
-**Quando usar:** sempre que o escopo do SW for `/` e a API estiver na mesma origem.
-
-**Por que é o item mais importante da fase.** INFRA-03 pede que `/api/` não entre no cache.
-Um `if (pathname.startsWith('/api/')) return;` satisfaz o requisito hoje e falha em silêncio
-amanhã: a fase 3 traz `/ws`, a fase 6 traz o cookie de sessão em `/api/auth/*` (coberto por
-acaso), a fase 9 traz `/api/leaderboard` (idem) — mas qualquer rota que não comece com
-`/api/` está descoberta, e o custo do esquecimento é resposta autenticada persistida num
-armazenamento que **não respeita `Cache-Control`** e **não é limpo no logout**
-(`PITFALLS.md` § 8, itens 1 e 5).
-
-Um allowlist derivado do `dist/` não pode esquecer nada, porque só conhece arquivos que o
-build produziu. A regra passa de "lembre-se de excluir" para "só o que existe entra" — a
-mesma inversão que `tools/sim-version/emit.mjs` fez para o `SIM_VERSION`.
-
-Mantenha **também** o early-return explícito de `/api/` e `/ws`: custa duas linhas, documenta
-a intenção para quem ler, e é o que um revisor procura. (Nota: pelo desenho do WebSocket, o
-handshake provavelmente **não** dispara o evento `fetch` do SW — `[ASSUMED]`, ver § Open
-Questions. A recomendação não depende disso.)
-
-### Padrão 3: Passo de build que deriva o precache (a forma de `emit.mjs`)
-
-**O quê:** um script `.mjs` pós-build que lê o `dist/`, calcula um digest do conteúdo e
-reescreve `dist/sw.js` a partir de um template com sentinelas.
-**Quando usar:** D2-10.
-
-**A propriedade que `tools/sim-version/emit.mjs` já documenta e que se repete aqui, invertida:**
-o cabeçalho daquele script diz *"THE HASH OF AN ARTIFACT CANNOT LIVE INSIDE THAT ARTIFACT"* e
-por isso escreve num arquivo irmão. O `sw.js` **precisa** carregar o hash dentro de si —
-então a saída é: o hash cobre **tudo em `dist/` exceto `dist/sw.js`**. Escrever isso como
-regra explícita no cabeçalho do script novo é o que impede a próxima pessoa de "consertar"
-incluindo o `sw.js` e criar um build irreprodutível.
-
-Por que **não** plugin do Vite e **não** `define()`:
-
-- **`define()` é impossível.** Medido nesta sessão: `cmp public/sw.js dist/sw.js` → idênticos,
-  2549 bytes. O Vite copia `public/` verbatim; o arquivo nunca passa pelo transform.
-- **Plugin do Vite é possível** (`closeBundle`), mas enterra a lógica no `vite.config.ts`,
-  não roda por `npm run <script>` (contra `tools/README.md` § 2), fica fora do lint e do
-  typecheck do mesmo jeito, e não ganha nada — o `emit.mjs` já provou a forma.
-
-Ordem no `package.json`:
-
-```json
-"build": "npm run sim:build && npm run sim:version && tsc --noEmit && vite build && npm run sw:emit",
-"sw:emit":   "node tools/sw/emit.mjs",
-"sw:verify": "node tools/sw/verify.mjs"
+```yaml
+services:
+  api:
+    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG}
+    pull_policy: missing
 ```
 
-`sw:verify` é o análogo de `sim:version:verify`: falha se `dist/sw.js` ainda contiver uma
-sentinela (alguém rodou `vite build` cru) ou se a lista no `sw.js` divergir do `dist/` real.
-Sem ele, esquecer o passo publica um SW que precacheia nada e o defeito só aparece offline.
+Semântica do Compose: busca no registro **só** se a tag não estiver em disco. Uma tag nova
+sempre está ausente → é puxada. Uma tag de release anterior está presente → **nada de rede**.
+É a tradução exata do requisito que D2-06 justificava e D2-24 preservou: *a reversão não pode
+depender da infraestrutura que acabou de falhar*.
 
-### Padrão 4: Migration provider estático, não `FileMigrationProvider`
+### Padrão 3: o domínio nunca entra no repositório, mas a configuração continua em diff
 
-**O quê:** um objeto literal de migrações em vez de leitura de diretório.
-**Quando usar:** sempre que o servidor for empacotado (esbuild) — ou seja, aqui.
+O Coolify expõe como variável editável no painel toda referência `${VAR}` encontrada no
+compose. Isso resolve D2-29 sem quebrar D2-15:
 
-`FileMigrationProvider` lê arquivos do disco em runtime com `fs` + `path` + `import()`
-dinâmico. Num servidor bundlado num `server.mjs`, isso significa: as migrações **não** entram
-no bundle, precisam ser copiadas à parte para a VPS, e o `migrationFolder` tem de ser um
-caminho absoluto correto na caixa. Três coisas para errar num caminho que roda **antes de o
-servidor aceitar request** (D2-07) — ou seja, errar significa não subir.
+```yaml
+environment:
+  - DG2_ORIGIN=${DG2_ORIGIN}          # valor mora no painel do Coolify
+  - DG2_TURN_SECRET=${DG2_TURN_SECRET}
+  - LITESTREAM_BUCKET=${LITESTREAM_BUCKET}
+```
 
-`MigrationProvider` é uma interface de um método só `[VERIFIED: kysely@0.29.5 dist/migration/migrator.d.ts:353]`,
-e `Migration` é `{ up(db), down?(db) }` `[VERIFIED: mesmo arquivo, :7]`. Um provider estático
-tem 6 linhas, entra no bundle, e não tem caminho para errar.
+O arquivo em git diz **quais** chaves existem; o painel diz **o que** elas valem. É a mesma
+disciplina de `/etc/dg2/env`, com outro guardião. O `tests/ops-config.test.ts` já tem o
+mecanismo para asserir isso ("toda linha que nomeia uma credencial traz o `${...}` junto") e
+ele passa a cobrir o compose de graça, porque o glob é `../ops/*`.
 
-### Anti-Patterns to Avoid
+### Padrão 4: o roteador é do Coolify, os cabeçalhos são do Caddy
 
-- **`caches.keys()` seguido de delete-tudo em qualquer SW deste projeto.** Cache Storage é
-  por origem. No Pages isso destrói o jogo original (DM-3); no domínio novo é inofensivo
-  hoje e vira armadilha quando houver um segundo app na origem. Sempre filtrar por prefixo
-  próprio.
-- **`try_files {path} /index.html` num jogo sem roteamento de cliente.** Transforma 404 em
-  200 com HTML, o SW guarda, e o jogador fica com uma página errada em cache (DM-5).
-- **`ln -sfn` direto sobre o symlink `current`.** Não é atômico. Use temporário + `mv -T`.
-- **Restart do `dg2.service` em todo deploy.** Ver § Recomendações de Discrição, item 8.
-- **Migração com `DROP`/rename na mesma versão.** D2-07 já proíbe; a razão executável é que
-  o rollback do symlink **não** reverte o banco.
-- **Publicar `dist/` de máquina local.** O `.gitignore` já recusa commitar `dist/`; o CI ser
-  o único caminho de publicação (DM-4) é o que fecha a porta de vez.
-- **Depender do aviso por e-mail do Let's Encrypt.** Encerrado em 4 de junho de 2025.
+Não escreva labels do Traefik à mão no compose. Medido no vizinho: o Coolify gera os oito
+labels do par de roteadores a partir do FQDN atribuído ao serviço na interface. Escrever
+labels próprios brigaria com o gerador na primeira mudança de domínio. O que o compose
+declara é apenas `expose: ["8080"]` no serviço `web`, para o Coolify saber a porta.
+
+### Anti-padrões a evitar
+
+- **Declarar `networks:` no compose.** A documentação do Coolify é explícita: ele cria uma
+  rede bridge isolada e uma rede própria declarada *"causa queda intermitente por problema de
+  rota no Traefik"*. `[CITED: coolify.io/docs/applications/build-packs/docker-compose]`
+- **Publicar porta no host (`ports:`).** Além de anular o ganho de D2-22 (a colisão com a 8080
+  do Traefik desaparece "por construção"), a doc do Coolify avisa que mapear porta no host faz
+  perder funcionalidade de atualização em rolagem. E o UFW não protegeria (DM-15).
+- **Deixar o Coolify construir a partir do git.** É o que D2-23 recusa, e o motivo é o portão
+  cross-engine.
+- **`image: …:latest` ou `:main`.** Uma tag móvel destrói a reversão de D2-24: não há "imagem
+  anterior" quando o nome anterior aponta para o novo conteúdo.
+- **`auto_https` ligado no Caddy do contêiner.** Ele tentaria ACME num domínio que não
+  controla e tomaria a 80/443 do próprio namespace; o resultado seria um redirect em laço.
 
 ---
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
+| Problema | Não construa | Use | Por quê |
 |---|---|---|---|
-| TLS + renovação | certbot com cron + hook de reload | **Caddy ACME embutido** | O modo de falha clássico é o certificado renovar e o servidor continuar servindo o antigo porque o hook nunca rodou (`PITFALLS.md` § 13) |
-| Backup contínuo do SQLite | Cópia do `.db` por cron | **Litestream** | Copiar um SQLite em WAL sob escrita produz arquivo corrompido. Litestream lê o WAL, não o arquivo |
-| Restaurar | Renomear o backup por cima | **`litestream restore -o`** | O `-o` restaura num caminho novo, sem tocar no banco vivo — que é literalmente o requisito de D2-03 |
-| Versionar esquema | `CREATE TABLE IF NOT EXISTS` no boot | **`Migrator` do Kysely** | `IF NOT EXISTS` não sabe dizer *qual* versão está no disco; a segunda migração já não tem como se aplicar |
-| Supervisão e limite de memória | pm2, `nohup`, script de watchdog | **systemd** | Já está lá, sobrevive a reboot, `MemoryMax` por unit é o que impede o signaling da fase 3 de matar a API |
-| Lista de precache | Escrever nomes de arquivo à mão | **Derivar do `dist/`** | Já quebrou uma vez neste projeto — o cabeçalho do `public/sw.js` documenta o incidente. `cache.addAll` rejeita a instalação **inteira** por um 404 |
-| Nome do cache | `'dungeonguys2-v1'` bumpado à mão | **`'dg2-' + hash do build`** | Estático significa que o `activate` nunca limpa o precache velho (`PITFALLS.md` § 8, item 4) |
-| Detectar update do SW | `setInterval` chamando `reg.update()` | **`updatefound` + `registration.waiting`** | O browser já reconsulta o script do SW a cada navegação (ignorando cabeçalhos de cache), com teto de 24 h `[CITED: web.dev/service-worker-lifecycle]` |
-| Comparar bancos na verificação | Diff binário dos arquivos | **Consulta: `count(*)` + `sum(delta)`** | Dois SQLite semanticamente iguais têm bytes diferentes (páginas livres, WAL). O que prova a restauração é o conteúdo, não o arquivo |
-| Descobrir a chave do host SSH | `StrictHostKeyChecking=no` | **`known_hosts` fixado em secret** | `ssh-keyscan` no próprio job confia no primeiro que responder — é TOFU dentro de um pipeline de deploy. Fixar a chave num secret custa uma linha |
-| Encadear deploy depois do CI | Ação de terceiro que dispara workflow | **Um job com `needs:` no mesmo workflow** | DM-4. Menos superfície de supply chain no caminho que tem a chave SSH |
+| Repassar SIGTERM ao processo filho no contêiner | entrypoint em shell com `trap` + `wait` | `litestream replicate -exec` | Medido no código-fonte: ele já encaminha o sinal exato e espera o filho (DM-13). Um `trap` de shell é a armadilha clássica de PID 1 |
+| Emitir e renovar certificado | qualquer coisa com ACME | Traefik do Coolify | Já roda para o vizinho, já tem `acme.json`, já resolve o desafio HTTP-01 na 80 |
+| Reverter para a versão anterior | script que guarda tarball, symlink, ou `docker save` | Reversão do Coolify + `pull_policy: missing` | A capacidade existe e é documentada; o que falta é **fixar o número de retenção** (DM-16) |
+| Descobrir o IP real do cliente atrás de dois proxies | parser próprio de `X-Forwarded-For` | `trusted_proxies static private_ranges` no Caddy + o `clientIp()` que já existe | O parser já existe e está testado; o que falta é o Caddy parar de descartar o cabeçalho (DM-10) |
+| Compilar o `better-sqlite3` na imagem | `apt-get install python3 make g++` + `node-gyp` | `npm ci --omit=dev` e pronto | Os prebuilds vêm no tarball do npm (DM-12) |
+| Restaurar o banco para conferir | `cp` do `.db` e comparação binária | `litestream restore` + as duas consultas de `restore-verify.mjs` | O script já existe, já abre em `-readonly`, já compara uma janela fixa em vez do total de um banco que se mexe |
+| Limitar memória do processo Node | só `mem_limit` | `mem_limit` **e** `NODE_OPTIONS=--max-old-space-size` | P-10 vale igual no cgroup do contêiner: o V8 dimensiona o old space pela memória da **máquina**, não pelo limite |
 
-**Key insight:** todo item desta tabela tem o mesmo formato de falha — funciona no dia em que
-foi escrito, e falha em silêncio meses depois, num domingo, sem ninguém de plantão. É a
-razão pela qual esta fase existe agora, com o jogo single-player, em vez de junto com a rede.
+**Key insight:** quase tudo o que a arquitetura nova precisa já existe pronto — no Coolify, no
+Traefik, no Litestream ou no próprio repositório. O trabalho desta fase é **remover** o que
+foi construído para uma caixa vazia, não construir o equivalente containerizado.
 
 ---
 
 ## Runtime State Inventory
 
-> Fase de migração: as cinco categorias são respondidas explicitamente.
+Esta fase é, em boa parte, uma **migração de arquitetura sobre trabalho já executado**. O
+inventário abaixo é obrigatório e cada categoria foi respondida.
 
-| Category | Items Found | Action Required |
+| Categoria | O que foi encontrado | Ação |
 |---|---|---|
-| **Stored data** | `localStorage` em `gustavoktausend.github.io`: chaves `dungeonguys2_save_v1` e `dungeonguys2_ledger_v1` — **nenhuma existe**, verificado por DM-2 (o jogo nunca foi servido dessa URL). O que existe na origem é o save do **DungeonGuys original**. O save de desenvolvimento vive em `http://localhost:5173`, **outra origem**, que não acompanha a migração. | **Nenhuma migração de dado.** Registrar em `docs/` que o progresso local de dev não vai para o domínio novo — coerente com o descarte já aceito no ADR 0010 |
-| **Stored data (2)** | **Cache Storage** de `gustavoktausend.github.io`: `dungeonguys-v3`, do jogo original, **vivo**. O `activate` dele apaga todo cache da origem com outro nome (DM-3). | Se D2-12 sobreviver: apagar **só** por prefixo `dungeonguys2-`/`dg2-`. Nunca `caches.keys()` inteiro |
-| **Live service config** | GitHub Pages do DungeonGuys2: **não existe** (404, repo inexistente). DNS do domínio novo: fora do repositório por D2-15, declarado pronto por D2-13 — **não verificável desta máquina**, e o nome do domínio nunca aparece no repo. Bucket S3/B2 do Litestream: a criar. Monitor externo: a criar. | Confirmar DNS/A record e a região da VPS **antes** da primeira tarefa de VPS (a região é escolha barata agora e cara na fase 3, quando o TURN entra) |
-| **OS-registered state** | Hoje: **nada**. Não há `ops/`, `Dockerfile`, nem qualquer artefato de infra no repositório. A fase **cria** `dg2.service`, `litestream.service`, `cert-check.service`, `cert-check.timer`, um drop-in de `caddy.service` (para o `EnvironmentFile`), e o usuário de sistema `dg2` | Registrar cada unit em `ops/README.md` como runbook. É este inventário que uma futura renomeação ou reconstrução de caixa vai ter de caçar |
-| **Secrets / env vars** | Hoje: **nenhum**. A fase cria `/etc/dg2/env` (`DG2_DOMAIN`, `DG2_UPSTREAM`, `DG2_DB`, credenciais S3 do Litestream) e os secrets do GitHub (`DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`) | Documentar a lista de chaves em `ops/README.md` **sem valores**. `/etc/dg2/env` com `chmod 600` e dono `root` — o `EnvironmentFile` é lido pelo systemd antes de baixar privilégio |
-| **Build artifacts** | `dist/` e `packages/sim/dist/` são gitignored. Verificado: `dist/index.html` na árvore atual tem `/DungeonGuys2/assets/...` **cravado** — um `dist/` antigo numa máquina de dev fica errado assim que `base` mudar. `dist/assets/CREDITS.md` e `100_Anims_Order_List.txt` (4,8 KB) vêm de `public/assets/` e entrariam num precache "tudo" | Nenhuma ação de migração (o CI é a única fonte do `dist/` publicado). Decidir se o precache exclui os dois arquivos de texto — recomendação: **incluir**, porque "tudo menos `sw.js`" é uma regra que não se esquece |
+| **Dados armazenados** | **Nenhum.** Não existe banco em produção: `apps/server` nunca rodou na caixa, o volume não existe, a tabela `gold_entry` só existe em `:memory:` nos testes. O ledger do jogador vive em `localStorage` (`dungeonguys2_ledger_v1`), no navegador, e nada nesta fase o toca | **Nenhuma migração de dados.** O primeiro `up -d` cria o banco vazio pela migração |
+| **Config de serviço vivo** | **Nenhuma do jogo.** Não há recurso do jogo no Coolify, nem roteador no Traefik para `dg2.kring.tech` (medido: só o `catchall`). **Há config viva do vizinho** — dois contêineres, um roteador, um volume — que não se toca | **Criar** o recurso do Coolify (é trabalho novo, não migração). **Registrar** que a configuração do app passa a viver no banco do Coolify, fora do git (D2-29) |
+| **Estado registrado no SO** | **Nenhum do jogo.** Não há `dg2.service`, `litestream.service`, `cert-check.timer` nem `coturn.service` instalados: `node`, `rsync`, `litestream` e `turnserver` estão todos ausentes (DM-19). As units de `ops/` nunca foram instaladas em lugar nenhum | **Nenhuma desinstalação.** Os arquivos morrem no git sem deixar resíduo na caixa — que é a única razão pela qual D2-30 é barata |
+| **Segredos e variáveis de ambiente** | **Nenhum do jogo existe na caixa.** Não há `/etc/dg2/env`. Os quatro secrets de SSH (`DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`) e a variável `DEPLOY_ENABLED` **nunca foram criados** no GitHub — o 02-04 está adiado, e o job `deploy` é pulado por isso. **`.vps.local` e `.vps-inventario.local` existem fora do git** e carregam endereço, usuário e credenciais do bucket | **Nada a revogar.** Criar, no lugar: **um** segredo de deploy (DM-7 decide a forma) e as variáveis do app no painel do Coolify. **Escrever no runbook, em voz alta**, que o `static-auth-secret` passa a existir em dois lugares de naturezas diferentes (D2-29) |
+| **Artefatos de build e pacotes instalados** | **Nenhum na caixa.** Não há `/srv/dg2/`, não há `node_modules` de produção, não há release. Localmente há `dist/` e `dist-server/` ignorados pelo git, e `node_modules/better-sqlite3` com os oito prebuilds | **Nenhuma reinstalação.** DM-12 elimina o passo manual de `/srv/dg2/node_modules` que o `ops/README.md` §3 documenta — esse parágrafo inteiro sai do runbook |
 
-**A pergunta canônica, respondida:** depois que todo arquivo do repositório estiver
-atualizado, o que ainda carrega o estado antigo? **Praticamente nada** — porque
-praticamente nada foi publicado. O único estado de runtime real fora deste repositório é o
-do **jogo original** no GitHub Pages, e a ação sobre ele é **não tocar**.
+**A resposta canônica:** depois de todo arquivo do repositório ser atualizado, **nenhum
+sistema em execução guarda a string antiga**, porque nenhum sistema do jogo está em execução.
+Esta migração acontece no papel antes de acontecer na caixa, e essa é exatamente a folga que
+torna o replanejamento barato. O que existe vivo na caixa é do vizinho, e D-VPS-02 o protege.
 
 ---
 
 ## Common Pitfalls
 
-### P-1: Trocar `base` e o escopo do SW na mesma tarefa que reescreve o `sw.js`
+Os que sobreviveram da pesquisa anterior estão listados no mapa do topo. Os novos:
 
-**O que dá errado:** o teste de atualização falha e não se sabe se a causa é o escopo novo,
-o precache novo ou o fim do `skipWaiting`. Três mudanças, um sintoma.
-**Por que acontece:** as três moram no mesmo arquivo mental.
-**Como evitar:** a CONTEXT.md já ordena a separação. Concretamente: **tarefa A** troca `base`
-para `'/'`, arruma os `href` relativos de DM-5, e faz os testes de instalação limpa e de
-atualização passarem **com o `sw.js` atual**. **Tarefa B** reescreve o `sw.js` com os mesmos
-testes já verdes servindo de rede.
-**Bônus:** o `sw.js` atual (com `skipWaiting`, `CACHE='dungeonguys2-v1'`, precache à mão) é o
-**fixture perfeito de "instalação antiga"** que o critério 2 exige atualizar. Guarde-o em
-`tests/pwa/fixtures/old-build/` em vez de depender de histórico de deploy.
-**Sinais de alerta:** teste de update vermelho logo depois de um commit que mexeu em duas coisas.
+### C-1: O bind em loopback torna a API inalcançável entre contêineres
+**O que dá errado:** `/api/health` responde 503 desde o primeiro deploy; o jogo estático abre
+normalmente, o que faz parecer problema de Node e não de rede.
+**Por que acontece:** `127.0.0.1` dentro de um contêiner é o loopback daquele contêiner.
+**Como evitar:** `DG2_BIND` com padrão `127.0.0.1`, valor `0.0.0.0` no compose (DM-9).
+**Sinal precoce:** `docker compose exec web wget -qO- http://api:8080/api/health` falha
+enquanto `docker compose exec api wget -qO- http://127.0.0.1:8080/api/health` funciona.
 
-### P-2: `cache.put` sem checar `res.ok`
+### C-2: `X-Forwarded-For` descartado colapsa o limitador
+**O que dá errado:** na fase 3, ou ninguém é limitado ou todo mundo é — e o segundo caso é
+indistinguível, de fora, de o servidor estar fora do ar.
+**Por que acontece:** o Caddy ignora valores de entrada por padrão, para prevenir spoofing.
+**Como evitar:** `trusted_proxies static private_ranges` no bloco global (DM-10).
+**Sinal precoce:** logar `clientIp()` uma vez por upgrade e ver o mesmo `172.x.x.x` sempre.
 
-**O que dá errado:** 30 segundos de 502 durante um deploy viram um `index.html` de erro
-cacheado para sempre (Cache Storage ignora `Cache-Control` por desenho).
-**Por que acontece:** o handler atual (`public/sw.js:65-74`) clona e guarda a resposta antes
-de olhar o status.
-**Como evitar:** `if (res.ok) cache.put(...)` — e, com o allowlist do Padrão 2, o `handle_errors`
-do Caddy devolvendo 503 para `/api/*` nem chega perto do cache.
-**Sinais de alerta:** página branca depois de um deploy que teve erro.
+### C-3: A imagem de reversão é apagada pela limpeza automática do servidor
+**O que dá errado:** o dia em que a reversão é necessária é o dia em que ela não está lá.
+**Por que acontece:** uma imagem sem contêiner é "unused"; a limpeza do Coolify remove
+"unused images" por gatilho de percentual de disco ou por cron.
+**Como evitar:** ler e registrar a configuração do servidor; fixar retenção de 5; provar a
+reversão sem rede no 02-12 (DM-16).
+**Sinal precoce:** `sudo docker images | grep dg2` mostrando menos tags do que a retenção.
 
-### P-3: Nome de cache estático faz o `activate` nunca limpar o precache
+### C-4: `stop_grace_period` padrão de 10 s corta a sincronização final do Litestream
+**O que dá errado:** as últimas escritas antes de um deploy não chegam ao bucket. Para um
+ledger de moeda, é soul gold que sumiu — exatamente o que D2-17 existe para impedir.
+**Por que acontece:** o Docker manda SIGKILL após o prazo; o litestream ainda precisa de tempo
+**depois** de o Node sair.
+**Como evitar:** `stop_grace_period: 30s`, e a asserção de ordenação contra
+`SHUTDOWN_GRACE_MS` que o teste já sabe fazer (DM-13).
+**Sinal precoce:** `docker logs` mostrando o SIGKILL antes da linha de sincronização final.
 
-**O que dá errado:** `activate` apaga caches com nome diferente do atual — mas o nome nunca
-muda, então os itens do precache **nunca são renovados** (`PITFALLS.md` § 8, item 4).
-**Como evitar:** `CACHE = 'dg2-' + <hash do build>`. O critério 3 ("um deploy novo não deixa o
-cache velho para trás") é literalmente esta linha, e é testável: depois de atualizar,
-`caches.keys()` tem de ter **comprimento 1**.
+### C-5: `min-port`/`max-port` ausente + UFW = "um amigo específico nunca entra"
+**O que dá errado:** o relay autentica, entrega um endereço ao navegador, e o tráfego nunca
+chega. Indistinguível de NAT ruim.
+**Por que acontece:** sem a faixa declarada, o coturn aloca em 49152–65535/udp, e o UFW
+`deny incoming` bloqueia; e o runbook manda abrir só 3478 e 5349 (DM-15).
+**Como evitar:** declarar a faixa **e** abri-la, no mesmo commit e no mesmo parágrafo do
+runbook. Baixar `total-quota` para casar.
+**Sinal precoce:** `ss -ulnp | grep turnserver` mostrando portas fora da faixa aberta.
 
-### P-4: `cache.addAll` usa o cache HTTP e pode precachear coisa velha
+### C-6: Uma tag móvel destrói a reversão
+**O que dá errado:** "voltar para a imagem anterior" não existe, porque o nome anterior aponta
+para o conteúdo novo.
+**Como evitar:** tag por sha de commit, sempre; `:latest` nunca. É a mesma disciplina que o
+`deploy.sh` tinha com `$GITHUB_SHA` de 40 hexadecimais.
 
-**O que dá errado:** `addAll` faz fetch normal, sujeito ao cache HTTP do browser. Como
-`index.html`, `manifest.json` e `sw.js` **não** têm nome hasheado, um proxy ou um cache
-intermediário pode entregar a versão anterior — e ela entra no precache "novo".
-**Como evitar:** `cache.addAll(urls.map(u => new Request(u, { cache: 'reload' })))`, mais o
-`header @shell Cache-Control "no-cache"` do Caddyfile. As duas metades, não uma.
-**Sinais de alerta:** offline mostra uma build anterior à que está no ar.
+### C-7: `docker compose build` implícito sobre um compose sem `build:`
+**O que dá errado:** nada, provavelmente — mas se o Coolify injetar um passo de build, um
+serviço sem `build:` é no-op e um com `build:` viraria construção na caixa, que D2-23 recusa.
+**Como evitar:** nenhum serviço declara `build:`. Confirmar no primeiro deploy real que os
+logs mostram `pull` e não `build`.
 
-### P-5: `handle` no Caddyfile é reordenado — `route` não é
-
-**O que dá errado:** alguém troca `handle` por `route` "para ter controle" e o
-`file_server` da raiz passa a engolir `/api/*`.
-**Por quê:** `[CITED: caddyserver.com/docs/caddyfile/directives/handle]` *"The `handle`
-directives are sorted according to the directive sorting algorithm by their matchers"* e
-*"only the first matching `handle` block will be evaluated"*. Ou seja: com `handle`, a ordem
-no arquivo **não importa** e `/api/*` ganha por ser mais específico. Com `route`, a ordem
-escrita é a ordem executada.
-**Como evitar:** usar `handle`, escrever na ordem lógica mesmo assim (legibilidade), e deixar
-um comentário no `ops/Caddyfile` dizendo por que trocar para `route` exigiria reordenar.
-**Correção à `STACK.md`:** o "must come BEFORE the static handler" está certo em intenção e
-impreciso em mecanismo.
-
-### P-6: Placeholder de ambiente errado no Caddyfile — e o reload que não relê o env
-
-**O que dá errado:** `{env.DG2_DOMAIN}` no endereço do site não funciona.
-**Por quê:** `[CITED: caddyserver.com/docs/caddyfile/concepts]` *"Placeholders cannot be used
-in addresses, but you may use Caddyfile-style environment variables in them"*. `{$VAR}` é
-substituído **antes do parse**; `{env.VAR}` é resolvido em runtime e só onde o módulo suporta.
-**Como evitar:** `{$DG2_DOMAIN}` (com default opcional: `{$DG2_DOMAIN:localhost}`), mais um
-drop-in `systemctl edit caddy` com `EnvironmentFile=/etc/dg2/env`.
-**Segunda metade, mais traiçoeira:** `systemctl reload caddy` **não relê o `EnvironmentFile`** —
-o reload roda no ambiente do processo existente. Mudar o domínio exige `systemctl restart caddy`.
-A doc do Caddy insiste em reload para não ter downtime; as duas coisas são verdadeiras e
-precisam estar escritas no `ops/README.md`.
-
-### P-7: Offline "completo" que depende das fontes do Google
-
-**O que dá errado:** `index.html:11-13` carrega `Press Start 2P` e `Pixelify Sans` de
-`fonts.googleapis.com`/`fonts.gstatic.com`. São **cross-origin**: não entram num precache
-derivado do `dist/`, e `cache.addAll` com URL cross-origin produz resposta opaca (ou falha).
-Numa instalação limpa que vai para offline antes de a fonte ser buscada, o jogo renderiza com
-`system-ui`/`monospace` — os fallbacks declarados em `src/style.css:21-22`.
-**Como evitar:** três opções honestas, e a decisão é do planejador:
- (a) **auto-hospedar as duas fontes** em `public/fonts/` — elas passam a estar no `dist/`,
-     entram no precache por construção, somem os dois `preconnect`, e o jogo fica
-     verdadeiramente independente de terceiro. Custo: ~30–60 KB e uma checagem de licença
-     (ambas são OFL);
- (b) manter a busca lazy e **aceitar** que offline-limpo usa fonte de fallback;
- (c) precachear as URLs do Google com `{ mode: 'no-cors' }` — **recusar**: resposta opaca
-     ocupa cota inflada, não dá para verificar `res.ok`, e é dependência de terceiro no
-     caminho offline.
-**Recomendação:** (a) se couber na fase; (b) se não — mas então o teste de offline **não pode**
-assertar "pixel-perfect", só "o jogo abre e a tela inicial responde".
-**Sinais de alerta:** teste de offline vermelho por `requestfailed` em `fonts.gstatic.com` —
-que é um falso negativo se a decisão foi (b). O teste tem de filtrar por origem própria.
-
-### P-8: Litestream v0.5 usa `replica:` singular
-
-**O que dá errado:** copiar `replicas:` (array) de qualquer tutorial e o Litestream recusar
-ou ignorar a configuração.
-**Por quê:** `[CITED: litestream.io/reference/config/]` *"v0.5.0 Each database now supports
-only a single replica"*. Todo material anterior a v0.5 mostra o array.
-**Como evitar:** `dbs: [{ path: ..., replica: { type: s3, ... } }]`, com `endpoint` explícito
-para B2/MinIO (o `force-path-style` liga sozinho quando há `endpoint`). Credenciais por
-`${AWS_ACCESS_KEY_ID}` vindas do `EnvironmentFile`, nunca literais no arquivo versionado.
-**Segundo item:** desde v0.5.7 o `restore` detecta sozinho formato v0.3.x vs LTX.
-
-### P-9: Migração que falha vira crash-loop invisível
-
-**O que dá errado:** `Restart=always` + migração quebrada = o serviço reinicia para sempre,
-o journald enche, e nada dispara alarme porque a unit nunca fica `failed`.
-**Como evitar:** `StartLimitIntervalSec=60` + `StartLimitBurst=5` em `[Unit]`. Depois de 5
-tentativas em 60 s o systemd desiste e a unit vai para `failed` — e aí o `/api/health` para
-de responder, o `handle_errors` do Caddy devolve 503, e o monitor externo de D2-16 avisa.
-**A cadeia inteira só fecha com esse limite.** Sem ele, o sintoma é "às vezes o health
-falha", que é o pior tipo de alarme.
-**Sinais de alerta:** `systemctl status dg2` com `Active: activating (auto-restart)` persistente.
-
-### P-10: `MemoryMax` sem limitar o heap do V8 troca GC por OOM-kill
-
-**O que dá errado:** o cgroup mata o processo em vez de o V8 coletar lixo, porque o V8
-dimensiona o heap padrão pela memória **da máquina**, não pelo limite do cgroup.
-**Como evitar:** parear sempre — `MemoryMax=256M` + `Environment=NODE_OPTIONS=--max-old-space-size=192`.
-O V8 passa a fazer GC agressivo antes de o cgroup agir.
-**Orçamento sugerido numa caixa de 2 GB, já reservando a fase 3:** Caddy ~64 M · `dg2` 256 M ·
-Litestream ~64 M · coturn (fase 3) ~128 M + buffers de relay → sobra ~1,4 GB para SO e page
-cache. **Numa caixa de 1 GB isso fica apertado com o coturn** — é a última hora barata de
-subir o plano da VPS (ver § Open Questions).
-
-### P-11: Cache Storage e `localStorage` não são particionados por escopo
-
-Já descrito em DM-3. Repetido aqui porque é o defeito mais fácil de reintroduzir: escopo de
-service worker é `/caminho/`; Cache Storage, `localStorage` e IndexedDB são **por origem**.
-Qualquer SW da origem enxerga o armazenamento de todos os apps dela.
-
-### P-12: `--link-dest` com caminho relativo silenciosamente não dedupa
-
-`rsync` resolve `--link-dest` relativo ao **destino**. Um `--link-dest=../current` funciona
-por acidente em alguns layouts e falha em outros, sem erro — só sem hardlink. Use caminho
-absoluto e confira uma vez com `stat -c %h` num arquivo repetido (contagem de links > 1).
+### C-8: Segurança "por acidente" nas portas 8000/8080
+**O que dá errado:** o `coolify-lockdown.service` está `inactive (dead)`, então um reinício do
+Docker sem reboot apagaria as regras de `DOCKER-USER`. Se o deploy passar a depender da API do
+Coolify (DM-7, saídas C ou D), essa fragilidade vira dependência do jogo.
+**Como evitar:** **não corrigir** — é do vizinho (D-VPS-02) — mas **registrar** no
+`docs/OPERACAO.md` que a alcançabilidade do caminho de deploy depende de configuração de outro
+projeto, e que uma queda dele é uma causa possível de "o deploy parou de funcionar".
 
 ---
 
 ## Code Examples
 
-> Padrões verificados. Comentários em inglês (convenção do projeto).
+### `ops/Caddyfile` — o delta contra o arquivo atual
 
-### `ops/Caddyfile`
+O bloco `header` inteiro, os três matchers de cache, a ausência deliberada de `try_files` e o
+`handle_errors` **não mudam uma linha**. O que muda:
 
 ```caddyfile
-# {$VAR} is substituted BEFORE parsing, which is the only form that works in a
-# site address. {env.VAR} would not. Source: caddyserver.com/docs/caddyfile/concepts
-# The values live in /etc/dg2/env, read via a `systemctl edit caddy` drop-in.
-# NOTE: `systemctl reload caddy` does NOT re-read EnvironmentFile — changing the
-# domain needs `systemctl restart caddy`.
-{$DG2_DOMAIN} {
+# ------------------------- BLOCO GLOBAL, NOVO -------------------------
+{
+    # O certificado é do Traefik (D2-25). Sem isto o Caddy tentaria ACME
+    # para um nome que não controla, e tomaria 80/443 do próprio namespace.
+    auto_https off
+
+    # A API de admin do Caddy escuta em localhost:2019 por padrão. Nada aqui
+    # a usa; desligá-la é uma superfície a menos dentro do contêiner.
+    admin off
+
+    # DM-10 — SEM ISTO O LIMITADOR DA FASE 3 VIRA UM BALDE SÓ. O Caddy ignora
+    # X-Forwarded-For de origem não confiável, por padrão e de propósito. A
+    # cadeia real é cliente → Traefik → Caddy → Node: o Traefik já põe o
+    # endereço verdadeiro (ele também não confia em quem não está em
+    # trustedIPs), e sem a linha abaixo o Caddy o substitui pelo IP do
+    # contêiner do Traefik. `private_ranges` é seguro aqui porque NADA é
+    # publicado no host: a única origem capaz de falar com esta porta é a
+    # rede bridge que o Coolify criou.
+    servers {
+        trusted_proxies static private_ranges
+    }
+}
+
+# --------------------- ENDEREÇO DO SITE, MUDOU ------------------------
+# Era {$DG2_DOMAIN}. O esquema `http://` explícito é o que garante HTTP puro:
+# um endereço só-porta ainda deixaria o Caddy escolher HTTPS por padrão.
+# O nome do domínio deixa de aparecer aqui, o que reforça D2-15 em vez de
+# afrouxá-la — e P-6 (o {env.VAR} que resolve tarde) deixa de ter alvo.
+http://:8080 {
     encode zstd gzip
 
-    # `handle` blocks are MUTUALLY EXCLUSIVE and Caddy sorts them by matcher
-    # specificity, so this order is for readers, not for correctness. Switching
-    # any of these to `route` WOULD make file order load-bearing.
-    handle /api/* {
-        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
+    header {
+        # INALTERADO, E AGORA MAIS IMPORTANTE: medido em 2026-09-09, o Traefik
+        # do Coolify não manda NENHUM destes (DM-11). Se este bloco sair,
+        # ninguém os manda. O HSTS funciona atrás do proxy porque o navegador
+        # o honra pela conexão dele, que é HTTPS com o Traefik.
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Content-Security-Policy "default-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
 
-    # Reserved for phase 3 signalling. Present now so the shape is visible.
-    handle /ws {
-        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
-    }
+    # INALTERADO na forma; muda só o destino: o serviço do compose.
+    handle /api/* { reverse_proxy {$DG2_UPSTREAM} }
+    handle /ws    { reverse_proxy {$DG2_UPSTREAM} }
 
     handle {
-        root * /srv/dg2/current
+        # Era /srv/dg2/current, o symlink que deploy.sh trocava (D2-06,
+        # revogada). Agora os bytes estão DENTRO da imagem: trocar de versão
+        # é trocar de contêiner, e a atomicidade que o rename(2) comprava
+        # passa a ser a do `docker compose up -d`.
+        root * /srv/www
 
-        # Vite emits content-hashed names under /assets — safe to pin forever.
+        # As três classes de cache, INALTERADAS — inclusive o `not` que torna
+        # @stable e @assets mutuamente exclusivos por construção.
         @assets path /assets/index-*.js /assets/index-*.css
         header @assets Cache-Control "public, max-age=31536000, immutable"
-
-        # The shell has stable names, so it must never be pinned: a stale
-        # index.html or sw.js freezes the PWA on an old build.
+        @stable {
+            path /assets/* /fonts/* /icons/*
+            not path /assets/index-*.js /assets/index-*.css
+        }
+        header @stable Cache-Control "public, max-age=0, must-revalidate"
         @shell path / /index.html /sw.js /manifest.json
         header @shell Cache-Control "no-cache"
 
-        # NO `try_files {path} /index.html`: this game has no client-side
-        # routing, and turning 404s into 200 HTML gives the service worker a
-        # wrong page to cache (see DM-5).
+        # DM-5 continua: nada de try_files. Um 404 é a resposta honesta.
         file_server
     }
 
-    # When dg2.service is down, answer machine-readable 503 instead of "Bad
-    # Gateway" plain text — the external monitor of D2-16 needs to tell
-    # "Caddy up, Node down" from "box down".
-    handle_errors {
-        @api expression {err.status_code} == 502 || {err.status_code} == 503
-        handle @api {
-            header Content-Type application/json
-            header Cache-Control no-store
-            respond `{"status":"unavailable"}` 503
-        }
-        respond "{err.status_code} {err.status_text}" {err.status_code}
-    }
+    handle_errors { … INALTERADO … }
 }
 ```
 
-### `ops/dg2.service`
+O cabeçalho em prosa do arquivo precisa de reescrita de fundo: os parágrafos sobre
+`{$DG2_DOMAIN}`, sobre `systemctl reload caddy` não reler o `EnvironmentFile`, sobre a 443
+ser do Caddy e sobre o symlink de release **descrevem uma máquina que não existe mais**. O
+parágrafo sobre "reload fecha WebSockets ativos" continua verdadeiro em espírito — só que
+agora quem derruba as conexões é a recriação do contêiner, e a mitigação (os 60 s de carência
+na deleção de sala, do plano 03-04) continua sendo a metade que paga por ela.
 
-```ini
-[Unit]
-Description=DungeonGuys2 API
-After=network-online.target
-Wants=network-online.target
-# Without a start limit, a failing migration restarts forever and never
-# surfaces as `failed` — the alarm chain of D2-16 would stay silent (P-9).
-StartLimitIntervalSec=60
-StartLimitBurst=5
-
-[Service]
-Type=simple
-User=dg2
-Group=dg2
-WorkingDirectory=/srv/dg2/current-server
-ExecStart=/usr/bin/node /srv/dg2/current-server/server.mjs
-Environment=NODE_ENV=production
-# Pair MemoryMax with a V8 heap cap, or the cgroup OOM-kills instead of the
-# GC running (P-10).
-Environment=NODE_OPTIONS=--max-old-space-size=192
-EnvironmentFile=/etc/dg2/env
-Restart=always
-RestartSec=2
-
-# StateDirectory creates and chowns /var/lib/dg2 AND implies ReadWritePaths for
-# it — one directive instead of two, and it survives a wiped /var.
-StateDirectory=dg2
-StateDirectoryMode=0700
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-RestrictNamespaces=true
-LockPersonality=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-MemoryHigh=200M
-MemoryMax=256M
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### `apps/server/src/db/migrations.ts` — provider estático
-
-```ts
-// A static provider instead of FileMigrationProvider: this server is bundled to
-// a single server.mjs, and FileMigrationProvider would read from disk at
-// runtime — three ways to get a path wrong in the one step that runs BEFORE the
-// server accepts a request (D2-07).
-import type { Kysely, Migration, MigrationProvider } from 'kysely';
-import { sql } from 'kysely';
-
-// D2-07: migrations are ALWAYS additive. No DROP, no rename inside one version —
-// rolling the `current` symlink back does not roll the database back.
-const migrations: Record<string, Migration> = {
-  // docs/adr/0010-soul-gold-ledger-append-only.md
-  '001_gold_entry': {
-    async up(db: Kysely<any>): Promise<void> {
-      await db.schema
-        .createTable('gold_entry')
-        .addColumn('id', 'text', c => c.primaryKey())     // client-minted ULID
-        .addColumn('account_id', 'text', c => c.notNull())
-        .addColumn('delta', 'integer', c => c.notNull())  // +earn / -spend
-        .addColumn('reason', 'text', c => c.notNull())
-        .addColumn('device_id', 'text', c => c.notNull())
-        .addColumn('created_at', 'integer', c => c.notNull()) // epoch ms, portable
-        .execute();
-
-      // Idempotency of D2-02: syncing the same event twice is a no-op.
-      await db.schema
-        .createIndex('gold_entry_account')
-        .on('gold_entry')
-        .columns(['account_id', 'created_at'])
-        .execute();
-    },
-    // `down` exists for local development only. Production never runs it: see
-    // the additive rule above.
-    async down(db: Kysely<any>): Promise<void> {
-      await db.schema.dropTable('gold_entry').execute();
-    },
-  },
-};
-
-export const provider: MigrationProvider = {
-  async getMigrations() {
-    return migrations;
-  },
-};
-```
-
-### `apps/server/src/index.ts` — start, migração, `/api/health`
-
-```ts
-import { serve } from '@hono/node-server';
-import { Hono } from 'hono';
-import Database from 'better-sqlite3';
-import { Kysely, SqliteDialect, Migrator } from 'kysely';
-import { provider } from './db/migrations.js';
-
-const DB_PATH = process.env.DG2_DB ?? '/var/lib/dg2/dg2.db';
-const PORT = Number(process.env.DG2_PORT ?? 8080);
-const RELEASE = process.env.DG2_RELEASE ?? 'dev';
-
-const sqlite = new Database(DB_PATH);
-sqlite.pragma('journal_mode = WAL');        // required by Litestream
-sqlite.pragma('synchronous = NORMAL');
-sqlite.pragma('foreign_keys = ON');
-sqlite.pragma('busy_timeout = 5000');
-
-const db = new Kysely<any>({ dialect: new SqliteDialect({ database: sqlite }) });
-
-// D2-07: migrate BEFORE accepting a request. Exiting non-zero here is correct —
-// systemd's StartLimitBurst turns a broken migration into a `failed` unit
-// instead of an invisible restart loop.
-const { error } = await new Migrator({ db, provider }).migrateToLatest();
-if (error) {
-  console.error(`apps/server:/migrate: ${String(error)}`);
-  process.exit(1);
-}
-
-const app = new Hono();
-
-// Lives under /api/ ON PURPOSE: one Caddy route and one service-worker rule
-// then cover it. A bare /health would need a third `handle` block and its own
-// service-worker exception — one more thing to forget.
-app.get('/api/health', c => {
-  let dbOk = true;
-  try {
-    // Cheap AND meaningful: proves the file opens and the schema is applied.
-    sqlite.prepare('select count(*) as n from kysely_migration').get();
-  } catch {
-    dbOk = false;
-  }
-  c.header('Cache-Control', 'no-store');
-  // Nothing here is non-public: `release` is a git sha, `db` is a boolean.
-  // No paths, no hostnames, no library versions, no error strings.
-  return c.json({ status: dbOk ? 'ok' : 'degraded', db: dbOk, release: RELEASE },
-                dbOk ? 200 : 503);
-});
-
-// serve() returns the real http.Server. Phase 3 attaches `ws` to its `upgrade`
-// event — that is the entire reason Hono was chosen over Fastify.
-// Bind to loopback: the process is reachable only through Caddy.
-serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' });
-```
-
-### `public/sw.js` — template com sentinelas (o que `tools/sw/emit.mjs` reescreve)
-
-```js
-// sw.js — DungeonGuys2 service worker (TEMPLATE).
-//
-// The two sentinels below are replaced by tools/sw/emit.mjs after `vite build`.
-// Running `vite build` without that step leaves them in place, and
-// tools/sw/verify.mjs fails the build — a service worker that precaches
-// nothing only shows its defect offline, weeks later.
-//
-// THE HASH COVERS EVERY FILE IN dist/ EXCEPT THIS ONE. It cannot cover itself:
-// writing the digest in changes the bytes that produced it. Same property
-// tools/sim-version/emit.mjs documents, solved the other way round — there the
-// value goes to a sibling file, here it must live inside, so the boundary moves.
-const CACHE = 'dg2-__BUILD_HASH__';
-const PRECACHE = __PRECACHE__;
-const PRECACHE_SET = new Set(PRECACHE);
-
-self.addEventListener('install', e => {
-  e.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    // `{cache:'reload'}` bypasses the HTTP cache: index.html, manifest.json and
-    // sw.js have stable names, so a proxy could otherwise feed the previous
-    // build straight into the "new" precache (P-4).
-    await cache.addAll(PRECACHE.map(u => new Request(u, { cache: 'reload' })));
-    // NO skipWaiting() — D2-09. The page decides when to swap, and only with
-    // no run in progress.
-  })());
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil((async () => {
-    // Filter by OUR prefix, never `keys()` wholesale: Cache Storage is
-    // per-ORIGIN, not per-scope, so a blind delete-all would take out any other
-    // app on the same origin (DM-3).
-    const keys = await caches.keys();
-    await Promise.all(
-      keys.filter(k => k.startsWith('dg2-') && k !== CACHE).map(k => caches.delete(k)),
-    );
-    // NO clients.claim() — D2-09. Existing pages keep the old worker until they
-    // reload on their own terms.
-  })());
-});
-
-// Let the page ask for the swap once it is safe (outside a run; from phase 3,
-// outside a room too).
-self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
-});
-
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-
-  const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;          // fonts, CDNs: never ours
-
-  // Belt and braces. The allowlist below already excludes these, but writing
-  // them makes the intent reviewable — and /ws costs nothing today (D2-12 note).
-  if (url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
-
-  // ALLOWLIST, not denylist (INFRA-03). Only paths this build actually produced
-  // are served from the cache. A denylist is one forgotten route away from
-  // caching an authenticated response; this cannot forget, because it only
-  // knows files the build emitted.
-  const path = url.pathname;
-  const key = PRECACHE_SET.has(path) ? path
-            : (path === '/' && PRECACHE_SET.has('/index.html')) ? '/index.html'
-            : null;
-  if (!key) return;                                     // straight to the network
-
-  e.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    const hit = await cache.match(key);
-    if (hit) return hit;
-    const res = await fetch(e.request);
-    // Never store a non-ok response: 30 seconds of 502 during a deploy would
-    // otherwise become the cached index.html forever (P-2).
-    if (res.ok) cache.put(key, res.clone());
-    return res;
-  })());
-});
-```
-
-### `src/main.ts` — detecção do update e aplicação fora de partida
-
-```ts
-// PWA update flow (D2-09). The old code called register() and forgot; the new
-// worker installs and WAITS, so something has to notice and something has to
-// decide when it is safe to swap.
-let swWaiting: ServiceWorker | null = null;
-let swReloading = false;
-
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').then(reg => {
-    const offer = (w: ServiceWorker | null) => {
-      if (!w) return;
-      swWaiting = w;
-      // `gameStarted` is the flag beginRun/quitGame already maintain — it is
-      // exactly "outside a run". Phase 3 adds `&& !inRoom` right here.
-      if (!gameStarted) showUpdateOffer();
-      else announce('NOVA VERSÃO PRONTA — VOLTE AO MENU PARA ATUALIZAR');
-    };
-
-    offer(reg.waiting);                                  // already waiting on load
-    reg.addEventListener('updatefound', () => {
-      const installing = reg.installing;
-      installing?.addEventListener('statechange', () => {
-        // `controller` present means this is an UPDATE, not a first install.
-        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-          offer(reg.waiting);
-        }
-      });
-    });
-  }).catch(() => {});
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    // Guard: without it, a controllerchange fired for any other reason turns
-    // into a reload loop.
-    if (swReloading) return;
-    swReloading = true;
-    location.reload();
-  });
-}
-
-/** Called by the update button. Only reachable with gameStarted === false. */
-export function applyUpdate(): void {
-  swWaiting?.postMessage({ type: 'SKIP_WAITING' });
-}
-```
-
-### `tools/ops/restore-verify.mjs` — o ensaio de D2-03
-
-```js
-// restore-verify.mjs — INFRA-04: "verificado restaurando, não só gerando".
-//
-// Follows tools/README.md §3: failure is `file:pointer: message` on stderr with
-// exit 1; success is ONE line on stdout with exit 0.
-//
-// What proves a restore is CONTENT, not bytes: two semantically identical SQLite
-// files differ on disk (free pages, WAL state). So the check is a query.
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const LIVE = process.env.DG2_DB ?? '/var/lib/dg2/dg2.db';
-const CONFIG = '/etc/litestream.yml';
-
-function fail(file, pointer, message) {
-  console.error(`${file}:${pointer}: ${message}`);
-  process.exit(1);
-}
-
-const dir = mkdtempSync(join(tmpdir(), 'dg2-restore-'));
-const restored = join(dir, 'dg2.db');
-const started = Date.now();
-
-try {
-  // `-o` writes elsewhere; the live database is never touched. litestream
-  // refuses to overwrite an existing file, which is why `dir` is fresh.
-  execFileSync('litestream', ['restore', '-config', CONFIG, '-o', restored, LIVE],
-               { stdio: ['ignore', 'pipe', 'pipe'] });
-
-  const q = (db, sql) =>
-    execFileSync('sqlite3', [db, sql], { encoding: 'utf8' }).trim();
-
-  // coalesce(): an empty ledger must compare 0 against 0, not '' against ''.
-  const probe = 'select count(*) || \'|\' || coalesce(sum(delta),0) from gold_entry;';
-  const live = q(LIVE, probe);
-  const back = q(restored, probe);
-
-  if (live !== back) {
-    fail('restore', '/gold_entry', `vivo=${live} restaurado=${back} — NÃO CONFERE`);
-  }
-  const secs = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(`restauração ok: gold_entry ${live} idêntico em ${secs}s (${restored})`);
-} catch (error) {
-  fail('tools/ops/restore-verify.mjs', '/', error.message);
-} finally {
-  rmSync(dir, { recursive: true, force: true });
-}
-```
-
-### `ops/cert-check.sh` + timer — a perna local de D2-16
-
-```bash
-#!/bin/sh
-# Alarm at 30 days, not 7 (PITFALLS.md §13). Let's Encrypt stopped sending
-# expiry email on 2025-06-04 — nothing warns for free any more.
-# `-checkend N` exits 1 if the cert expires within N seconds. That exit code is
-# the whole mechanism: systemd marks the unit failed, journald records it.
-set -eu
-: "${DG2_DOMAIN:?}"
-DAYS=30
-echo | openssl s_client -servername "$DG2_DOMAIN" -connect "$DG2_DOMAIN:443" 2>/dev/null \
-  | openssl x509 -noout -checkend $((DAYS * 86400)) \
-  || { echo "cert-check: $DG2_DOMAIN expira em menos de $DAYS dias" >&2; exit 1; }
-echo "cert-check: $DG2_DOMAIN válido por mais de $DAYS dias"
-```
-
-```ini
-# ops/cert-check.timer
-[Timer]
-OnCalendar=daily
-RandomizedDelaySec=1h
-Persistent=true          # runs after a reboot that spanned the schedule
-
-[Install]
-WantedBy=timers.target
-```
-
-### `.github/workflows/ci.yml` — o job de deploy (substitui `deploy.yml`)
+### `ops/docker-compose.yml` — novo
 
 ```yaml
-  # `needs:` only works between jobs of the SAME workflow, which is why
-  # deploy.yml is deleted rather than chained (DM-4). The artifact makes the
-  # published bytes IDENTICAL to what passed the cross-engine gate (D2-05).
-  deploy:
-    needs: test
+# ops/docker-compose.yml — a composição que o Coolify lê do repositório.
+#
+# SEM `networks:`, DE PROPÓSITO. O Coolify cria uma bridge isolada e a
+# documentação dele avisa que declarar uma própria causa queda intermitente
+# de rota no Traefik.
+#
+# SEM `ports:`, DE PROPÓSITO. Nada é publicado no host: é o que faz a colisão
+# com a 8080 do Traefik desaparecer por construção (D2-22), e o que faz o
+# `0.0.0.0` do serviço `api` continuar sendo controle de acesso e não um
+# buraco — porta de contêiner sem publicação não atravessa o UFW nem o NAT.
+#
+# TODA REFERÊNCIA ${VAR} VIRA CAMPO EDITÁVEL NO PAINEL DO COOLIFY (D2-29).
+# Este arquivo diz QUAIS chaves existem; o painel diz o que elas valem. O
+# domínio e os segredos continuam fora do repositório (D2-15).
+services:
+  web:
+    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG}
+    # A linha que faz a reversão de D2-24 não usar rede: o Docker só busca no
+    # registro o que não estiver em disco. Tag nova → puxa. Tag anterior →
+    # nada de rede, que é o cenário em que se precisa dela.
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on: [api]
+    # É daqui que o Coolify tira a porta para o label do Traefik.
+    expose: ["8080"]
+    environment:
+      # Nome de serviço do compose, resolvido pelo DNS interno do Docker.
+      - DG2_UPSTREAM=api:8080
+    # O Caddy serve arquivo estático e repassa; 96 MiB é folga larga.
+    mem_limit: 96m
+    cpus: 0.5
+
+  api:
+    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG}
+    pull_policy: missing
+    restart: unless-stopped
+    # DM-13/C-4: o Node drena em até 5s (SHUTDOWN_GRACE_MS) e SÓ DEPOIS o
+    # litestream faz a sincronização final para o bucket. O padrão de 10s do
+    # Docker corta a segunda etapa, e o que se perde são as últimas escritas
+    # de um ledger de moeda. 30s é folga para as duas.
+    stop_grace_period: 30s
+    volumes:
+      - dg2-data:/var/lib/dg2
+    environment:
+      - DG2_DB=/var/lib/dg2/dg2.db
+      - DG2_PORT=8080
+      # DM-9: `127.0.0.1` seria o loopback DESTE contêiner, e o Caddy vive em
+      # outro. O padrão do código continua sendo o loopback; esta linha é a
+      # exceção declarada em diff, exatamente onde ela é revisável.
+      - DG2_BIND=0.0.0.0
+      - DG2_RELEASE=${DG2_IMAGE_TAG}
+      - DG2_ORIGIN=${DG2_ORIGIN}
+      - DG2_TURN_SECRET=${DG2_TURN_SECRET}
+      - DG2_TURN_REALM=${DG2_TURN_REALM}
+      - LITESTREAM_BUCKET=${LITESTREAM_BUCKET}
+      - LITESTREAM_ENDPOINT=${LITESTREAM_ENDPOINT}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # P-10 VALE IGUAL NO CGROUP DO CONTÊINER: o V8 dimensiona o old space
+      # pela memória da MÁQUINA (7,8 GiB aqui), não pelo mem_limit, e cresce
+      # direto para o OOM-kill. Os dois números andam juntos, sempre.
+      - NODE_OPTIONS=--max-old-space-size=192
+    # 256M para o Node (o teto de dg2.service) + folga para o litestream, que
+    # deixou de ter unit própria e passou a morar neste cgroup (D2-28).
+    mem_limit: 320m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  dg2-data:
+```
+
+### `ops/Dockerfile.api` — novo
+
+```dockerfile
+# ops/Dockerfile.api — o servidor, o Litestream que o envolve, e nada mais.
+#
+# NÃO CONSTRÓI O SERVIDOR. `dist-server/server.mjs` é baixado do artefato que
+# o job `test` do CI subiu, então o que entra na imagem é byte a byte o que
+# passou pelo portão cross-engine (D2-05, preservada por D2-23).
+FROM node:24.20.0-trixie-slim
+
+# sqlite3: tools/ops/restore-verify.mjs o invoca em -readonly. ca-certificates:
+# o litestream fala HTTPS com o bucket. wget já vem no base, e é o healthcheck.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends sqlite3 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Litestream do release oficial, com sha256 fixado — mesma doutrina que
+# ops/litestream.service já escrevia: binário fora do grafo npm (T-2-SC).
+ARG LITESTREAM_VERSION=0.5.17
+ARG LITESTREAM_SHA256=<preencher-no-plano>
+ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz /tmp/ls.tgz
+RUN echo "${LITESTREAM_SHA256}  /tmp/ls.tgz" | sha256sum -c - \
+ && tar -C /usr/local/bin -xzf /tmp/ls.tgz litestream \
+ && rm /tmp/ls.tgz
+
+WORKDIR /srv
+
+# CAMADA PRÓPRIA, E A ORDEM É O PONTO: com os manifestos copiados antes do
+# bundle, o `npm ci` só reexecuta quando o lock muda, e cada deploy custa
+# alguns MB de camada nova em vez de 30 (DM-16, retenção de 5 imagens).
+#
+# Sem compilador: better-sqlite3 13.0.3 traz os prebuilds dentro do tarball
+# do npm, inclusive linux-x64 (DM-12). O passo manual de /srv/dg2/node_modules
+# que ops/README.md §3 documentava deixa de existir.
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/
+RUN npm ci --omit=dev --workspace @dg2/server
+
+COPY dist-server/server.mjs /srv/server.mjs
+COPY ops/litestream.yml /etc/litestream.yml
+COPY tools/ops/restore-verify.mjs /srv/tools/ops/restore-verify.mjs
+
+# Nunca root: o base já traz o usuário `node`, uid 1000.
+USER node
+
+# DM-13: o litestream é PID 1, repassa o SIGTERM exato ao Node e ESPERA ele
+# sair antes da sincronização final. Nenhum tini, nenhum trap de shell.
+ENTRYPOINT ["litestream", "replicate", "-config", "/etc/litestream.yml", \
+            "-exec", "node /srv/server.mjs"]
+```
+
+### O job de publicação do `ci.yml` — a forma recomendada
+
+```yaml
+  # Substitui o job `deploy` de rsync. NENHUMA AÇÃO DE TERCEIRO: o runner já
+  # traz docker e buildx, e usar `run:` mantém o portão T-2-SC de
+  # tests/workflows.test.ts intacto em vez de precisar afrouxá-lo (DM-8).
+  image:
+    needs: [test, pwa]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
-      group: deploy-vps        # two deploys must never race on the symlink
+      group: deploy-vps
       cancel-in-progress: false
+    permissions:
+      contents: read
+      # A ÚNICA escrita do workflow, e o único `: write` que a asserção de
+      # tests/workflows.test.ts passa a admitir — nomeadamente, e só aqui.
+      packages: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7          # precisa dos Dockerfiles e do Caddyfile
+      - uses: actions/download-artifact@v8
         with: { name: dist, path: dist }
+      - uses: actions/download-artifact@v8
+        with: { name: server, path: dist-server }
 
-      - name: SSH key
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          # Pinned, NOT ssh-keyscan: scanning inside the job is trust-on-first-use
-          # in the one pipeline that holds the deploy key.
-          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+      - name: Login no GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: rsync release
+      - name: Construir e empurrar as duas imagens
         run: |
-          rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_ed25519" \
-            --link-dest=/srv/dg2/current/ \
-            dist/ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/dg2/releases/${{ github.sha }}/"
+          set -eu
+          REPO=ghcr.io/${{ github.repository_owner }}
+          docker build -f ops/Dockerfile.web -t "$REPO/dg2-web:$GITHUB_SHA" .
+          docker build -f ops/Dockerfile.api -t "$REPO/dg2-api:$GITHUB_SHA" .
+          docker push "$REPO/dg2-web:$GITHUB_SHA"
+          docker push "$REPO/dg2-api:$GITHUB_SHA"
 
-      - name: activate
-        run: |
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/id_ed25519 \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "/srv/dg2/bin/deploy.sh ${{ github.sha }}"
+      # A FORMA DESTE PASSO DEPENDE DE DM-7 E NÃO PODE SER ESCRITA ANTES DELE.
+      # Se o painel ganhar FQDN (saída A):
+      #   curl -fsS -X GET "$COOLIFY_DEPLOY_URL" -H "Authorization: Bearer $TOKEN"
+      # Se for chave SSH com command= fixo (saída D):
+      #   ssh -o IdentitiesOnly=yes -i "$KEY" "$USER@$HOST" (o command= é literal)
+      # Em ambos, o passo seguinte confere que o deploy PEGOU, e não só que a
+      # chamada retornou 200: `curl https://dg2.kring.tech/api/health` até o
+      # campo de release bater com $GITHUB_SHA, com prazo.
 ```
+
+O último parágrafo é a diferença entre "chamei o gancho" e "publiquei". O
+`/api/health` já devolve `release` (o `DG2_RELEASE` do 02-08), e sob esta arquitetura
+`DG2_RELEASE=${DG2_IMAGE_TAG}` é o sha — então **a verificação de que o deploy pegou é uma
+comparação de string, sem infraestrutura nova**. Vale escrevê-la.
+
+---
+
+## O delta exato em `ops/`
+
+| Arquivo | Destino | O que muda |
+|---|---|---|
+| `Caddyfile` | **ALTERADO** | Bloco global novo (`auto_https off`, `admin off`, `trusted_proxies`); endereço vira `http://:8080`; `root` vira `/srv/www`; cabeçalho em prosa reescrito (sai o domínio, sai o reload/EnvironmentFile, sai a 443, sai o symlink). Os `header`, os três matchers de cache, a ausência de `try_files` e o `handle_errors` ficam intocados |
+| `README.md` | **REESCRITO** | §2 (layout de disco), §3 (`/srv/dg2/node_modules` — some por DM-12), §4 (usuários e chave de deploy), §5 (`/etc/dg2/env`), §6 (drop-in do Caddy), §7 (publicar e reverter), §9 (a 443), §10 (units) e §11 (backup) descrevem uma máquina que não existe. §12 (coturn) fica, com a faixa de relay e o UFW corrigidos. Nasce: o recurso do Coolify, as variáveis do painel, o gancho de deploy, a reversão por imagem, a retenção, `sudo docker` em todo lugar (DM-17) |
+| `turnserver.conf` | **ALTERADO** | Acrescenta `min-port`/`max-port`; baixa `total-quota` para casar com a faixa; reescreve o parágrafo "por que 443 não está aqui" (a 443 é do Traefik, não do Caddy) |
+| `coturn-dropin.conf` | **INTOCADO** | Salvo o parágrafo do orçamento, que cita "a KVM 2 de 2 GB de D2-19" e agora fala de uma caixa de 8 GB partilhada |
+| `litestream.yml` | **ALTERADO** | Só o caminho do banco, se mudar; o `replica:` singular e as referências `${...}` continuam certas. O comentário sobre `/etc/dg2/env` passa a falar do painel do Coolify |
+| `deploy.sh` | **MORRE** | D2-30 |
+| `rollback.sh` | **MORRE** | D2-30 |
+| `deploy-forced.sh` | **MORRE** | D2-30 / D2-31 |
+| `prune-releases.sh` | **MORRE** | D2-30 |
+| `dg2.service` | **MORRE** | D2-30; capacidades migram para o compose |
+| `cert-check.sh` / `.service` / `.timer` | **MORREM** | D2-30; **a capacidade precisa de substituto** (ver § Vigilância) |
+| `litestream.service` | **MORRE** | **Não está na lista literal de D2-30, mas D2-28 a mata:** o litestream deixa de ser unit e vira PID 1 do contêiner. O planejador deve registrar essa extensão explicitamente, para que não pareça um arquivo esquecido |
+| `Dockerfile.web` | **NASCE** | |
+| `Dockerfile.api` | **NASCE** | |
+| `docker-compose.yml` | **NASCE** | |
+
+Saldo: 14 arquivos → **5 sobreviventes + 3 novos = 8**.
+
+## O delta exato em `tests/ops-config.test.ts`
+
+Contagem medida em § DM-20. Trabalho concreto:
+
+**Removidos (34 testes):** os 18 de `scripts de ops/`, os 7 de `ops/dg2.service`, os 3 de
+`ops/litestream.service`, os 6 de `cert-check`.
+
+**Renascem em forma nova (sobre `ops/docker-compose.yml`):**
+
+| Propriedade que morreu com o `dg2.service` | Asserção nova |
+|---|---|
+| "limita a memória do cgroup **E** o heap do V8, nunca só um" (P-10) | o serviço `api` tem `mem_limit` **e** `NODE_OPTIONS=--max-old-space-size`, e o segundo é menor que o primeiro |
+| "roda como `dg2` num sandbox, nunca como root" | o `Dockerfile.api` declara `USER` e não é `root` |
+| "não publica a API fora do loopback" | **nenhum serviço declara `ports:`** (DM-9) |
+| "dá ao desligamento gracioso mais tempo que o watchdog (WR-07)" | `stop_grace_period` do serviço `api` > `SHUTDOWN_GRACE_MS` importado de `apps/server/src/shutdown.ts` — **a forma de importar em vez de copiar continua sendo a certa** |
+| "arranca pelo symlink que o rollback move" | a imagem é referenciada por `${DG2_IMAGE_TAG}`, nunca `:latest` nem `:main` (C-6) |
+| (do `litestream.service`) "é irmã e não filha" | o `ENTRYPOINT` é `litestream replicate -exec`, e o Node não é PID 1 |
+| (novo, D2-24) | todo serviço declara `pull_policy: missing` |
+| (novo, Coolify) | o compose **não** declara `networks:` |
+
+**Alterados:** os 3 do `Caddyfile` que falam de `{$DG2_DOMAIN}`, do symlink de release e da
+443; os 9 do `README.md`; 1 do `litestream.yml`; o piso `>= 13` do bloco D2-15.
+
+**Nascem no `Caddyfile`:** `auto_https off` presente; `trusted_proxies` presente (o teste que
+impede DM-10 de voltar).
+
+**Nascem no `turnserver.conf`:** `min-port`/`max-port` declarados; `total-quota` ≤ tamanho da
+faixa (a asserção que impede C-5 de voltar por metade).
+
+**Cuidado com a vacuidade:** o `read()` exige `> 200` bytes e o `code()` exige `> 50` depois de
+tirar comentários. Um `docker-compose.yml` enxuto pode ficar perto do primeiro piso; o
+`Dockerfile.web` de 3 linhas **fica abaixo dele**. O planejador precisa decidir: ou o
+`Dockerfile.web` ganha o cabeçalho em prosa que todo arquivo de `ops/` tem (coerente com o
+projeto, e resolve), ou os pisos ganham exceção por arquivo — e a segunda opção é pior,
+porque foi exatamente por essa porta que WR-14 entrou.
+
+## O delta exato em `.github/workflows/ci.yml` e `tests/workflows.test.ts`
+
+**Sai do `ci.yml`:** o job `deploy` inteiro — o `env:` com `DEPLOY_USER`/`DEPLOY_HOST`, o passo
+de chave e `known_hosts`, os dois `rsync --link-dest`, o `ssh … deploy.sh $GITHUB_SHA`, o
+`rm -f` da chave, e o `if:` com `vars.DEPLOY_ENABLED`.
+
+**Deixam de existir:** os quatro secrets `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`,
+`DEPLOY_KNOWN_HOSTS` **e** a variável de repositório `DEPLOY_ENABLED` — nenhum deles foi criado
+ainda (o 02-04 está adiado), então isto é remoção de texto, não revogação de credencial.
+
+**Entra:** o job `image` da § Code Examples, com `packages: write` e o passo de gancho cuja
+forma DM-7 decide.
+
+**Delta em `tests/workflows.test.ts`:**
+
+| Asserção | Destino |
+|---|---|
+| `encontrou exatamente um workflow, e é o ci.yml` | intocada |
+| `nenhum workflow publica no GitHub Pages` | intocada — **é ela que prova INFRA-01** |
+| `o CI emite os dois artefatos publicáveis` | intocada — os artefatos continuam sendo a fronteira |
+| `todo uses: é uma ação da própria GitHub` | **intocada, e essa é a recomendação**: não acrescente ação de terceiro (DM-8) |
+| `o teto do GITHUB_TOKEN é do WORKFLOW` | intocada |
+| `nenhum escopo de permissão é concedido para escrita` | **ALTERADA**: passa a admitir exatamente um `packages: write`, e só no job que empurra a imagem — mesma forma da fatia `deployJob()` que já existe |
+| `nenhuma ação roda no runtime depreciado (Node 20)` | intocada; se ações de Docker entrarem um dia, as quatro medidas já são `node24` |
+| Os 6 do bloco "o caminho que carrega a chave de deploy" | **5 MORREM** (chave de host fixada, permissão da chave privada, apagar a chave, `--link-dest` absoluto, os quatro segredos vazios). **1 SOBREVIVE alterado**: "dois deploys nunca correm ao mesmo tempo" (`concurrency`), agora sobre o `up -d` em vez do symlink. **1 SOBREVIVE alterado**: "o deploy só sai depois dos dois portões e só de push na main" (D2-08) |
+| `o deploy é pulado enquanto o alvo não existir` | **decisão a tomar**: com um segredo só, `vars.DEPLOY_ENABLED` pode sair — mas o raciocínio do comentário (um job vermelho por semanas ensina a não ler CI vermelho) continua válido enquanto o Coolify não existir. Recomendação: manter a variável até o 02-12, e o plano decide se ela morre depois |
+
+Nascem: o job `image` tem prazo próprio; a imagem é tagueada por sha e nunca por tag móvel; o
+passo de verificação pós-gancho compara `/api/health` com `$GITHUB_SHA`.
+
+---
+
+## As seis perguntas abertas de `STATE.md`, respondidas
+
+### 1. Dentro do contêiner, quem serve os estáticos: Caddy ou Node?
+
+**Caddy, e D2-25 é implementável no Coolify como uma composição de dois serviços vinda do
+próprio repositório.**
+
+Como, concretamente: recurso do tipo **Application**, source **Public Repository** (o repo é
+público, medido — nenhuma chave de deploy necessária), Build Pack **Docker Compose**, com
+"Docker Compose Location" apontando para `ops/docker-compose.yml`. O Coolify clona o repo, lê
+o compose, descobre os serviços `web` e `api`, e a interface permite **atribuir o domínio ao
+serviço `web`** (`docker_compose_domains` na API). Ele então gera os labels do Traefik — os
+mesmos oito medidos no vizinho — apontando para a porta em `expose:`.
+
+**Atritos honestos, todos verificáveis no 02-12:**
+
+- A doc do Coolify diz que o compose é *"the single source of truth"* e que a rede é criada
+  por ele; **não declare `networks:`**, sob pena de queda intermitente de rota.
+- Não está documentado se o Coolify roda `docker compose build` antes do `up`. Com nenhum
+  serviço declarando `build:`, seria no-op — mas confirme nos logs do primeiro deploy que
+  aparece `pull`, não `build` (C-7).
+- Alternativa se a composição do repositório atritar: **"Docker Compose Empty"** (colar o YAML
+  no painel). Funciona, e custa D2-15 para aquele arquivo — o compose sairia do git.
+
+**Por que não o Node servindo estático:** o `ops/Caddyfile` não é sobre TLS. Ele carrega o CSP
+derivado arquivo a arquivo, as três classes de cache (incluindo o `not` que torna `@assets` e
+`@stable` mutuamente exclusivos), a recusa deliberada de servir o índice em rota inexistente
+(DM-5) e o 503 em JSON que o monitor de D2-21 consome. Portar isso para Hono seria o item mais
+caro da migração, e reintroduziria em código bugs que hoje têm teste.
+
+### 2. coturn nativo ou contêiner com rede do host?
+
+**Nativo, e agora com medição por trás — mas com uma correção de firewall que o plano
+anterior não previa.**
+
+DM-15 mostra que `network_mode: host` cairia na mesma `INPUT` governada pelo UFW, então não
+compraria nada; e publicar ~100 portas UDP por `-p` criaria uma centena de regras e de
+processos `docker-proxy`. Nativo + drop-in do distribuidor (que já é o que
+`ops/coturn-dropin.conf` faz) é a forma certa.
+
+O que muda no plano: **três regras novas de UFW** (`3478/udp`, `3478/tcp`, `5349/tcp`) **mais
+a faixa de relay** de D2-27. Nenhuma delas existe hoje. São as únicas alterações no host que
+esta fase e a fase 3 exigem, e são aditivas — o único tipo que D-VPS-02 admite.
+
+Dimensionamento recomendado: `min-port=49200`, `max-port=49299`, `total-quota` para **100**
+(hoje 1200 — doze vezes o que a faixa entrega), `user-quota` de 12 para 6.
+
+### 3. SQLite em volume do Coolify — e o Litestream, onde e com qual ciclo de vida?
+
+**Volume nomeado do Compose (`dg2-data`), montado só no serviço `api`. O Litestream é o PID 1
+desse contêiner e envolve o Node por `-exec`.**
+
+O ciclo de vida está medido em DM-13 e é melhor do que o desenho de systemd que ele substitui:
+o SIGTERM do Docker chega ao litestream, que **repassa o mesmo sinal** ao Node, que roda o
+`shutdown.ts` do 02-08 inteiro (para de aceitar, drena, fecha o SQLite), e o litestream espera
+o filho sair antes da sincronização final. `stop_grace_period: 30s` é o que dá espaço às duas
+etapas (C-4).
+
+**Restart do Coolify:** um `docker compose up -d` recria só os serviços cuja definição ou
+imagem mudou. Um deploy que muda apenas o cliente troca o contêiner `web` e **não reinicia o
+`api`** — o que responde, de graça, o item de discrição "se o servidor reinicia em todo
+deploy". Confirme isso nos logs do 02-12; é a mesma economia que o `sha256sum` condicional do
+`deploy.sh` comprava com mais trabalho.
+
+**A restauração verificada de INFRA-04 (D2-03)** fica **melhor** do que era. O
+`restore-verify.mjs` continua exatamente como está — mesma consulta, mesmo `-readonly`, mesma
+janela fixa — e passa a rodar num contêiner descartável:
+
+```bash
+sudo docker run --rm \
+  -v dg2-data:/var/lib/dg2:ro \
+  -e LITESTREAM_BUCKET -e LITESTREAM_ENDPOINT \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+  ghcr.io/gustavoktausend/dg2-api:<sha> \
+  node /srv/tools/ops/restore-verify.mjs
+```
+
+"Ambiente limpo", que é o texto literal do critério 4, deixa de ser um `mkdtemp` na mesma
+máquina e passa a ser um contêiner novo — mais honesto, e sem trabalho extra. O script precisa
+de `litestream`, `sqlite3` e `node`, e os três estão na imagem `api` por construção. O
+`ENTRYPOINT` é sobrescrito pelo `node …` na linha de comando.
+
+### 4. Deploy pelo GitHub App do Coolify ou webhook a partir do CI?
+
+**Webhook a partir do CI — é o que D2-23/D2-31 decidem, e o GitHub App levaria o Coolify a
+construir a partir do git, que é justamente o que D2-23 recusa.** O mecanismo documentado:
+
+```
+GET (ou POST) https://<coolify>/api/v1/deploy?uuid=<resource-uuid>
+Authorization: Bearer <token>
+```
+
+`[CITED: coolify.io — openapi.json, operationId deploy-by-tag-or-uuid]` O token é criado em
+*Keys & Tokens* com permissão **`Deploy`** (a doc do próprio Coolify manda escolher essa, e não
+`root`), suporta expiração e allowlist de IP, e é guardado como hash SHA-256 — não é
+recuperável depois de criado.
+
+Segredos no GitHub, sob esta forma: **um** (`COOLIFY_TOKEN`), mais a URL do gancho — que também
+deve ser secret, porque carrega o domínio da instância e o UUID do recurso, e D2-15 mantém o
+endereço fora do repositório.
+
+**Como o CI espera e verifica:** a resposta do `/deploy` traz `deployment_uuid`, e há
+`GET /api/v1/deployments/{uuid}` para acompanhar. Mas a verificação **que importa** é mais
+simples e não depende do Coolify: comparar `release` de `https://dg2.kring.tech/api/health`
+com `$GITHUB_SHA`, em laço com prazo. É a única checagem que prova que os bytes certos estão
+servindo, e ela usa uma rota que já existe.
+
+**Como a tag chega ao compose.** Duas formas, com preferências diferentes:
+
+- **(preferida) `PATCH /api/v1/applications/{uuid}/envs` para setar `DG2_IMAGE_TAG=<sha>`,
+  depois `GET /api/v1/deploy`.** Duas chamadas, ambas explícitas, ambas verificáveis, e a
+  reversão vira "setar a variável para o sha anterior e redeployar" — exatamente D2-24, com o
+  `pull_policy: missing` garantindo que não há rede no caminho.
+- **(alternativa) `image: …:${SOURCE_COMMIT}`.** O Coolify injeta `SOURCE_COMMIT` como variável
+  predefinida da aplicação. Se ela chegar à interpolação do compose, a tag se resolve sozinha.
+  **Não está documentado que chegue** — é MEDIUM confidence e deve ser testado no 02-12 antes
+  de ser adotado. E a reversão fica pior: dependeria do botão de rollback do Coolify, cujo
+  suporte a recursos de compose **não está documentado**.
+
+**E o bloqueador:** nada disso funciona enquanto DM-7 não for resolvido.
+
+### 5. O build passa a rodar na caixa? Meça.
+
+**Não, e não poderia: não há Node na caixa** (DM-19). Sob D2-23 o build inteiro —
+`sim:build`, `sim:version`, `tsc --noEmit`, `vite build`, `sw:emit`, `server:build` — é do CI,
+como já é hoje.
+
+O que sobra de custo na caixa, por deploy:
+
+| Etapa | Custo | Risco para o vizinho |
+|---|---|---|
+| `git clone` do repositório (público, raso) | segundos, alguns MB | desprezível |
+| `docker pull` das camadas novas | com o `COPY package*.json` antes do bundle, poucos MB por deploy; num deploy só de cliente, ~1 MB | rede, não CPU |
+| `docker compose up -d` | recria 1 ou 2 contêineres | segundos de CPU; o `mem_limit` impede que o novo processo dispute memória |
+| **`npm ci`, `tsc`, `vite build`** | **zero** | — |
+
+Os dois vCPU do vizinho **não** são disputados por compilação. É um dos ganhos que D2-23 cita
+("o build não disputa os dois núcleos com a produção do outro projeto") e ele se confirma
+medido.
+
+### 6. Sem `deploy-forced.sh`, o modelo de acesso do Coolify substitui a defesa que aquele wrapper comprava?
+
+**Substitui, e melhora — mas só na saída A ou B de DM-7. Nas saídas C e D a resposta é
+diferente e precisa ser dita.**
+
+Comparação de superfície:
+
+| | **Antes (02-11)** | **Depois (saída A/B)** | **Depois (saída D)** |
+|---|---|---|---|
+| Credencial em serviço de terceiro | Chave SSH privada Ed25519, longeva | Token do Coolify, revogável, com expiração e escopo `Deploy` | Chave SSH longeva |
+| O que ela pode fazer | `rsync --server` para duas árvores + `deploy.sh <sha40>`, filtrado por `deploy-forced.sh` — **um wrapper de 7,6 KB que o `02-REVIEW` CR-01 já achou uma fuga** | Disparar deploy de **um** recurso. Nenhuma escrita de arquivo, nenhum shell | Executar **um** comando literal, sem argumento. Menos que o `deploy-forced.sh`, que aceitava argv |
+| Se vazar | Escrita arbitrária de arquivo na caixa, com escalada por `authorized_keys` se o dono/modo estiver errado | Deploy de uma versão já publicada no GHCR do repositório — e nada mais | Deploy da versão corrente |
+| Superfície nova que ninguém tinha | — | **O painel do Coolify passa a ser público** (login, e-mail, 2FA). É o custo real da saída A | Nenhuma |
+| Superfície nova compartilhada | — | GHCR: um pacote público com as duas imagens do jogo. Conteúdo já público | Idem |
+
+**Resposta direta:** sim, o modelo do Coolify substitui e supera a defesa do wrapper — **em
+tudo, menos numa coisa**: o wrapper protegia uma caixa que ninguém mais usava, e o token do
+Coolify vive numa plataforma que também opera a produção do vizinho. Um token com escopo
+`Deploy` não alcança o vizinho (o Coolify tem isolamento por time e por recurso), mas o
+**painel exposto** alcança. Por isso a recomendação da saída A vem com três condições, e as
+três devem virar tarefa: **permissão `Deploy` e não `root`; expiração no token; e 2FA na conta
+do painel.** Sem elas, a troca não é claramente melhor.
+
+---
+
+## O que NÃO muda
+
+Verificado item a item contra o repositório.
+
+| Construído em | O quê | Por que sobrevive |
+|---|---|---|
+| **02-01** | `tests/workflows.test.ts` — nenhum workflow publica no Pages | É a prova executável de INFRA-01, e é sobre o `.github/`, não sobre a caixa. **Intocada** |
+| **02-02** | `base: '/'` (medido: `vite.config.ts:49`), `href` absolutos de raiz, as duas fontes em `public/fonts/`, `tests/build-base.test.ts` | Propriedades do artefato. O Traefik roteia por Host e serve a raiz do domínio; nada reintroduz subcaminho |
+| **02-05** | `playwright.config.ts`, `tests/pwa/helpers.ts`, **`tests/pwa/fixtures/old-build/`** | **A fixture continua válida.** Ela é servida por um `http.Server` local que os helpers sobem em porta efêmera — não passa nem perto do Caddy, do Traefik ou do Docker. A janela que a congelou (depois de 02-02, antes de 02-06) já fechou e é história |
+| **02-06** | `public/sw.js` como template com sentinelas, `tools/sw/emit.mjs`, `tools/sw/verify.mjs`, `sw:emit` no fim do `build` | O `sw.js` publicado é gerado no CI, entra no `dist/`, e o `dist/` entra na imagem `web` por `COPY`. O Caddy o serve com `Cache-Control: no-cache` (matcher `@shell`), o Traefik repassa sem tocar. **As três classes de cache continuam funcionando atrás do Traefik** — medido: o Traefik não reescreve `Cache-Control` (a resposta do vizinho carrega o dele intacto) |
+| **02-07** | `#btn-update`, `showUpdateOffer`, o ciclo `SKIP_WAITING`/`controllerchange`, `tests/dom-ids.test.ts` | Puro cliente |
+| **02-08** | `apps/server` inteiro: workspace confinado, `openDb` com os quatro pragmas, provider estático, `gold_entry`, `/api/health` de três chaves, `export const server`, `shutdown.ts` | **Uma linha muda** (DM-9, o bind). Tudo o mais fica, inclusive o desligamento gracioso, que DM-13 mostra sobreviver ao `-exec` |
+| **02-09** | `update.spec.ts`, `api-isolation.spec.ts`, job `pwa` no CI, `docs/PARIDADE.md` | Rodam contra o `dist/` local, não contra a caixa |
+| **02-10** | `tools/ops/restore-verify.mjs`, `ops/litestream.yml` | O script fica idêntico; o `.yml` muda no máximo um caminho |
+| **02-11** | Os dois `upload-artifact` no job `test`, `sw:verify` e `server:build` antes deles, `hasLine()` | São a fronteira que D2-23 preserva: a imagem copia esses artefatos |
+| **D2-18 / DM-2 / P-11** | O SW do DungeonGuys **original** apaga todo cache que não seja dele, e Cache Storage é por origem | Continua sendo o argumento de por que domínio próprio não é conforto. Nada nesta fase toca o jogo original |
+
+**Uma verificação nova, barata, que vale a pena no 02-12:** conferir no navegador, contra
+`https://dg2.kring.tech/`, que os três `Cache-Control` chegam ao cliente como o Caddy os
+escreveu, e que o `alt-svc` de HTTP/3 do Traefik não interfere na instalação do service worker.
+É um `curl -I` de três URLs e um DevTools aberto — mas é a diferença entre "o Traefik não
+mexe nos cabeçalhos" ser medição ou suposição.
+
+---
+
+## Convivência com o vizinho (infraKring)
+
+Orçamento medido da caixa: **7,9 GiB de RAM (5,8 disponíveis), 2 vCPU, 85 GB livres, cgroup
+v2, swap de 2 GiB configurado.**
+
+| Recurso | O que o jogo pede | Sobra |
+|---|---|---|
+| Memória | `web` 96 MiB + `api` 320 MiB = **416 MiB** de teto rígido | ~5,4 GiB continuam livres. O teto não existe por escassez: existe para que um vazamento no signaling da fase 3 não mate nem a API nem o vizinho — é o motivo original de D2-19, transportado |
+| CPU | `cpus: 0.5` + `cpus: 1.0` de **teto**, num total de 2 vCPU | Um teto, não uma reserva. Em repouso o jogo consome quase nada; sob carga, o `cpus` impede que ele monopolize os dois núcleos. O build não roda aqui (DM-19) |
+| Disco | ~130 MB por par de imagens no primeiro deploy; poucos MB por deploy depois; volume do SQLite na casa dos KB por meses | Retenção de 5 imagens cabe folgada em 85 GB (DM-16) |
+| Portas no host | **Nenhuma** pelo contêiner. `3478/udp`, `3478/tcp`, `5349/tcp` e a faixa de relay pelo coturn nativo, na fase 3 | Nenhuma colisão: nada do vizinho usa essas portas (medido em `ss -tulnp`) |
+| Volumes | Um volume nomeado novo (`dg2-data`) | Os três existentes são do Coolify e do vizinho, intocados |
+
+**O que acontece com o vizinho se o contêiner do jogo entrar em crash-loop:**
+
+- **Memória:** nada. O `mem_limit` é do cgroup; o OOM-killer mata dentro do cgroup do jogo.
+  Esta é a substituição direta do `MemoryMax` do `dg2.service`, e o par com `NODE_OPTIONS`
+  continua obrigatório (P-10).
+- **CPU:** o `cpus: 1.0` limita a um núcleo. Um laço de reinício rápido consome fração de
+  núcleo, não os dois.
+- **Reinício:** `restart: unless-stopped` mais o backoff exponencial do Docker (que dobra até
+  ~1 min) é o substituto de `StartLimitIntervalSec=60`/`StartLimitBurst=5`. A diferença
+  importa e deve estar no runbook: **o systemd chegava a `failed` e parava; o Docker tenta
+  para sempre.** P-9 (migração que falha vira crash-loop invisível) volta com outra roupa — o
+  que fecha a corrente de alarme agora é o **healthcheck do compose** mais o monitor externo
+  de D2-21, não o estado da unit.
+- **Traefik:** um serviço sem contêiner saudável faz o roteador responder 503. O roteador do
+  vizinho é outro; nada se cruza.
+- **Rede:** o Coolify cria uma bridge por recurso. Não declare `networks:` e não haverá
+  contato.
+
+**A regra de ouro do plano:** toda alteração no host é **aditiva e confirmada antes** — as três
+regras de UFW do coturn, a faixa de relay, e (se DM-7 for pela saída A ou B) o FQDN do painel.
+Nada mais. Os dois achados de segurança do infraKring ficam **registrados e não corrigidos**.
+
+---
+
+## Vigilância — a perna que morreu e o que a substitui
+
+D2-30 mata `cert-check.sh`/`.service`/`.timer`, e D2-16 é explícita sobre por que as duas
+pernas existiam: *"o timer local vê o certificado real mas cala junto com a caixa; o monitor
+externo sobrevive à queda mas só infere o certificado"*. Com o timer morto, **fica uma perna
+só**, e o alarme de 30 dias que D2-16 exigia perde o dono.
+
+**O certificado passa a ser do Traefik**, que renova sozinho, e o Let's Encrypt encerrou o
+aviso por e-mail em jun/2025 — ninguém mais avisa de graça.
+
+**Recomendação concreta:** ao escolher o serviço externo de D2-21, escolha um que faça **as
+duas coisas** — disponibilidade por keyword em `/api/health` e **alerta de expiração de
+certificado**. UptimeRobot e Better Stack oferecem monitor de SSL com limiar configurável;
+Healthchecks.io é ótimo para cron e não faz isso. Isso recupera a capacidade sem reintroduzir
+um timer na caixa, e sem contrariar D2-30.
+
+**O que precisa estar escrito no runbook:** que a segunda perna deixou de existir por decisão,
+que o alarme de 30 dias mora agora no painel do monitor de terceiro, e que se aquele serviço
+for trocado um dia, o limiar de certificado vai junto.
 
 ---
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
+| Abordagem antiga (2026-08-31) | Abordagem atual | Quando mudou | Impacto |
 |---|---|---|---|
-| `replicas:` (array) no Litestream | **`replica:` (singular)** | v0.5.0 | Copiar tutorial antigo quebra a configuração (P-8) |
-| Backup Litestream em formato v0.3.x | **LTX**, com `restore` detectando os dois | v0.5.7 | Restauração transparente entre formatos |
-| `better-sqlite3` com `prebuild-install` | **Prebuilds publicados dentro do próprio pacote** | v13.0.0 | Sem `install`/`postinstall`; binários N-API atravessam majors do Node. **Corrige a nota da `STACK.md`** de "recompila a cada major" |
-| Aviso de expiração de certificado por e-mail (Let's Encrypt) | **Não existe mais** | 2025-06-04 | Monitoramento é obrigação de quem opera (D2-16) |
-| `skipWaiting()` como padrão de PWA | **Prompt de atualização**, aplicado em ponto seguro | prática corrente | D2-09; obrigatório com multiplayer e com D-08 |
-| Lista de precache escrita à mão | **Derivada do manifesto de build** | prática corrente | D2-10; elimina o 404 que rejeita a instalação inteira |
-| `handle` do Caddy dependendo da ordem no arquivo | **Ordenação automática por especificidade** | Caddy 2.x | P-5 |
+| Caddy nativo dono da 443, ACME próprio | Traefik do Coolify termina TLS; Caddy vira política HTTP em porta interna | 2026-09-09, D2-25 | O Caddyfile perde o endereço e o ACME; ganha `trusted_proxies` e `auto_https off` |
+| `systemd` supervisiona Node e Litestream em units irmãs | Docker supervisiona; Litestream vira PID 1 e envolve o Node | D2-22/D2-28 | 4 arquivos de unit saem; o desligamento gracioso sobrevive (DM-13) |
+| Releases por sha em disco, symlink atômico, `prune-releases.sh` retendo 5 | Imagens por sha no GHCR e em disco; reversão para imagem local; retenção a definir | D2-24 | Garantia estrutural vira probabilística (DM-16) — registre a perda |
+| `rsync` sobre SSH com chave restrita e wrapper `command=` | `docker push` com token efêmero + gancho HTTP | D2-23/D2-31 | Superfície menor, mas depende de DM-7 |
+| `/etc/dg2/env` como lugar único dos segredos | Painel do Coolify para o app; arquivo no host só para o coturn | D2-29 | "Reconstruir a caixa é clonar o repo + restaurar um env" deixa de valer pela metade |
+| `cert-check` local + monitor externo | Só monitor externo | D2-30 + D2-16 emendada | Escolha um monitor com alerta de SSL |
+| better-sqlite3 exigindo `node_modules` instalado à mão na caixa | prebuilds no tarball do npm; `npm ci` dentro do build | DM-12 | O passo manual mais frágil do runbook desaparece |
 
-**Deprecado / a não usar:**
-- `actions/upload-pages-artifact` + `actions/deploy-pages` — saem junto com o `deploy.yml`.
-- `node-version: 20` no `deploy.yml` — divergia do `ci.yml` e sai com ele.
-- `try_files {path} /index.html` — não há roteamento de cliente neste jogo (DM-5).
-- `GAME_URL = 'https://gustavoktausend.github.io/DungeonGuys2/'` (`src/ui/screens.ts:180`) —
-  aponta para uma URL que **retorna 404 hoje**. Os botões de compartilhar já estão quebrados;
-  esta fase os conserta de graça ao trocar pelo domínio novo.
+**Descontinuado nesta fase:** `deploy.sh`, `rollback.sh`, `deploy-forced.sh`,
+`prune-releases.sh`, `dg2.service`, `litestream.service`, `cert-check.{sh,service,timer}`, os
+quatro secrets de SSH, `DEPLOY_ENABLED`, o passo manual de `/srv/dg2/node_modules`, o layout
+`/srv/dg2/{releases,server-releases,current,current-server}`.
 
 ---
 
@@ -1390,46 +1639,51 @@ WantedBy=timers.target
 
 | Diretiva | Como esta fase a respeita |
 |---|---|
-| `dependencies: {}` no jogo publicado | Hono/Kysely/better-sqlite3 vão **só** para `apps/server/package.json` (D2-04). A raiz continua `dependencies: {}`. `@playwright/test` é `devDependencies` da raiz |
-| `packages/sim` puro, sem DOM/`Date`/`Math.random` | **Nenhum arquivo de `packages/sim` é tocado nesta fase** |
-| `DT_MS`, `TICK_FACTOR`, `WORLD`, `TILE` | Intocados |
-| Netcode P2P host-autoritativo, fronteira preparada | Hono escolhido **porque** `@hono/node-server` expõe o `http.Server` que a fase 3 precisa |
-| Assets vêm prontos de outro repositório | Nenhuma mudança de arte. O precache "tudo" fica ~350 KB e a fase 7 revisita o orçamento |
-| Comentários em inglês; docs e commits em português | Todos os exemplos deste documento seguem isso |
-| Não usar `simple-peer`, `socket.io`, SaaS de auth/backend | Nenhum aparece aqui |
-| `node:sqlite` ainda não (Stability 1.2) | `better-sqlite3` 13.0.3 |
-| `skipWaiting()` no SW com multiplayer é proibido | D2-09 é exatamente isso; o template acima não o chama no `install` |
-| Vite 7.3.6, não 8.x; TypeScript 6.0.3, não 7 | Nada nesta fase mexe na toolchain |
-| Fluxo GSD antes de editar arquivos | Este documento é pesquisa; nenhuma edição de código foi feita |
+| **TypeScript + Vite, sem dependências de runtime no jogo publicado (`dependencies: {}`)** | A raiz continua com `{}`; nada de npm entra. As imagens são infraestrutura, não dependência do bundle. `tests/workspaces.test.ts` (02-08) já é o portão |
+| **Pureza de `src/sim/`** | Nada nesta fase toca `packages/sim`. `SIM_VERSION` não se move — se mover, alguém mexeu onde não devia (D2-01 § fora do escopo) |
+| **Passo fixo `DT_MS`, `TICK_FACTOR`** | Intocados |
+| **`WORLD`, `TILE`** | Intocados |
+| **Infra: VPS própria, jogo/API/signaling no mesmo servidor, domínio único; operação é do usuário** | Mantido — com a correção de que o servidor é compartilhado com o infraKring e o domínio é `dg2.kring.tech`. TLS deixa de ser operação do usuário e passa a ser do Traefik, o que **reduz** carga operacional |
+| **Netcode P2P host-autoritativo, fronteira desenhada para trocar transporte** | Fora do escopo desta fase; a única antecipação é o `handle /ws` do Caddyfile, que já existe |
+| **Assets em repositório separado** | Fora do escopo |
+| **Público fechado primeiro** | Mantido |
+| **Comentários de código em inglês; documentos e commits em português** | Os exemplos de código acima seguem a regra: comentários em inglês nos arquivos que vão para o repositório, prosa deste documento em português |
+| **Node 24 LTS na VPS, nunca Current** | `node:24.20.0-trixie-slim`. Node 26 é *Current* e fica fora |
+| **`better-sqlite3` 13.0.3, não `node:sqlite`** | Mantido; DM-12 melhora o caminho de instalação |
+| **coturn com `use-auth-secret` e `denied-peer-ip`** | Mantido; DM-14 registra que a versão é 4.6.1-2 do Debian, e DM-15/C-5 corrigem a faixa de relay |
+| **Nada de `skipWaiting()` no SW com multiplayer** | Já resolvido nos 02-06/02-07 |
+| **Evitar SaaS que contradiga auto-hospedagem** | GHCR é registro de artefato, não hospedagem do jogo; o monitor externo é o único terceiro, e D2-21 já o decidiu |
 
 ---
 
 ## Environment Availability
 
-Sondado na máquina de desenvolvimento (Windows 11, Git Bash) em 2026-08-31.
+Medido na caixa em 2026-09-09 por `ssh dg2vps`.
 
-| Dependency | Required By | Available | Version | Fallback |
+| Dependência | Exigida por | Disponível | Versão | Alternativa |
 |---|---|---|---|---|
-| Node.js | build, tools, apps/server | ✓ | 24.11.1 | — |
-| npm | workspaces | ✓ | 11.6.2 | — |
-| `gh` CLI | criar o repo do GitHub (DM-1) | ✓ | 2.83.2 | web UI |
-| ssh / ssh-keygen | gerar a chave de deploy, rodar `rollback.sh` | ✓ | OpenSSH do Windows | — |
-| openssl | validar o script de `cert-check` localmente | ✓ | 3.2.4 | rodar só na VPS |
-| curl, tar | diagnóstico | ✓ | 8.14.1 / 1.35 | — |
-| **rsync** | deploy | ✗ | — | O deploy roda no `ubuntu-latest`, que **tem** rsync. Ausência local só impede deploy manual da máquina — que D2-05 proíbe de qualquer forma |
-| **sqlite3 (CLI)** | `restore-verify.mjs` compara com ele | ✗ | — | O script roda **na VPS** (`apt install sqlite3`). Alternativa sem CLI: fazer as duas consultas por `better-sqlite3` dentro do próprio script |
-| **caddy / litestream / systemctl** | toda a operação | ✗ | — | São da VPS. **Nada disso é verificável desta máquina** |
-| **A VPS em si** | tudo de INFRA-04 | ? | — | Não sondada: o endereço não está no repositório por D2-15 |
-| **DNS do domínio** | INFRA-01 | ? | — | D2-13 declara pronto; não verificável daqui (o nome não está no repo) |
-| **Bucket S3-compatível** | D2-17 | ✗ | — | A criar (Backblaze B2 ou equivalente) |
+| Docker Engine | D2-22, tudo | ✓ (via `sudo`) | 29.6.0, API 1.55 | — |
+| Docker Compose | D2-25 | ✓ | v5.1.4 | — |
+| Coolify | D-VPS-03 | ✓ | 4.3.18 | — |
+| Traefik | D2-25, TLS | ✓ | v3.6 | — |
+| DNS `dg2.kring.tech` | D-VPS-01 | ✓ | resolve; 503 + cert autoassinado | — |
+| Porta 80/443 abertas | ACME e o jogo | ✓ | UFW ALLOW | — |
+| Alcançabilidade da API do Coolify de fora | **D2-31** | **✗** | 8000 e 8080 dão timeout | **Nenhuma sem mudança no host — ver DM-7** |
+| `node` no host | (nada, sob D2-23) | ✗ | — | Não é necessário |
+| `rsync` | (nada, sob D2-23) | ✗ | — | Não é necessário |
+| `litestream` no host | D2-28 | ✗ | — | Vai **dentro da imagem** |
+| `coturn` | D2-26, fase 3 | ✗ | candidato 4.6.1-2 | `apt install coturn` (aditivo) |
+| Regras UFW 3478/5349 + faixa de relay | D2-27, fase 3 | ✗ | só 22/80/443 tcp | `ufw allow` (aditivo, confirmar antes) |
+| Grupo `docker` para o usuário `deploy` | conveniência | ✗ | tem `sudo` NOPASSWD | `sudo docker` — **e assim deve ficar** |
+| Bucket S3-compatível | D2-17 | **desconhecido** | credenciais em `.vps.local`, fora do git | Criar no 02-04 se não existir |
+| Conta no monitor externo | D2-21 | **desconhecido** | — | Criar no 02-04/02-12 |
 
-**Missing dependencies with no fallback (bloqueiam execução):**
-- **Acesso SSH à VPS provisionada.** Nenhuma tarefa de `ops/` fecha sem isso.
-- **Bucket S3-compatível com credenciais.** Sem ele, D2-17 e D2-03 não existem.
-- **Repositório no GitHub.** Sem ele, D2-05 não existe (DM-1).
+**Faltantes sem alternativa (bloqueiam a execução):**
+- Alcançabilidade da API do Coolify — **DM-7, decisão humana**.
 
-**Missing dependencies with fallback:** rsync local (o CI tem), `sqlite3` CLI local (roda na
-VPS, ou substituir por `better-sqlite3`).
+**Faltantes com caminho conhecido (trabalho da fase):**
+- coturn e as regras de UFW (aditivos, confirmados antes, e são fase 3 na prática).
+- Bucket S3-compatível e monitor externo (portões humanos, herdados do 02-04 original).
 
 ---
 
@@ -1437,105 +1691,76 @@ VPS, ou substituir por `better-sqlite3`).
 
 ### Test Framework
 
-| Property | Value |
+| Propriedade | Valor |
 |---|---|
-| Framework (unidade, Node) | Vitest 4.1.11 — `vitest.config.ts`, `include: ['tests/**/*.test.ts']` |
-| Framework (cross-engine) | Vitest browser mode + `@vitest/browser-playwright` 4.1.11 — `vitest.browser.config.ts` |
-| Framework (PWA/e2e) — **novo** | `@playwright/test` **1.62.1** (fixar exato, igual ao `playwright` já travado) — `playwright.config.ts` |
-| Config file | `vitest.config.ts`, `vitest.browser.config.ts` existem; `playwright.config.ts` → **Wave 0** |
-| Quick run command | `npm test` (Vitest Node, segundos) |
-| Full suite command | `npm run lint && npm run typecheck:sim && npm run typecheck:protocol && npm test && npm run sim:version:verify && npm run assets:selftest && npm run assets:refusal && npm run assets:validate && npm run test:browser && npm run build && npm run sw:verify && npm run test:pwa` |
-| Naming | Specs do Playwright em `tests/pwa/*.spec.ts`. O `include` do Vitest é `*.test.ts`, então **não há colisão** e nenhuma exclusão é necessária |
+| Unidade (Node) | Vitest 4.1.11 — `vitest.config.ts`, `include: ['tests/**/*.test.ts']` |
+| Cross-engine | Vitest browser mode + `@vitest/browser-playwright` — `vitest.browser.config.ts` |
+| PWA/e2e | `@playwright/test` **1.62.1** (exato) — `playwright.config.ts`, projetos `pwa` e `net` |
+| Comando rápido | `npm test` |
+| Suíte completa | `npm run lint && npm run typecheck:{sim,protocol,server,net} && npm test && npm run bench:snapshot && npm run sim:version:verify && npm run assets:{selftest,refusal,validate} && npm run test:browser && npm run build && npm run sw:verify && npm run server:build && npm run test:e2e` |
 
 ### Phase Requirements → Test Map
 
-| Req | Comportamento | Tipo | Comando automatizado | Existe? |
+| Req | Comportamento | Tipo | Comando | Existe? |
 |---|---|---|---|---|
-| INFRA-01 | `base` é `'/'` e nenhum caminho emitido carrega `/DungeonGuys2/` | unit | `npx vitest run tests/build-base.test.ts` | ❌ Wave 0 |
-| INFRA-01 | Não há workflow publicando no GitHub Pages | unit | `npx vitest run tests/workflows.test.ts` (grep por `deploy-pages`/`upload-pages-artifact` em `.github/workflows/`) | ❌ Wave 0 |
-| INFRA-01 | O domínio serve HTTPS com certificado válido | shell (VPS/manual) | `ops/cert-check.sh` | ❌ Wave 0 |
-| INFRA-01 | Certificado com >30 dias, continuamente | timer + monitor externo | `systemctl start cert-check.service` · monitor externo em `/api/health` | ❌ Wave 0 |
-| INFRA-02 | Instalação limpa: SW ativa e o precache tem todos os arquivos do `dist/` | e2e | `npx playwright test tests/pwa/install.spec.ts` | ❌ Wave 0 |
-| INFRA-02 | Offline depois da instalação, **sem nunca ter jogado** | e2e | `npx playwright test tests/pwa/offline.spec.ts` | ❌ Wave 0 |
-| INFRA-02 | Manifesto instalável: `scope`/`start_url` batem com o escopo do SW | e2e | mesma spec de `install` | ❌ Wave 0 |
-| INFRA-03 | `/api/*` nunca entra no Cache Storage | e2e | `npx playwright test tests/pwa/api-isolation.spec.ts` | ❌ Wave 0 |
-| INFRA-03 | Resposta não-`ok` nunca é gravada | e2e | mesma spec (rota mockada devolvendo 502) | ❌ Wave 0 |
-| INFRA-03 | Nome do cache deriva do build; update deixa **um** cache | e2e | `npx playwright test tests/pwa/update.spec.ts` | ❌ Wave 0 |
-| INFRA-03 | O passo de build realmente rodou (sem sentinela sobrando) | build gate | `npm run sw:verify` | ❌ Wave 0 |
-| INFRA-04 | Deploy é um comando e é reversível | shell (VPS) | `ops/deploy.sh <sha>` · `ops/rollback.sh` | ❌ Wave 0 |
-| INFRA-04 | Migração roda e é idempotente (dois starts seguidos) | integração (Node) | `npx vitest run tests/server-migrate.test.ts` (banco em `:memory:` ou tmp) | ❌ Wave 0 |
-| INFRA-04 | `/api/health` responde 200 e não vaza | integração | `npx vitest run tests/server-health.test.ts` | ❌ Wave 0 |
-| INFRA-04 | Backup **restaurado** e conferido | shell (VPS) | `node tools/ops/restore-verify.mjs` | ❌ Wave 0 |
+| INFRA-01 | `base` é `'/'` e nada emitido carrega o subcaminho | unit | `npx vitest run tests/build-base.test.ts` | ✅ |
+| INFRA-01 | Nenhum workflow publica no Pages | unit | `npx vitest run tests/workflows.test.ts` | ✅ |
+| INFRA-01 | O domínio serve HTTPS com certificado válido | manual/VPS | `curl -sI https://dg2.kring.tech/` | ❌ 02-12 |
+| INFRA-01 | Certificado com >30 dias, continuamente | monitor externo | painel do monitor com alerta de SSL | ❌ 02-12 |
+| INFRA-02 | Instalação limpa: SW ativa e o precache cobre o `dist/` | e2e | `npx playwright test --project=pwa tests/pwa/install.spec.ts` | ✅ |
+| INFRA-02 | Offline depois da instalação, sem nunca ter jogado | e2e | `…/offline.spec.ts` | ✅ |
+| INFRA-03 | `/api/` e `/ws` nunca entram no Cache Storage; não-`ok` nunca é gravado | e2e | `…/api-isolation.spec.ts` | ✅ |
+| INFRA-03 | Atualização in-place deixa exatamente **um** cache | e2e | `…/update.spec.ts` | ✅ |
+| INFRA-03 | O passo de build rodou (sem sentinela sobrando) | build gate | `npm run sw:verify` | ✅ |
+| INFRA-04 | Migração roda e é idempotente | integração | `npx vitest run tests/server-migrate.test.ts` | ✅ |
+| INFRA-04 | `/api/health` responde 200 e não vaza | integração | `npx vitest run tests/server-health.test.ts` | ✅ |
+| **INFRA-04** | **A composição declara os limites, o `-exec`, o `pull_policy` e nenhuma porta publicada** | **unit** | **`npx vitest run tests/ops-config.test.ts`** | **❌ reescrever** |
+| **INFRA-04** | **O `ci.yml` publica imagem por sha, com uma única escrita de escopo** | **unit** | **`npx vitest run tests/workflows.test.ts`** | **❌ alterar** |
+| INFRA-04 | Deploy é um comando | manual/VPS | push na `main` → `/api/health` responde com o sha novo | ❌ 02-12 |
+| INFRA-04 | Reversão funciona **sem rede** | manual/VPS | tag anterior + `up -d` com `ghcr.io` inalcançável | ❌ 02-12 |
+| INFRA-04 | Backup **restaurado** e conferido | manual/VPS | `sudo docker run --rm … node /srv/tools/ops/restore-verify.mjs` | ❌ 02-12 |
 
 ### Success Criteria → Sinal Observável → Onde É Medido
 
-| # | Critério | Sinal observável que prova | Onde é medido |
+| # | Critério | O que prova, sob a arquitetura nova | Onde |
 |---|---|---|---|
-| **1** | Jogo no domínio próprio sob HTTPS, e **um** alvo de deploy | (a) `curl -sI https://$DG2_DOMAIN/` → `200` e cadeia TLS válida; (b) `grep -r 'deploy-pages\|upload-pages-artifact' .github/` → **vazio**; (c) `openssl x509 -checkend 2592000` → exit 0; (d) o monitor externo registrou pelo menos uma checagem verde | (a) shell na VPS + navegador; (b) `tests/workflows.test.ts` **no CI**; (c) `cert-check.timer` na VPS; (d) painel do monitor externo, print anexado em `docs/OPERACAO.md` |
-| **2** | Instalação limpa **e** atualização a partir de instalação antiga funcionam; abre sem rede | (a) `install.spec.ts`: `navigator.serviceWorker.controller !== null` e `caches.keys()` = 1 cache, cujo conteúdo é **exatamente** a lista de `dist/` menos `sw.js`; (b) `update.spec.ts`: partindo do fixture do SW velho, `registration.waiting` aparece, o botão de update dispara `controllerchange`, e depois sobra **1** cache; (c) `offline.spec.ts`: com o servidor derrubado, `page.reload()` renderiza a tela inicial e o botão START responde | Playwright no CI, projeto **chromium** |
-| **3** | `/api/` nunca servido do cache; não-`ok` nunca gravado; deploy novo não deixa cache velho | (a) `api-isolation.spec.ts`: depois de N chamadas a `/api/health`, `caches.keys()` → para cada cache, `cache.keys()` não contém nenhuma URL com `/api/`; (b) rota mockada devolvendo 502 para um asset precacheado → aquele asset **não** muda no cache; (c) `update.spec.ts` assere `caches.keys().length === 1` e que o nome mudou | Playwright no CI, projeto **chromium** |
-| **4** | Deploy é um comando e é reversível; backup **restaurado** e o resultado anotado | (a) `ops/deploy.sh <sha>` termina 0 e `readlink /srv/dg2/current` aponta para o sha; (b) `ops/rollback.sh` volta o symlink, `curl` do `index.html` bate o hash do release anterior, **com a rede do GitHub irrelevante**; (c) `node tools/ops/restore-verify.mjs` imprime uma linha verde e sai 0; (d) existe um arquivo em `docs/` com data, duração e o que faltou | (a)(b)(c) shell na VPS; (d) revisão de artefato — o verificador da fase abre o arquivo |
+| **1** | Jogo no domínio próprio sob HTTPS, e **um** alvo de deploy | (a) `curl -sI https://dg2.kring.tech/` → 200 com cadeia válida do Let's Encrypt emitida pelo **Traefik**; (b) `tests/workflows.test.ts` verde — nenhum workflow toca o Pages; (c) o monitor externo registrou uma checagem verde **e** tem alerta de expiração de certificado configurado | (a) shell + navegador no 02-12; (b) CI; (c) painel do monitor, colado em `docs/OPERACAO.md` |
+| **2** | Instalação limpa **e** atualização a partir de instalação antiga; abre sem rede | As quatro specs de Playwright, **inalteradas**, no job `pwa`. **Mais** uma conferência no 02-12 contra o domínio real: instalar o PWA, desligar a rede, abrir | CI (Chromium) + navegador no 02-12. Lacuna de iOS/Safari e de Firefox/WebKit continua registrada em `docs/PARIDADE.md` (D2-11) |
+| **3** | `/api/` nunca do cache; não-`ok` nunca gravado; deploy novo não deixa cache velho | `api-isolation.spec.ts` e `update.spec.ts`, **inalteradas**. **Mais**, no 02-12: `curl -I` das três classes contra o domínio real, provando que o Traefik não reescreve `Cache-Control` | CI + `curl` no 02-12 |
+| **4** | Deploy é um comando e é reversível; backup restaurado e anotado | (a) um push na `main` faz `/api/health` devolver o sha novo, sem intervenção; (b) apontar para o sha anterior e redeployar devolve o jogo anterior **com o `ghcr.io` inalcançável**; (c) o contêiner descartável imprime a linha verde do `restore-verify.mjs` e sai 0; (d) `docs/OPERACAO.md` tem data, duração e o que faltou | (a)(b)(c) shell no 02-12; (d) artefato — o verificador da fase abre o arquivo |
 
 ### Sampling Rate
 
-- **Por commit de tarefa:** `npm test` (Vitest Node — segundos).
-- **Por merge de wave:** `npm run lint && npm test && npm run build && npm run sw:verify && npm run test:pwa`.
-- **Portão de fase:** suíte completa verde no CI (incluindo `test:browser` e o job `pwa`)
-  **mais** os quatro comandos de shell da VPS executados uma vez com a saída colada em
-  `docs/OPERACAO.md`.
+- **Por commit de tarefa:** `npm test`.
+- **Por merge de onda:** `npm run lint && npm test && npm run build && npm run sw:verify && npm run test:e2e`.
+- **Portão de fase:** suíte completa verde no CI **mais** as quatro execuções contra a caixa
+  real, com a saída colada em `docs/OPERACAO.md`.
 
 ### Wave 0 Gaps
 
-- [ ] `playwright.config.ts` — `testDir: 'tests/pwa'`, `projects: [{ name: 'chromium' }]`,
-      `webServer` servindo `dist/` (ver a nota de derrubar o servidor, abaixo)
-- [ ] `npm i -D @playwright/test@1.62.1` — versão exata, casando com `playwright` 1.62.1 do lock
-- [ ] `tests/pwa/fixtures/old-build/` — o `dist/` de **antes** da reescrita do `sw.js`, com o
-      `public/sw.js` atual, para servir de "instalação antiga" do critério 2
-- [ ] `tests/pwa/helpers.ts` — servidor estático controlável (fixture), `waitForActivated()`,
-      `readCacheEntries()`
-- [ ] `tests/pwa/install.spec.ts`, `update.spec.ts`, `offline.spec.ts`, `api-isolation.spec.ts`
-- [ ] `tests/build-base.test.ts` — assere que nada em `dist/` contém `/DungeonGuys2/`
-- [ ] `tests/workflows.test.ts` — assere ausência de deploy para Pages (INFRA-01 executável)
-- [ ] `tests/server-migrate.test.ts` e `tests/server-health.test.ts` — precisam que o Vitest
-      da raiz enxergue `apps/server`; conferir se o `include` `tests/**` mais os `paths` do
-      `tsconfig.json` bastam, ou se `apps/server` precisa de config própria
-- [ ] `ops/cert-check.sh`, `ops/deploy.sh`, `ops/rollback.sh`, `tools/ops/restore-verify.mjs`
-- [ ] Job `pwa` no `ci.yml` (reaproveita o cache de browser já existente) e job `deploy`
+- [ ] Nenhum arquivo de teste **novo** é necessário. `tests/ops-config.test.ts` e
+      `tests/workflows.test.ts` existem e são o instrumento — o trabalho é **reescrevê-los**,
+      e a reescrita entra no mesmo commit que remove os arquivos (D2-30).
+- [ ] Decidir se o `Dockerfile.web` ganha cabeçalho em prosa ou se os pisos anti-vacuidade
+      ganham exceção (§ delta do teste de ops). **Prefira o cabeçalho.**
+- [ ] `docs/OPERACAO.md` não existe ainda — nasce no 02-12, como o plano original previa.
 
-### Notas de projeto do teste de PWA (leia antes de escrever a spec)
+### Notas de projeto do teste de PWA (continuam valendo, sem alteração)
 
-1. **Service worker no Playwright é Chromium-only.**
-   `[CITED: playwright.dev/docs/service-workers]` — *"Service workers are only supported on
-   Chromium-based browsers."* Portanto o projeto Playwright desta fase tem **um** browser.
-   Isso amplia a lacuna já aceita em D2-11: além de iOS/Safari físico, **Firefox e WebKit
-   também ficam sem cobertura de service worker**. Registre isso junto da caixa de
-   `docs/PARIDADE.md` — é a mesma decisão, com o alcance real medido.
-2. **Não confie só em `context.setOffline()`.** É emulação por CDP
-   (`Network.emulateNetworkConditions`) e há relato antigo e ainda aberto de que não alcança
-   as requisições feitas pelo service worker (`microsoft/playwright#2311`).
-   **Recomendação:** o teste de offline **derruba o servidor estático de verdade** (fechar o
-   `http.Server` da fixture) e, por cima, chama `setOffline(true)`. Assim o teste prova
-   offline mesmo se a emulação falhar — e não vira falso verde.
-3. **Colete `requestfailed` filtrando por origem própria.** As fontes do Google vão falhar
-   offline e isso é esperado (P-7). Assertar `failed.length === 0` sem filtro produz um
-   vermelho que não é defeito.
-4. **Contexto seguro:** service worker exige contexto seguro; `http://localhost` e
-   `http://127.0.0.1` contam. O teste **não** precisa de TLS.
-5. **Não use `serviceWorkers: 'block'`** no contexto (é o conselho padrão do Playwright para
-   interceptação de rede — e aqui inutilizaria o teste inteiro).
-6. **Cuidado com o typecheck:** o `tsconfig.json` da raiz inclui `tests` e fixa
-   `types: ["vite/client"]`. Se `@playwright/test` reclamar de tipos de Node, a saída barata
-   é um `tests/pwa/tsconfig.json` próprio — **não** acrescentar `"node"` ao `types` da raiz,
-   que afrouxaria a disciplina DOM-only do cliente.
+1. **Service worker no Playwright é Chromium-only.** `[CITED: playwright.dev/docs/service-workers]`
+2. **Não confie só em `context.setOffline()`** — derrube o servidor da fixture de verdade.
+3. **Colete `requestfailed` filtrando por origem própria** (com D2-20 aplicada, a asserção
+   pode ser zero falhas sem exceção).
+4. **Contexto seguro:** `http://localhost` conta; o teste não precisa de TLS.
+5. **Não use `serviceWorkers: 'block'`.**
+6. **`tests/pwa/tsconfig.json` próprio**, em vez de afrouxar o `types` da raiz.
 
 ### Lacuna aceita, registrada por escolha (D2-11)
 
-> **PWA em iOS/Safari físico permanece sem cobertura, por decisão, e a caixa correspondente
-> em `docs/PARIDADE.md` ("PWA instalável e funcional offline — *aguardando o humano*",
-> § Plataforma) permanece ABERTA ao fim desta fase.** A medição desta pesquisa amplia o
-> alcance da lacuna: o Playwright só suporta service worker em Chromium, então Firefox e
-> WebKit — mesmo em desktop, mesmo no CI — também ficam de fora. O verificador da fase deve
-> ler o critério 2 com essa ressalva e **não** tratar a caixa aberta como pendência da fase.
+> PWA em iOS/Safari físico permanece sem cobertura, por decisão, e a caixa correspondente em
+> `docs/PARIDADE.md` permanece **aberta** ao fim desta fase. O Playwright só suporta service
+> worker em Chromium, então Firefox e WebKit também ficam de fora. O verificador da fase deve
+> ler o critério 2 com essa ressalva e **não** tratar a caixa aberta como pendência.
 
 ---
 
@@ -1543,156 +1768,83 @@ VPS, ou substituir por `better-sqlite3`).
 
 ### Applicable ASVS Categories
 
-| ASVS Category | Aplica | Controle padrão |
+| Categoria | Aplica | Controle padrão nesta fase |
 |---|---|---|
-| V2 Authentication | **não** | Fase 6. Nenhuma credencial de usuário existe nesta fase |
-| V3 Session Management | **não** | Fase 6 |
-| V4 Access Control | **parcial** | O único endpoint é `/api/health`, público por desenho. O controle real é de **infra**: `dg2` sem shell, `ProtectSystem=strict`, bind em `127.0.0.1` |
-| V5 Input Validation | **não aplicável a payload** | `/api/health` não recebe entrada. Não introduzir `zod` sem consumidor |
-| V6 Cryptography | **indireto** | TLS é do Caddy (ACME). Nada de cripto artesanal. Segredos em `/etc/dg2/env` `chmod 600` |
-| V7 Error Handling & Logging | **sim** | `handle_errors` devolve corpo genérico; nada de stack trace na resposta. Log estruturado no journald |
-| V8 Data Protection | **sim** | Cache Storage é o vetor: INFRA-03 existe para que resposta de API nunca seja persistida no cliente |
-| V12 Files & Resources | **sim** | `file_server` sobre `root` fixo; sem `try_files` que transforme 404 em 200 |
-| V14 Configuration | **sim** | Segredos fora do repositório (D2-15); chave SSH em secret; `known_hosts` fixado |
+| **V2 Authentication** | não | Better Auth é fase 6. O único segredo de autenticação aqui é o token de deploy |
+| **V3 Session Management** | não | Idem |
+| **V4 Access Control** | **sim** | Token do Coolify com escopo `Deploy` (nunca `root`), com expiração; `GITHUB_TOKEN` efêmero com `packages: write` num job só; UFW `deny incoming` com três regras aditivas; nada publicado no host pelo contêiner |
+| **V5 Input Validation** | **sim** | `zod` no protocolo (fase 3); `readEnv()` recusa valor definido-e-vazio; `restore-verify.mjs` valida o `probe` como inteiro antes de usá-lo |
+| **V6 Cryptography** | **sim** | TLS pelo Traefik/ACME; HMAC-SHA1 do TURN REST (fase 3); **nada hand-rolled**. O `static-auth-secret` é placeholder no repositório e existe de verdade em dois lugares (D2-29) |
+| **V8 Data Protection** | **sim** | Segredos no painel do Coolify e em `/etc/turnserver.conf` 0600; `tests/ops-config.test.ts` recusa segredo, domínio e IP no repositório; `.vps.local` e `.vps-inventario.local` fora do git por `*.local` |
+| **V12 Files & Resources** | **sim** | `file_server` sem `try_files`; `nosniff`; nenhum caminho vindo do cliente vira caminho de arquivo |
+| **V14 Configuration** | **sim** | CSP/HSTS/Referrer-Policy pelo Caddy (DM-11); `auto_https off`; `admin off`; `USER` não-root no `Dockerfile.api`; `mem_limit`/`cpus` |
 
 ### Known Threat Patterns
 
-| Padrão | STRIDE | Mitigação padrão |
+| Padrão | STRIDE | Mitigação, e onde ela vive |
 |---|---|---|
-| SW cacheando resposta autenticada da mesma origem | Information Disclosure | **Allowlist** derivado do build (Padrão 2). Cache Storage não respeita `Cache-Control` e não é limpo no logout |
-| SW da origem apagando o armazenamento de outro app da origem | Denial of Service | Deletar só por prefixo próprio (DM-3) |
-| `StrictHostKeyChecking=no` no job que carrega a chave de deploy | Spoofing / Tampering | `known_hosts` fixado num secret, não `ssh-keyscan` no job |
-| Chave de deploy com poder demais na VPS | Elevation of Privilege | Usuário `dg2-deploy` sem shell (`/usr/sbin/nologin` com `command=` forçado na `authorized_keys`), escrita restrita a `/srv/dg2/releases/`, e `deploy.sh` como comando forçado — a chave só sabe trocar symlink |
-| Processo Node exposto direto na internet | Spoofing | `hostname: '127.0.0.1'` no `serve()`. Sem firewall, bind em `0.0.0.0:8080` publica a API fora do TLS |
-| Segredo do Litestream num arquivo versionado | Information Disclosure | `${AWS_ACCESS_KEY_ID}` no `litestream.yml`, valor em `/etc/dg2/env` |
-| `/api/health` vazando topologia | Information Disclosure | Corpo com `status`/`db`/`release` e nada mais. Sem caminho, sem hostname, sem versão de biblioteca, sem string de erro |
-| Vazamento de memória derrubando serviços vizinhos | Denial of Service | `MemoryMax` + `MemoryHigh` por unit, pareados com `--max-old-space-size` (P-10) |
-| Um deploy ruim sem caminho de volta | Denial of Service | Symlink de release + `rollback.sh` que funciona com o GitHub fora do ar (D2-06) |
-| Ação de terceiro no pipeline que tem a chave SSH | Tampering / supply chain | Só `actions/checkout`, `setup-node`, `upload/download-artifact` — todas da própria GitHub. rsync e ssh por `run:` |
+| Token de deploy vazado publica versão arbitrária | Tampering / EoP | Escopo `Deploy` + expiração; o token só dispara deploy de **um** recurso, cujo conteúdo vem do GHCR do próprio repositório |
+| Painel do Coolify exposto à internet (saída A de DM-7) | Spoofing / EoP | **É a superfície nova mais séria desta fase.** 2FA na conta, allowlist de IP se viável, e registro explícito no runbook |
+| Imagem substituída no registro entre build e pull | Tampering | Tag por sha de commit; o commit vem do push que passou nos portões. Melhoria futura: fixar por digest, não por tag |
+| `X-Forwarded-For` forjado inflando ou esvaziando o limitador | Spoofing / DoS | Traefik não confia em XFF de não-`trustedIPs`; Caddy com `trusted_proxies static private_ranges` (DM-10). **Sem a segunda metade, a defesa não existe** |
+| Relay TURN aberto virando spam relay e SSRF para a rede da própria caixa | Tampering / Info Disclosure | As onze faixas de `denied-peer-ip` (já testadas, contagem exata), `no-multicast-peers`, `no-cli`, `user-quota`/`total-quota` casadas com a faixa |
+| Contêiner do jogo escapando para o host ou para o vizinho | EoP | `USER` não-root; nenhuma porta publicada; rede bridge própria; `mem_limit`/`cpus`; sem `privileged`, sem montagem do socket do Docker |
+| Crash-loop do jogo degradando o vizinho | DoS | `mem_limit`, `cpus`, backoff do Docker. **Registrar que o Docker tenta para sempre onde o systemd chegava a `failed`** (P-9 com roupa nova) |
+| Vazamento de endereço ou segredo pelo repositório público | Info Disclosure | O bloco D2-15 de `tests/ops-config.test.ts`, que passa a cobrir o compose e os Dockerfiles de graça (glob `../ops/*`). **Nota honesta: `dg2.kring.tech` já está em git**, nos documentos de `.planning/`; o IP não está, e é o IP que diz onde a máquina mora |
+| Regras de `DOCKER-USER` do vizinho sumindo num restart do Docker | EoP | **Não corrigir** (D-VPS-02); registrar como causa possível de incidente no `docs/OPERACAO.md` |
 
 ---
 
 ## Assumptions Log
 
-| # | Claim | Section | Risk if Wrong |
+| # | Afirmação | Seção | Risco se estiver errada |
 |---|---|---|---|
-| A1 | O handshake de WebSocket **não** dispara o evento `fetch` do service worker, o que torna a exclusão de `/ws` redundante para WebSockets (mas gratuita e útil para HTTP futuro sob esse caminho) | Padrão 2 | Baixo. A recomendação de allowlist não depende disso; se a suposição for falsa, o allowlist já cobre |
-| A2 | Prebuilds do `better-sqlite3` 13.0.3 cobrem `linux-x64` e `linux-arm64` da VPS sem toolchain de compilação | Standard Stack | Médio. Se falhar, a VPS precisa de `build-essential` + `python3`. Verificar rodando `npm i` na caixa antes de escrever o `deploy.sh` |
-| A3 | A VPS é Debian/Ubuntu com cgroup v2 (necessário para `MemoryMax`) | dg2.service | Baixo. Debian 11+/Ubuntu 22.04+ já vêm com cgroup v2 por padrão |
-| A4 | O `apt` da distro tem Caddy 2.11.x (repositório oficial do Caddy adicionado) | Standard Stack | Baixo. O repositório oficial é a instalação documentada; o pacote da distro pode estar atrás |
-| A5 | O bucket será Backblaze B2 (endpoint estilo S3), não S3 da AWS | litestream.yml | Baixo. Só muda `endpoint`/`region` |
-| A6 | Workflows agendados são desabilitados após 60 dias de inatividade **em repositórios públicos**; a aplicação a repositórios privados é menos clara nas fontes | D2-16 / Open Questions | Médio. Se a segunda perna de D2-16 for uma GitHub Action agendada, ela pode morrer em silêncio numa pausa do projeto — o que anula o monitor exatamente quando ele importa |
-| A7 | O `SIM_VERSION` calculado no `ubuntu-latest` pode diferir do calculado localmente (esbuild por plataforma) | DM-1 | Baixo **nesta fase** (`SIM_VERSION` não se move e ninguém compara). Médio na fase 3, quando entra no handshake |
-| A8 | As fontes Press Start 2P e Pixelify Sans são OFL e podem ser auto-hospedadas | P-7 | Baixo. Ambas são do Google Fonts, tipicamente OFL — conferir a licença antes de copiar |
-| A9 | 5 releases é a retenção certa | Padrão 1 | Nenhum. 350 KB por release; ajustar é uma constante |
-| A10 | `MemoryMax=256M` é folgado para um Node com Hono + um SQLite pequeno | dg2.service | Baixo nesta fase. Reavaliar na fase 3, quando `ws` e salas em memória entrarem na mesma unit |
+| A1 | O Coolify aceita uma composição de dois serviços vinda do repositório e permite atribuir o domínio ao serviço `web` | § Pergunta 1 | Alta: cairia para "Docker Compose Empty" (compose fora do git, D2-15 arranhada) ou para um contêiner só com s6-overlay. **Verificar no 02-04, antes de o resto do plano depender disso** |
+| A2 | O Coolify não roda `docker compose build` quando nenhum serviço declara `build:` | § C-7 | Baixa: seria no-op de qualquer forma; o risco é só de log confuso |
+| A3 | `SOURCE_COMMIT` chega à interpolação do compose | § Pergunta 4 | Nenhuma, porque a recomendação **não depende disso**: a via preferida é `PATCH` de env + deploy |
+| A4 | O botão de reversão do Coolify funciona para recursos de compose | § Pergunta 4 / DM-16 | Média: se não funcionar, a reversão é "setar `DG2_IMAGE_TAG` para o sha anterior + redeployar", que funciona igual e é o que o runbook deve documentar de qualquer jeito |
+| A5 | O binário do Litestream fica em `/usr/local/bin/litestream` no tarball da release | § Dockerfile.api | Baixa: `tar -tzf` no plano resolve; o sha256 precisa ser preenchido de qualquer forma |
+| A6 | O `stop_grace_period` de 30 s é folga suficiente para o drain do Node mais a sincronização final | § C-4 | Baixa: mede-se no 02-12 pelos logs; ajustável |
+| A7 | 100 portas de relay atendem o público desta fase (D2-27 diz ~25 salas totalmente por relay) | § Pergunta 2 | Baixa nesta fase (não há rede de jogo); revisar na fase 3 com medição real de desfecho ICE |
+| A8 | O bucket S3-compatível de D2-17 já existe ou é trivial de criar | § Environment Availability | Média: é portão humano herdado do 02-04 |
+| A9 | A limpeza automática do Coolify está por limiar de disco e não por cron agressivo | § DM-16 | Média: **é leitura de uma tela, e o plano deve fazê-la** |
+| A10 | O Traefik não reescreve `Cache-Control` nem interfere no registro do service worker | § O que NÃO muda | Baixa: medido indiretamente no vizinho (o `cache-control` dele chega intacto); confirmar com `curl -I` no 02-12 |
+| A11 | `caddy:2.11.4-alpine` traz `wget` para o healthcheck | § compose | Baixa: alpine traz `wget` do busybox; se não, `curl` ou o healthcheck do Coolify |
 
 ---
 
-## Open Questions (RESOLVED)
+## Open Questions
 
-> Todas as seis foram respondidas em 2026-08-31, depois desta pesquisa e antes do
-> planejamento. Cada item abaixo carrega o marcador `RESOLVED:` com a referência que a
-> respondeu. Nada aqui é pergunta aberta ao entrar na execução.
->
-> - **1** → `RESOLVED: D2-18` (02-CONTEXT.md) — despedida cortada, D2-12 revogada
-> - **2** → `RESOLVED: D2-19` (02-CONTEXT.md) + checkpoint no plano `02-04` Task 1 — KVM 2 (2 GB)
-> - **3** → `RESOLVED: D2-20` (02-CONTEXT.md) — fontes auto-hospedadas, entram no precache
-> - **4** → `RESOLVED: D2-21` (02-CONTEXT.md) — serviço externo de terceiro, não GitHub Action
-> - **5** → `RESOLVED: plano 02-08` — `SIM_VERSION` fica **fora** do `/api/health` nesta fase
-> - **6** → `RESOLVED: plano 02-08 Task 1` — `apps/server/tsconfig.json` próprio + script
->   `typecheck:server`; `apps` **não** entra no `ignores` do ESLint
+1. **Como o integrador alcança o Coolify? (DM-7)**
+   - **O que sabemos:** 8000 e 8080 dão timeout de fora; não há FQDN para a instância; o
+     lockdown é do infraKring.
+   - **O que não está claro:** se Gustavo aceita expor o painel do vizinho.
+   - **Recomendação:** **pergunta ao usuário antes do plano fechar.** Quatro saídas custeadas
+     em DM-7; a recomendada é A (FQDN + token `Deploy` + expiração + 2FA), com D (chave SSH de
+     `command=` literal) como segunda escolha se A for recusada.
 
-1. **D2-12 ainda faz sentido, dado que o Pages do DungeonGuys2 nunca existiu?** `RESOLVED: D2-18`
-   - O que sabemos: verificado — 404 na URL, repo inexistente, nenhum PWA instalado possível.
-   - O que não está claro: se o usuário quer a página de despedida mesmo assim (por exemplo,
-     porque planeja publicar no Pages antes de migrar), ou se INFRA-01 já está satisfeito.
-   - Recomendação: **`checkpoint:human-verify` antes da tarefa**. Se seguir, o `sw.js` de
-     despedida **tem** de deletar por prefixo próprio (DM-3).
+2. **Quantas imagens ficam no disco, e quem poda?**
+   - **O que sabemos:** o Coolify guarda a tag anterior (medido: duas tags de dois meses no
+     vizinho); a limpeza automática é configuração **do servidor**, compartilhada.
+   - **O que não está claro:** o gatilho configurado nesta instalação.
+   - **Recomendação:** fixar retenção de **5** (herdando o `prune-releases.sh`); **ler e
+     registrar** a configuração de limpeza sem alterá-la; provar a reversão sem rede no 02-12.
 
-2. **Qual é o tamanho real da VPS (1 GB ou 2 GB) e em que região?** `RESOLVED: D2-19 + plano 02-04 Task 1`
-   - O que sabemos: a `CONTEXT.md` diz "1–2 GB" e que a região importa para a fase 3 (TURN
-     fora do Brasil = +200 ms).
-   - O que não está claro: o plano contratado e a região atual.
-   - Recomendação: confirmar **antes** da primeira tarefa de `ops/`. É a última hora barata
-     de mover a caixa, e o orçamento de `MemoryMax` (P-10) depende do número.
+3. **`ops/litestream.service` está fora da lista literal de D2-30 mas morre por D2-28.**
+   - **Recomendação:** o plano registra a extensão explicitamente, com a frase de D2-30 como
+     justificativa ("um arquivo que ninguém executa é uma armadilha para quem ler o runbook
+     daqui a seis meses"). Não é reabrir decisão; é fechar uma omissão.
 
-3. **As fontes do Google entram no precache (auto-hospedadas) ou o offline aceita fallback?** `RESOLVED: D2-20`
-   - O que sabemos: são cross-origin, com fallback `system-ui`/`monospace` declarado.
-   - Recomendação: decidir **antes** de escrever `offline.spec.ts` — a asserção do teste muda.
+4. **`DEPLOY_ENABLED` morre agora ou no 02-12?**
+   - **O que sabemos:** o raciocínio do comentário no `ci.yml` (um job vermelho por semanas
+     ensina a não ler CI vermelho) continua valendo enquanto o recurso do Coolify não existir.
+   - **Recomendação:** manter a variável até o 02-12 e decidir lá. O plano deve dizer isso
+     explicitamente, para que ninguém a remova por limpeza.
 
-4. **A segunda perna de D2-16 é serviço externo ou GitHub Action agendada?** `RESOLVED: D2-21`
-   - O que sabemos: A6 acima; um workflow agendado pode ser desabilitado por inatividade.
-   - Recomendação: **serviço externo gratuito** como perna principal (UptimeRobot,
-     Healthchecks.io, Better Stack — todos com keyword matching, que casa com
-     `"status":"ok"`). Se for GitHub Action, documentar o risco dos 60 dias em `ops/README.md`.
-
-5. **`SIM_VERSION` deve entrar no corpo do `/api/health`?** `RESOLVED: plano 02-08 — fica de fora`
-   - O que sabemos: é derivado de um artefato público, então não é segredo. Seria útil para
-     depurar o handshake da fase 3.
-   - O que não está claro: hoje ele vive só em `packages/sim/dist/sim-version.json` e **não**
-     é enviado ao cliente — expô-lo em `/api/health` seria sua primeira publicação.
-   - Recomendação: **deixar de fora nesta fase.** `status`/`db`/`release` bastam para o
-     monitor; a fase 3 acrescenta quando tiver consumidor.
-
-6. **`apps/server` entra no `tsconfig.json` e no ESLint da raiz, ou tem os próprios?** `RESOLVED: plano 02-08 Task 1`
-   - O que sabemos: o `tsconfig.json` da raiz fixa `types: ["vite/client"]` e `lib` com `DOM` —
-     ambos errados para código de servidor. `tools/` resolveu isso ficando **fora** de tudo
-     (`tools/README.md` §§ 4 e 5).
-   - Recomendação: `apps/server/tsconfig.json` próprio (`lib: ["ES2023"]`, `types: ["node"]`),
-     mais um `typecheck:server` no `package.json` e no `ci.yml` — simétrico aos
-     `typecheck:sim` e `typecheck:protocol` que já existem. Manter no ESLint da raiz (é
-     código de produto, ao contrário de `tools/`).
-
----
-
-## Recomendações para os Itens de Discrição
-
-Resumo executável — cada linha responde um item da seção "Claude's Discretion" da CONTEXT.md.
-
-| # | Item | Recomendação | Razão em uma linha |
-|---|---|---|---|
-| 1 | Hono vs Fastify; porta | **Hono 4.13.5 + `@hono/node-server` 2.1.1**, `serve({ hostname: '127.0.0.1', port: 8080 })`, porta em `DG2_PORT`/`DG2_UPSTREAM` no `/etc/dg2/env` | O `serve()` devolve o `http.Server` real que a fase 3 precisa; bind em loopback tira a API da internet sem depender de firewall |
-| 2 | Forma do `/health` | **`GET /api/health`** (sob `/api/`, não na raiz) → `200 {"status":"ok","db":true,"release":"<sha>"}` / `503 {"status":"degraded",...}`, `Cache-Control: no-store` | Sob `/api/`, **uma** regra do Caddy e **uma** do service worker já cobrem. `"status":"ok"` casa com keyword matching de monitor gratuito |
-| 3 | Sandbox do systemd | `StateDirectory=dg2` (em vez de `ReadWritePaths` manual) + `ProtectSystem=strict` + `ProtectHome` + `PrivateTmp` + `NoNewPrivileges` + `RestrictAddressFamilies` + **`MemoryHigh=200M` / `MemoryMax=256M` pareado com `--max-old-space-size=192`** + `StartLimitBurst=5` | `StateDirectory` cria e dá dono ao diretório sozinho; o par MemoryMax/heap troca OOM-kill por GC (P-10); o start limit é o que faz uma migração quebrada virar alarme (P-9) |
-| 4 | rsync vs tar; retenção | **rsync `-az --delete --link-dest=<absoluto>`**, **5 releases**, poda que resolve `current` antes de apagar | `--link-dest` dedupa por hardlink; tar perde isso. 5 cobre uma tarde ruim a custo de disco desprezível |
-| 5 | Forma do passo de precache | **Script `.mjs` pós-build** (`tools/sw/emit.mjs`) reescrevendo `dist/sw.js` a partir de sentinelas em `public/sw.js`, mais `tools/sw/verify.mjs` no CI | `define()` é **impossível** (medido: o Vite copia `public/` verbatim); plugin do Vite enterra a lógica; `emit.mjs` já é o precedente do projeto |
-| 6 | Onde e como aparece o aviso | **Duas metades:** durante a partida, `announce('NOVA VERSÃO PRONTA — VOLTE AO MENU PARA ATUALIZAR')`; na tela inicial, um botão persistente `RECARREGAR AGORA`. Gate = `gameStarted === false` | `announce()` é um toast de 2,6 s sem interação — bom para avisar, ruim para pedir ação. `quitGame()` já leva a `showScreen('start')` com `gameStarted = false`: essa é a costura exata |
-| 7 | `/ws` junto com `/api/`? | **Sim**, mas o que resolve de verdade é o **allowlist** (Padrão 2) — o `/ws` explícito é documentação | Um denylist está sempre a uma rota esquecida de cachear dado autenticado; um allowlist derivado do build não pode esquecer |
-| 8 | Restart em todo deploy? | **Não.** `deploy.sh` compara o hash do bundle do servidor entre o release novo e o `current`; reinicia só se diferir **ou** se a unit não estiver `active` | Restart re-executa a migração, que é a única operação do deploy capaz de falhar. Não vale correr esse risco por uma mudança de CSS. O `rollback.sh` precisa da mesma lógica: reverter símbolo estático é instantâneo, reverter servidor precisa do restart |
-| 9 | Página de manutenção | **Não fazer HTML de manutenção nesta fase.** Fazer `handle_errors` devolvendo `503 {"status":"unavailable"}` para o upstream fora | O jogo é estático e servido pelo `file_server`: ele **já** continua no ar com o Node fora. O que falta é um sinal legível por máquina para distinguir "Caddy de pé, Node fora" de "caixa fora" — que é o que o monitor de D2-16 precisa. O HTML só passa a importar na fase 6 (e o deferido já diz isso) |
-| 10 | Ordem interna | Ver § Ordem Interna Sugerida, abaixo | — |
-
-### Ordem Interna Sugerida (MVP_MODE: fatias verticais do caminho de deploy)
-
-**Wave 0 — pré-requisito (DM-1).** Criar o repo no GitHub (`gh repo create`), empurrar,
-**ver o `ci.yml` verde num runner**. Nada mais desta fase pode depender de um portão que
-nunca rodou. Provisionar/confirmar a VPS (tamanho e região) e criar o bucket S3.
-
-**Fatia A — "o jogo está no domínio, publicado por um comando, e reversível."** (critérios 1 e 4a)
-1. `base: '/'` + `href` absolutos de DM-5 + `GAME_URL` novo — **tarefa própria**, como a
-   CONTEXT.md exige, com `tests/build-base.test.ts`.
-2. `ops/Caddyfile` + drop-in de env + `ops/deploy.sh`/`rollback.sh`/`prune-releases.sh`.
-3. `ci.yml` ganha o job `deploy`; `deploy.yml` é apagado; `tests/workflows.test.ts` fecha
-   INFRA-01 de forma executável.
-   - **Propriedade útil:** esta fatia sobe o `sw.js` **atual** em escopo `/`. É exatamente o
-     fixture de "instalação antiga" que o critério 2 precisa atualizar — e como não há API
-     ainda, o defeito de cachear `/api/` não tem como se manifestar no intervalo.
-
-**Fatia B — "o PWA está correto e provado."** (critérios 2 e 3)
-4. `tools/sw/emit.mjs` + `tools/sw/verify.mjs` + reescrita do `public/sw.js` como template.
-5. Aviso de atualização em `src/main.ts` + `src/ui/screens.ts` (D2-09).
-6. `playwright.config.ts` + as quatro specs + job `pwa` no `ci.yml`.
-
-**Fatia C — "existe banco, ele é supervisionado, e o backup foi restaurado."** (critério 4b)
-7. `apps/server` (workspace, D2-04) + migração estática + `/api/health` + `dg2.service`.
-8. `litestream.yml` + `litestream.service` + `tools/ops/restore-verify.mjs`.
-9. **Rodar o ensaio** e anotar em `docs/OPERACAO.md` (data, duração, o que faltou).
-
-**Fatia D — "alguém avisa quando quebrar."** (fecha o critério 1)
-10. `cert-check.{sh,service,timer}` + monitor externo apontado para `/api/health`.
-11. `checkpoint:human-verify` sobre D2-12 (DM-2), e a despedida do Pages **se** confirmada —
-    com o `caches.delete` por prefixo próprio (DM-3).
+5. **A porta interna do Caddy e a do Node podem ser a mesma 8080?**
+   - **O que sabemos:** são namespaces de rede diferentes; não colidem.
+   - **Recomendação:** manter as duas em 8080 e explicar em comentário por que isso não é um
+     conflito — porque é a primeira coisa que um leitor vai achar que é.
 
 ---
 
@@ -1700,76 +1852,106 @@ nunca rodou. Provisionar/confirmar a VPS (tamanho e região) e criar o bucket S3
 
 ### Primary (HIGH confidence)
 
-- **Medição neste repositório (2026-08-31):** `npm run build` executado; `dist/` = 350 KB em
-  11 arquivos; `cmp public/sw.js dist/sw.js` → idênticos (2549 B); `dist/index.html` com
-  `/DungeonGuys2/assets/...` e `href` relativos não reescritos; `git remote -v` vazio;
-  `git rev-list --count HEAD` = 161.
-- **Medição por HTTP (2026-08-31):** `gustavoktausend.github.io/DungeonGuys2/` → 404;
-  `/DungeonGuys/` → 200; `/DungeonGuys/sw.js` → 200 com `CACHE='dungeonguys-v3'` e
-  `caches.keys()` delete-all no `activate`; `api.github.com/repos/gustavoktausend/DungeonGuys2` → 404;
-  listagem pública de 23 repos sem `DungeonGuys2`.
-- **Registro npm consultado diretamente (2026-08-31):** hono 4.13.5, @hono/node-server 2.1.1,
-  better-sqlite3 13.0.3, kysely 0.29.5, @playwright/test 1.62.1, pino 10.3.1, zod 4.5.4 —
-  versões, downloads/semana, repositório e ausência de `postinstall`.
-- **`slopcheck` 0.6.1** — 7 pacotes varridos, 7 `[OK]`.
-- **`kysely@0.29.5` `dist/migration/migrator.d.ts`** (jsDelivr) — `MigrationProvider` (:353),
-  `Migration { up, down? }` (:7), `migrateToLatest`/`migrateTo`/`migrateUp`/`migrateDown`.
-- **Context7 `/kysely-org/kysely`** — `Migrator` + `FileMigrationProvider`, migração SQLite
-  com `db.schema`, `SqliteDialectConfig`.
-- **Context7 `/websites/playwright_dev`** — `browserContext.serviceWorkers` ("Supported only
-  on Chromium-based browsers"), `setOffline`, espera de ativação por `controllerchange`.
-- `https://playwright.dev/docs/service-workers` — *"Service workers are only supported on
-  Chromium-based browsers."*
-- `https://caddyserver.com/docs/caddyfile/concepts` — `{$VAR}` substituído antes do parse e
-  único que funciona em endereço de site; `{env.VAR}` é runtime.
-- `https://caddyserver.com/docs/caddyfile/directives/handle` — `handle` é mutuamente
-  exclusivo e **ordenado por especificidade**, não pela ordem no arquivo.
-- `https://caddyserver.com/docs/running` — `systemctl edit caddy` para drop-in,
-  `EnvironmentFile`, `reload` vs `restart`, usuário `caddy`.
-- `https://litestream.io/reference/config/` — v0.5: `replica` **singular**; `endpoint` para
-  S3-compatível; `${AWS_*}`.
-- `https://litestream.io/reference/restore/` — `-o PATH`, `-if-db-not-exists`,
-  `-if-replica-exists`, `-timestamp`, `-txid`.
-- `https://github.com/benbjohnson/litestream/releases` — 0.5.16 (2026-08-05).
-- `https://github.com/caddyserver/caddy/releases` — 2.11.4 (2026-06-03).
-- `https://nodejs.org/dist/index.json` — Node 24.20.0 LTS "Krypton" (2026-08-26).
-- **Arquivos do projeto lidos na íntegra:** `CLAUDE.md`, `.planning/phases/02-.../02-CONTEXT.md`,
-  `.planning/REQUIREMENTS.md` § INFRA, `.planning/ROADMAP.md` § Phase 2, `.planning/STATE.md`,
-  `.planning/research/STACK.md` §§ Deploy/Banco/Monorepo/Stack, `.planning/research/PITFALLS.md`
-  §§ 8, 12, 13 e checklists, `.planning/phases/01-.../01-CONTEXT.md` (D-08, D-15, D-16, D-29),
-  `docs/adr/0010-...md`, `docs/PARIDADE.md`, `tools/README.md`, `tools/sim-version/{emit,verify}.mjs`,
-  `vite.config.ts`, `index.html`, `src/main.ts`, `src/style.css`, `src/ui/screens.ts`,
-  `src/app/save.ts`, `public/sw.js`, `public/manifest.json`, `package.json`, `eslint.config.js`,
-  `tsconfig.json`, `vitest.config.ts`, `vitest.browser.config.ts`, `.gitignore`,
-  `.github/workflows/{ci,deploy}.yml`, `packages/*/package.json`, `tests/purity.test.ts`.
+- **Medição direta na caixa, 2026-09-09, via `ssh dg2vps`** — `docker version` (29.6.0),
+  `docker compose version` (v5.1.4), `docker ps` (Coolify 4.3.18, Traefik v3.6, dois apps do
+  vizinho), `docker inspect coolify-proxy` (linha de comando do Traefik completa),
+  `docker inspect` do app do vizinho (os 8 labels do Traefik e os labels `coolify.*`),
+  `docker images` / `docker system df`, `ufw status verbose`, `iptables -L FORWARD/DOCKER-USER`,
+  `ss -tulnp`, `apt-cache policy coturn`, `id`, `sudo -n`, `stat -fc %T /sys/fs/cgroup`,
+  `getent hosts`, `/data/coolify/proxy/dynamic/*`, `/data/coolify/source/.env`
+- **Medição externa, 2026-09-09** — `curl` para `dg2.kring.tech` nas portas 443, 8000 e 8080;
+  `curl -I https://militias3dstore.kring.tech/` (cabeçalhos que o Traefik entrega)
+- **Código-fonte do Litestream, branch `main`** — `cmd/litestream/replicate.go` (o bloco de
+  `-exec`), `cmd/litestream/main.go` (o `case sig := <-signalCh`),
+  `cmd/litestream/main_notwindows.go` (`signal.Notify(ch, SIGINT, SIGTERM)`)
+- **Repositório deste projeto** — `ops/*` (14 arquivos), `tests/ops-config.test.ts` (74 testes,
+  contados), `tests/workflows.test.ts`, `.github/workflows/ci.yml`, `apps/server/src/*`,
+  `package.json` da raiz e de `apps/server`, `vite.config.ts`, `node_modules/better-sqlite3/prebuilds/`
+- **`.planning/phases/02-migra-o-para-a-vps/`** — `02-CONTEXT.md` (D2-01..D2-31),
+  `02-REVIEW.md`, os dez `*-SUMMARY.md`, `02-04-PLAN.md`, `02-12-PLAN.md`, `02-PATTERNS.md`
+- **`.planning/STATE.md`** — D-VPS-01/02/03, tabela de destino por artefato, as cinco perguntas
+- **API do GitHub** — releases de `benbjohnson/litestream` (v0.5.17, 2026-08-31),
+  `coturn/coturn` (4.18.0, 2026-09-08), `caddyserver/caddy` (v2.11.4, 2026-06-03),
+  `coollabsio/coolify` (v4.3.18, 2026-09-08), `traefik/traefik` (v3.7.12, 2026-08-26),
+  `WiseLibs/better-sqlite3` (v13.0.3, zero assets); `action.yml` das quatro ações de Docker
+- **Docker Hub** — tags e tamanhos de `library/caddy` (2.11.4-alpine, 23,9 MB),
+  `library/node` (24.20.0-trixie-slim, 85,3 MB), `litestream/litestream` (0.5.17)
+- **Context7 `/coollabsio/coolify-docs` e `/websites/coolify_io`** — `openapi.json`
+  (`/deploy` por uuid/tag com `bearerAuth`; `create-dockerimage-application`;
+  `docker_compose_domains`), magic env vars do compose, variáveis predefinidas
+  (`SOURCE_COMMIT`, `COOLIFY_FQDN`), limpeza automática, permissões de token
+- **`caddyserver.com/docs`** — `reverse_proxy` (*"the proxy will ignore their values from
+  incoming requests, to prevent spoofing"*), opções globais (`auto_https off`,
+  `trusted_proxies static private_ranges`, endereço com `http://`)
+- **`doc.traefik.io/traefik/reference/install-configuration/entrypoints`** — `forwardedHeaders`,
+  `trustedIPs`, `insecure`, e o comportamento padrão contra cliente não confiável
+- **`coolify.io/docs`** — build pack de Docker Compose (rede própria proibida, compose como
+  fonte da verdade), rollback (*"only local images are supported"*), limpeza automática,
+  autorização da API
 
 ### Secondary (MEDIUM confidence)
 
-- `https://web.dev/articles/service-worker-lifecycle` — `controllerchange`; o browser ignora
-  cabeçalhos de cache ao checar update do script do SW; teto de 24 h entre checagens. (O
-  padrão completo de prompt+`postMessage` **não** aparece literalmente na página; a forma
-  usada aqui é a prática corrente, não uma citação.)
-- `https://github.com/WiseLibs/better-sqlite3/releases/tag/v13.0.0` (via busca) — prebuilds
-  publicados dentro do pacote, `prebuild-install` removido, fallback compilando.
-- `https://github.com/microsoft/playwright/issues/2311` — `context.setOffline` não alcança
-  requisições de service worker; motiva derrubar o servidor de verdade no teste.
-- `https://dt.in.th/PlaywrightOfflineFirstTest` — encenação de teste offline com coleta de
-  `requestfailed`.
-- Documentação e discussões de `systemd` (`StateDirectory` implica `ReadWritePaths`;
-  `ProtectSystem=strict` + allowlist) — múltiplas fontes concordando, sem citação única
-  canônica coletada.
-- `openssl x509 -checkend N` — exit 1 se expirar dentro de N segundos; múltiplas fontes.
-- Prática corrente de rsync + SSH em GitHub Actions (chave em secret, `known_hosts`).
+- `litestream.io/guides/docker/` — o padrão `-exec` e a recomendação de s6 para múltiplos
+  processos (confirmado no código-fonte, o que o promoveu na prática)
+- `litestream.io/reference/config/` — `replica` no singular a partir da v0.5, opções de S3
 
-### Tertiary (LOW confidence — validar antes de depender)
+### Tertiary (LOW confidence — validar no 02-12)
 
-- Workflows agendados desabilitados após 60 dias de inatividade: fontes concordam para
-  repositórios **públicos**; comportamento em privados não confirmado (A6).
-- "O handshake de WebSocket não dispara o `fetch` do service worker" — não foi obtida citação
-  direta de spec nesta sessão (A1).
-- Licenciamento OFL de Press Start 2P / Pixelify Sans — presumido, não conferido (A8).
-- Cobertura de prebuilds `linux-arm64` do `better-sqlite3` 13.0.3 — não conferida na
-  arquitetura real da VPS (A2).
+- Comportamento exato do Coolify ao processar um compose sem `build:` (A2)
+- Se `SOURCE_COMMIT` chega à interpolação do compose (A3)
+- Se o botão de reversão do Coolify cobre recursos de compose (A4)
+- Caminho do binário dentro do tarball do Litestream (A5)
+
+---
+
+## Recomendações de Planejamento
+
+### Cinco planos, e a ordem não pode ser trocada
+
+| # | Plano | Tipo | Cobre | Por que nesta posição |
+|---|---|---|---|---|
+| **02-04′** | **A decisão do gancho, a caixa, o bucket e os segredos** | trabalho novo, `autonomous: false` | Resolver **DM-7** com o usuário (as quatro saídas, com recomendação); criar o recurso no Coolify e **provar A1** (composição de dois serviços com domínio no `web`); ler e registrar a configuração de limpeza (**DM-16**); confirmar o bucket S3; criar o token com escopo `Deploy` e o segredo do gancho; abrir `docs/OPERACAO.md` | **Primeiro porque decide a forma do 02-11′.** Escrever o job de publicação antes de saber como o gancho é chamado é escrever duas vezes. E A1 é a suposição de que todo o resto depende |
+| **02-13** | **O delta de código que a containerização exige** | correção do já executado | `DG2_BIND` em `env.ts` com padrão loopback (**DM-9**) + os testes de `server-env`; `ops/Caddyfile` com bloco global, `auto_https off`, `admin off`, `trusted_proxies` (**DM-10**), endereço `http://:8080`, `root */srv/www`, cabeçalho em prosa reescrito; as asserções novas do Caddyfile em `tests/ops-config.test.ts` | **Antes do 02-14** porque o `Dockerfile.web` copia o Caddyfile e o `Dockerfile.api` roda o servidor. Os dois defeitos aqui são invisíveis em teste local e fatais na caixa |
+| **02-14** | **`ops/` containerizado, e os 34 testes reescritos no mesmo commit** | correção + trabalho novo | Nascem `Dockerfile.web`, `Dockerfile.api`, `docker-compose.yml`; morrem os 9 arquivos (**D2-30 + `litestream.service`**); `turnserver.conf` ganha `min-port`/`max-port` e `total-quota` casada (**D2-27/C-5**); `litestream.yml` ajusta o caminho; `ops/README.md` reescrito com `sudo docker`, a retenção de 5, o gancho, a reversão, o UFW do coturn e o parágrafo em voz alta do segredo em dois lugares (**D2-29**); `tests/ops-config.test.ts` perde 34, ganha ~10 e conserta o piso `>= 13` (**DM-20**) | **Depois do 02-13** (precisa do Caddyfile final) e **antes do 02-11′** (o CI constrói a partir destes Dockerfiles). D2-30 é explícita: as asserções são reescritas **no mesmo commit** que remove os arquivos |
+| **02-11′** | **O `ci.yml` de imagem-e-gancho, e o delta de `tests/workflows.test.ts`** | correção do já executado | Job `deploy` sai inteiro; job `image` entra com `docker build`/`push` em `run:` — **sem ação de terceiro** (**DM-8**) — `packages: write` num job só, tag por sha, e o passo de gancho na forma que o 02-04′ decidiu; verificação pós-gancho comparando `/api/health` com `$GITHUB_SHA`; a asserção de escopo de escrita ganha a exceção nomeada; as 5 asserções de chave SSH morrem, as 2 de concorrência e de D2-08 sobrevivem alteradas | **Depende do 02-04′** (forma do gancho) e do **02-14** (os Dockerfiles existem). É o último plano que roda sem a caixa |
+| **02-12′** | **A caixa de verdade** | trabalho novo, `autonomous: false` | Primeiro deploy real e o **primeiro certificado do Traefik** para `dg2.kring.tech`; conferência dos três `Cache-Control` e do CSP no navegador (**A10** e a nota de "não verificado contra navegador" que o Caddyfile carrega desde o 02-03); instalação e atualização do PWA contra o domínio real; **reversão com `ghcr.io` inalcançável** (**DM-16**); ensaio de restauração no contêiner descartável, com data e duração; monitor externo com keyword **e alerta de SSL** (**§ Vigilância**); `docs/OPERACAO.md` preenchido | Nada disso existe sem os quatro anteriores. É o plano que troca "está escrito" por "foi feito" |
+
+### O que é correção do já executado e o que é trabalho novo
+
+| Plano | Correção | Novo |
+|---|---|---|
+| 02-04′ | — | tudo |
+| 02-13 | `apps/server/src/env.ts`, `apps/server/src/index.ts`, `ops/Caddyfile`, parte de `tests/ops-config.test.ts` | — |
+| 02-14 | remoção de 9 arquivos de `ops/`, reescrita de `ops/README.md`, `ops/turnserver.conf`, `ops/litestream.yml`, 34+15 testes | 3 arquivos de contêiner |
+| 02-11′ | `.github/workflows/ci.yml`, `tests/workflows.test.ts` | job `image` |
+| 02-12′ | — | tudo, mais `docs/OPERACAO.md` |
+
+### Restrições de ordem que não podem ser trocadas
+
+1. **02-04′ antes de 02-11′.** A forma do passo de gancho depende de DM-7. Escrever antes é
+   escrever duas vezes.
+2. **02-04′ antes de 02-14**, ao menos na parte de A1: se o Coolify recusar a composição de
+   dois serviços vinda do repositório, o `docker-compose.yml` muda de lugar (painel) ou de
+   forma (um contêiner com s6). Descobrir isso depois de escrever os testes custa o dobro.
+3. **02-13 antes de 02-14.** O `Dockerfile.web` copia o Caddyfile final.
+4. **02-14 antes de 02-11′.** O CI constrói a partir dos Dockerfiles.
+5. **Tudo antes de 02-12′.**
+6. **Dentro do 02-14: remover arquivo e reescrever asserção no MESMO commit.** É texto literal
+   de D2-30, e é o que impede uma janela em que a suíte está vermelha por um motivo que não é
+   defeito.
+7. **A fase 3 continua bloqueada no `03-11`** até o 02-12′ passar — e o `03-11` ganha uma
+   dependência nova que não tinha: as **três regras de UFW** e a **faixa de relay** (DM-15).
+   Sem elas, o relay autentica e o tráfego não chega, com o sintoma "um amigo específico nunca
+   entra". Registre isso no plano da fase 3, não só neste.
+
+### Uma nota sobre a numeração
+
+Os planos pendentes são `02-04` e `02-12`, e ambos são **reescritos**. Os três planos de
+correção (`02-13`, `02-14`, e a reescrita do `02-11`) tocam arquivos de planos já marcados
+como feitos. O planejador deve decidir se renumera ou se acrescenta ao fim; a recomendação é
+**acrescentar ao fim (`02-13`, `02-14`, `02-15`) e deixar `02-04` e `02-12` com os números
+que têm**, porque `ROADMAP.md`, `STATE.md` e `03-11` já os citam pelo número, e renumerar
+quebraria três referências para arrumar uma tabela.
 
 ---
 
@@ -1777,24 +1959,20 @@ nunca rodou. Provisionar/confirmar a VPS (tamanho e região) e criar o bucket S3
 
 **Confidence breakdown:**
 
-- **Standard stack:** ALTA — todas as versões vieram do registro npm e das APIs de release,
-  consultadas nesta sessão; nenhuma de memória.
-- **Estado do repositório e do GitHub Pages (DM-1, DM-2, DM-3):** ALTA — medido por `git`,
-  API do GitHub e HTTP, com os comandos transcritos.
-- **Architecture (Caddy, systemd, Litestream, Kysely):** ALTA — cada afirmação estrutural tem
-  citação de documentação oficial; três correções à `STACK.md` foram levantadas por ela.
-- **Service worker (padrões, allowlist, precache derivado):** ALTA para o mecanismo, MÉDIA
-  para o padrão exato de prompt de atualização (prática corrente, não citação literal).
-- **Teste de PWA no Playwright:** MÉDIA — o suporte Chromium-only é citação oficial; a
-  fragilidade do `setOffline` vem de issue aberta e de relato de terceiro, o que motiva a
-  recomendação defensiva de derrubar o servidor.
-- **Pitfalls:** ALTA para os que foram medidos neste repositório (P-1, P-3, P-5, P-6, P-8,
-  P-11); MÉDIA para os operacionais (P-9, P-10, P-12), derivados de documentação e prática.
-- **Orçamento de memória e tamanho da VPS:** BAIXA — depende de um número que a pesquisa não
-  tem (Open Question 2).
+- **A caixa e o que há nela:** HIGH — inspecionada nesta sessão, comando por comando.
+- **Os três defeitos de código (DM-8, DM-9, DM-10):** HIGH — lidos nos arquivos, com o
+  comportamento do Caddy e do Traefik confirmado em documentação oficial.
+- **Litestream `-exec` e sinais (DM-13):** HIGH — lido no código-fonte, não em tutorial.
+- **`better-sqlite3` prebuilds (DM-12):** HIGH — arquivos listados em disco.
+- **Integração com o Coolify (recurso de compose, domínio por serviço, gancho, reversão):**
+  MEDIUM — documentada e coerente com o que o vizinho mostra, **não executada**. É o que o
+  02-04′ existe para converter em HIGH.
+- **DM-7 (alcançabilidade):** HIGH na medição, **aberto na decisão**.
+- **O delta de `ops/` e dos testes:** HIGH — contado arquivo por arquivo e teste por teste.
 
-**Research date:** 2026-08-31
-**Valid until:** ~2026-09-30 para as versões de biblioteca (Litestream e Caddy se movem
-devagar; `@playwright/test` publica semanalmente). **DM-1 a DM-3 expiram no instante em que
-alguém criar o repositório no GitHub** — revalidar com os mesmos três comandos se o
-planejamento demorar.
+**Research date:** 2026-09-09
+**Valid until:** ~2026-10-09 para a camada de plataforma (o Coolify publica release quase
+semanalmente; a instância já pulou de 4.3.17 para 4.3.18 em cinco dias). A camada medida da
+caixa vale até alguém mexer na caixa — e o vizinho é operado por outro projeto.
+</content>
+</invoke>
