@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
+status: planning
 stopped_at: Phase 2 context amended for containerization (D2-22..D2-31)
 last_updated: "2026-09-09T18:17:09.103Z"
-last_activity: 2026-09-08 -- Phase 03 executed (10/11), 03-11 deferred, VERIFICATION passed-with-override
+last_activity: 2026-09-09 -- Caixa inventariada; D-VPS-01/02/03 e D2-22..D2-31 decididas; fase 2 pronta para replanejamento
 progress:
   total_phases: 9
   completed_phases: 1
@@ -215,4 +215,17 @@ Last session: 2026-09-09T18:17:09.083Z
 Stopped at: Phase 2 context amended for containerization (D2-22..D2-31)
 Resume file: .planning/phases/02-migra-o-para-a-vps/02-CONTEXT.md
 
-Next: `/gsd-discuss-phase 2` para responder as seis perguntas abertas e replanejar 02-04/02-12 como app do Coolify; depois `/gsd-execute-phase 2`, `/gsd-execute-phase 3` (03-11) e retomar `/gsd-verify-work 3`
+Next: **`/gsd-plan-phase 2 --research-phase`** — replanejar a fase 2 sob D2-22..D2-31 (as emendas de
+containerização, já em `02-CONTEXT.md`). A pesquisa da fase é de 2026-08-31 e supõe uma caixa vazia com
+deploy por rsync; ela não cobre publicação por imagem, Coolify, nem Litestream em contêiner. O plano
+precisa cobrir os dois pendentes (02-04 e 02-12, ambos reescritos) MAIS os planos de correção do que as
+emendas mudam nos dez já executados (`ops/` perde sete arquivos por D2-30, e `tests/ops-config.test.ts`
+perde as asserções correspondentes).
+
+Depois: `/gsd-execute-phase 2` → `/gsd-execute-phase 3` (só o 03-11, que fecha SALA-04 contra o coturn
+real) → retomar `/gsd-verify-work 3`, que está pausada em `03-UAT.md` (status `partial`: os testes 15 e
+17 passaram, o fluxo manual parou no teste 1 com "ERR_CONNECTION_REFUSED" e diagnóstico registrado).
+
+Acesso à caixa nesta máquina: `ssh dg2vps` (alias em `~/.ssh/config`, usuário `deploy`). A permissão
+`Bash(ssh dg2vps:*)` está em `~/.claude/settings.json`. Nunca usar o endereço literal — a regra de
+revisão de SSH continua valendo para ele, de propósito.
