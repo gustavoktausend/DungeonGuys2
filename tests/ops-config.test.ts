@@ -72,6 +72,34 @@ function readTool(name: string): string {
   return src as string;
 }
 
+// docs/OPERACAO.md — the phase's operations record, and the THIRD half of this
+// subsystem. It gets a glob of its own rather than joining OPS because it is
+// prose and not configuration: almost every assertion above is about a
+// directive the box executes, and none of those applies to a document.
+//
+// It is asserted HERE, next to the files it describes, for the reason the
+// tools/ops/ comment above gives: this is where the operator-facing half of
+// ops/ is already ruled over, and a separate test file would be a second place
+// to remember. What it buys is not style — the D2-15 leak gate is the point.
+// Task 3 of plan 02-04 pastes command output from a live box into this file,
+// and pasted output is the single most likely way an address or a credential
+// ever enters this repository.
+const DOCS = import.meta.glob<string>('../docs/OPERACAO.md', {
+  query: '?raw', import: 'default', eager: true,
+});
+
+/** The same anti-vacuity guard, for the document. */
+function readDoc(): string {
+  const src = DOCS['../docs/OPERACAO.md'];
+  expect(src, 'o glob não encontrou docs/OPERACAO.md').toBeTypeOf('string');
+  // The floor is higher than the 200 bytes of read() because this file has a
+  // declared minimum of 90 lines in the plan that creates it: a stub of four
+  // headings would satisfy every `toContain` below and prove nothing.
+  expect((src as string).length, 'docs/OPERACAO.md veio vazio ou é um esqueleto')
+    .toBeGreaterThan(2000);
+  return src as string;
+}
+
 /**
  * Drops whole-line comments: every line whose first non-blank character is `#`.
  *
@@ -581,9 +609,11 @@ describe('ops/turnserver.conf', () => {
       // Credencial efêmera por HMAC. Uma dupla fixa aqui seria um relay que
       // qualquer um usa para sempre no dia em que vazasse (T-3-03).
       'use-auth-secret',
-      // Os tetos de banda e de alocação (T-3-05).
-      'user-quota=12',
-      'total-quota=1200',
+      // Os tetos de banda e de alocação (T-3-05). Os dois desceram em 02-04
+      // para casar com a faixa de relay de D2-27: a asserção calculada logo
+      // abaixo é quem garante o casamento: estas duas linhas só fixam o valor.
+      'user-quota=6',
+      'total-quota=100',
       // A interface de gestão, onde historicamente moraram os CVEs do coturn
       // (T-3-27), e o multicast, que é amplificação de graça.
       'no-cli',
@@ -591,6 +621,57 @@ describe('ops/turnserver.conf', () => {
     ]) {
       expect(cfg, `turnserver.conf não declara ${line}`).toContain(line);
     }
+  });
+
+  it('declara a faixa de relay, e ela é uma faixa de verdade (D2-27, C-5)', () => {
+    // A METADE DECLARADA da correção de C-5. Sem estas duas linhas o coturn
+    // aloca relay no espaço efêmero inteiro (49152-65535/udp), que o UFW
+    // `deny incoming` da caixa bloqueia por completo — e o relay AUTENTICA,
+    // entrega um endereço ao navegador, e o tráfego nunca chega. O sintoma é
+    // "um amigo específico nunca entra", indistinguível de NAT ruim.
+    //
+    // A outra metade é a regra de firewall, que não é versionável: ela vive na
+    // caixa. O que este arquivo pode asserir é que a faixa existe e está
+    // registrada em docs/OPERACAO.md, e o bloco daquele arquivo fecha o elo.
+    const cfg = code('turnserver.conf');
+    const min = /^min-port=(\d+)$/m.exec(cfg);
+    const max = /^max-port=(\d+)$/m.exec(cfg);
+    expect(min, 'turnserver.conf não declara min-port').not.toBeNull();
+    expect(max, 'turnserver.conf não declara max-port').not.toBeNull();
+    const lo = Number(min![1]);
+    const hi = Number(max![1]);
+    expect(Number.isInteger(lo) && Number.isInteger(hi)).toBe(true);
+    // Uma faixa invertida ou degenerada é a forma de errar que não faz barulho:
+    // o coturn recusaria a config, mas só na caixa, meses depois.
+    expect(hi, 'max-port não é maior que min-port').toBeGreaterThan(lo);
+    // Acima do espaço privilegiado e dentro do efêmero, que é onde um relay
+    // deve alocar.
+    expect(lo).toBeGreaterThan(1024);
+    expect(hi).toBeLessThan(65536);
+  });
+
+  it('total-quota não promete mais alocações do que a faixa entrega (C-5)', () => {
+    // A ASSERÇÃO QUE IMPEDE C-5 DE VOLTAR PELA METADE, e o número NÃO é
+    // copiado: ele sai do próprio arquivo. Cada alocação de relay consome uma
+    // porta da faixa, então a cota da máquina não pode ser maior que o tamanho
+    // dela. O valor antigo (1200 contra cem portas) prometia doze vezes o que a
+    // faixa pode entregar — o limite real teria sido "o coturn ficou sem
+    // porta", chegando como alocação falha em vez de como cota, que é o mesmo
+    // sintoma silencioso de sempre.
+    //
+    // Comparar contra uma constante copiada aqui deixaria passar exatamente o
+    // erro que importa: mudar a faixa e esquecer a cota.
+    const cfg = code('turnserver.conf');
+    const lo = Number(/^min-port=(\d+)$/m.exec(cfg)![1]);
+    const hi = Number(/^max-port=(\d+)$/m.exec(cfg)![1]);
+    const total = Number(/^total-quota=(\d+)$/m.exec(cfg)![1]);
+    const user = Number(/^user-quota=(\d+)$/m.exec(cfg)![1]);
+    const range = hi - lo + 1;
+    expect(total, `total-quota=${total} excede as ${range} portas da faixa`)
+      .toBeLessThanOrEqual(range);
+    // E a cota por usuário não pode ser a cota da máquina: um único jogador
+    // autenticado não segura a caixa inteira.
+    expect(user, 'user-quota não é menor que total-quota').toBeLessThan(total);
   });
 
   it('recusa as onze faixas reservadas, e são ONZE (T-3-04)', () => {
@@ -1082,6 +1163,122 @@ describe('tools/ops/restore-verify.mjs', () => {
     expect(src).toContain('console.error');
     expect(src).toContain('process.exit(1)');
     expect(src).toMatch(/catch\s*\(\s*error\s*\)\s*\{\s*\n?\s*fail\(/);
+  });
+});
+
+/**
+ * The six sections of docs/OPERACAO.md that are OPEN when plan 02-04 writes the
+ * file, by their exact title. Each one is a promise that a later step fills in,
+ * and the failure mode of a promise like that is a heading quietly renamed:
+ * Task 3 of this plan and plans 02-12 and 02-14 look for these strings, and a
+ * section renamed between writing and filling becomes a second section instead
+ * of a filled one — with the operator pasting real output under a heading
+ * nobody reads again.
+ *
+ * The titles are asserted as `## ` prefixed so that a mention in running prose
+ * cannot satisfy them. They are also asserted to appear EXACTLY ONCE, which is
+ * the half that catches the rename: a renamed heading plus a re-added one is
+ * two, and a cross-reference written with `##` instead of `§` is two as well.
+ */
+const OPERACAO_SECOES = [
+  // Task 3 of plan 02-04, against the live box.
+  'Limpeza automática de imagens do servidor',
+  'Primeiro certificado e prova de A1',
+  'Firewall do coturn',
+  // Plan 02-12.
+  'Ensaio de restauração',
+  'Monitor externo',
+  // Stays open past the end of the phase, on purpose (D2-11).
+  'O que esta fase deliberadamente não cobre',
+];
+
+describe('docs/OPERACAO.md', () => {
+  it('abre as seis seções que os passos seguintes preenchem, e cada uma existe UMA vez', () => {
+    const doc = readDoc();
+    for (const secao of OPERACAO_SECOES) {
+      const hits = doc.split('\n').filter((l) => l.startsWith(`## ${secao}`));
+      expect(hits.length, `docs/OPERACAO.md não tem exatamente uma seção "## ${secao}"`).toBe(1);
+    }
+  });
+
+  it('aponta para PARIDADE e reconcilia o critério 4 do roadmap por escrito', () => {
+    const doc = readDoc();
+    // docs/PARIDADE.md is the analogue of form AND the place where the D2-11 gap
+    // stays recorded as an open box. A reader who lands here has to be able to
+    // find it without being told it exists.
+    expect(doc, 'docs/OPERACAO.md não cita PARIDADE').toContain('PARIDADE');
+    // THE SENTENCE THAT KEEPS THE PHASE VERIFICATION FROM FAILING BY SURPRISE.
+    // Criterion 4 of the roadmap demands that "o deploy é um comando e é
+    // reversível". D2-32 revoked the automatic trigger, so the half that says
+    // "um comando" needed a written reading BEFORE anyone tried to verify it —
+    // that is the whole output of Task 1 of plan 02-04, and prose is where it
+    // lives. Asserting the reference makes it impossible to delete silently.
+    expect(doc, 'a reconciliação do critério 4 não está escrita').toContain('critério 4');
+    // The relay range, which is the link to ops/turnserver.conf: the declared
+    // half lives in that file and the opened half lives on the box, and this
+    // document is the only place where the two are recorded side by side (C-5).
+    expect(doc, 'a faixa de relay não está registrada').toContain('49200');
+  });
+
+  it('não carrega literal de IP além do loopback e do bind (D2-15)', () => {
+    // THE REASON THIS BLOCK EXISTS. Task 3 pastes `ufw status`, response headers
+    // and a certificate chain from a live box into this file, and pasted output
+    // is the single most likely way an address ever enters this repository. The
+    // gate has to be here BEFORE the paste, not after.
+    //
+    // The same exact-token exemption as the ops/ block above: `127.0.0.1` is the
+    // loopback, `0.0.0.0` is the documented value of DG2_BIND (DM-9), and
+    // neither says where this box lives. An operator's real address cannot ride
+    // in under the exemption because only those two are spellable.
+    const doc = readDoc();
+    const bad: string[] = [];
+    for (const m of doc.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)) {
+      if (!NON_ROUTABLE_V4.has(m[0])) bad.push(m[0]);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nomeia as variáveis do painel sem jamais atribuir valor a nenhuma (D2-29)', () => {
+    // A key may be NAMED anywhere — naming them is the whole job of this
+    // document, since D2-29 moved them from a file on the host into a web
+    // panel's database and the repository is now the only inventory of WHICH
+    // keys exist. What it may never do is ASSIGN one.
+    //
+    // `=` ONLY, and the exclusion of `:` is reasoned rather than convenient.
+    // The ops/ block above tests `[=:]` because shell and YAML use both; prose
+    // uses `:` for apposition, and `LITESTREAM_BUCKET: o bucket da réplica` is
+    // a sentence and not a leak. What a pasted panel row or an env dump carries
+    // is the `=` form, and that is the shape this assertion is for.
+    const doc = readDoc();
+    const bad: string[] = [];
+    for (const line of doc.split('\n')) {
+      const clean = line
+        .replace(/\$\{[^}]*\}/g, '')
+        .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
+      for (const key of ENV_KEYS) {
+        if (new RegExp(`${key}\\s*=\\s*\\S`).test(clean)) bad.push(line.trim());
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nenhuma das duas credenciais do bucket aparece com valor, em nenhuma sintaxe', () => {
+    // The stricter form, for the two keys whose leak is unrecoverable: neither
+    // `=` nor `:` may be followed by anything that is not an interpolation or a
+    // table separator. A credential does not care which syntax leaked it, and
+    // unlike the generic keys above these two have no legitimate reason to be
+    // followed by a literal anywhere in a document.
+    const doc = readDoc();
+    const bad: string[] = [];
+    for (const line of doc.split('\n')) {
+      for (const key of ['AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID']) {
+        const m = new RegExp(`${key}\\s*[=:]\\s*(\\S+)`).exec(line);
+        if (!m) continue;
+        if (/^\$\{[^}]*\}$/.test(m[1]!)) continue;
+        bad.push(line.trim());
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });
 
