@@ -185,20 +185,44 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 | `cert-check.sh/.service/.timer` | **morrem** — o TLS é do Traefik |
 | `litestream.service`, `litestream.yml` | **redesenhar** — como processo do container ou sidecar, sobre volume persistente do Coolify |
 | `turnserver.conf`, `coturn-dropin.conf` | **provavelmente seguem nativos** — a faixa de portas de relay não convive bem com NAT de container |
-| job `deploy` do `.github/workflows/ci.yml` | **muda** — o Coolify puxa do GitHub; os quatro secrets e `DEPLOY_ENABLED` podem deixar de existir |
+| job `deploy` do `.github/workflows/ci.yml` | **vira job de publicação de imagem** — sob D2-32 não dispara nada; os quatro secrets e `DEPLOY_ENABLED` **deixam de existir**, e o que resta é o `GITHUB_TOKEN` com `packages: write` |
 | `tests/ops-config.test.ts` | **reescrever** as asserções dos arquivos que morrem |
 
-**Perguntas abertas para o discuss da fase 2:**
+**As seis perguntas abertas foram FECHADAS** pela pesquisa de 2026-09-09
+(`.planning/phases/02-migra-o-para-a-vps/02-RESEARCH.md`, que substitui a de 2026-08-31):
 
-1. Dentro do container, quem serve os estáticos: o Caddy (preserva a política inteira) ou o Node?
-2. coturn nativo ou container com rede do host? A faixa de relay decide.
-3. SQLite em volume do Coolify — e o Litestream roda onde, com qual ciclo de vida?
-4. Deploy pelo GitHub App do Coolify (fecha T8 do infraKring) ou webhook a partir do CI?
-5. O build passa a rodar na caixa, com 2 vCPU. `npm run build` faz `sim:build`, `tsc` e
-   `vite build`; medir antes de assumir que cabe.
+1. **Estáticos: o Caddy, dentro do contêiner.** Medido no vizinho (DM-11): o Traefik do Coolify
+   não manda **nenhum** cabeçalho de segurança. Se o Caddy não mandar, ninguém manda — o bloco
+   `header` sobrevive sem uma linha de mudança e fica mais importante do que era.
+2. **coturn nativo**, confirmado pelo motivo certo (DM-15): o UFW não governa porta publicada por
+   contêiner, mas governa processo nativo.
+3. **Litestream como PID 1 do contêiner da API**, envolvendo o Node por `-exec`. Verificado no
+   código-fonte (DM-13): `-exec` repassa o **sinal exato** ao filho e espera ele sair, então o
+   desligamento gracioso do 02-08 sobrevive. Precisa de `stop_grace_period: 30s`.
+4. **Nem GitHub App nem webhook: o disparo é manual (D2-32).** A API do Coolify não é alcançável
+   da internet (DM-7, medido) e nenhuma das quatro saídas se faz, porque todas mexem no vizinho
+   ou reintroduzem host-as-code. O CI publica a imagem; quem promove é uma pessoa, pelo túnel.
+5. **O build não roda na caixa.** D2-23 se confirma: o integrador constrói e publica; à caixa
+   sobra `docker pull` e start.
+6. **A chave restrita de deploy simplesmente não nasce.** Sob D2-32 não há segredo de deploy
+   nenhum — nem os quatro de SSH, nem o do gancho, nem `DEPLOY_ENABLED`. A defesa que o
+   `deploy-forced.sh` comprava deixa de ser necessária porque não há caminho automático a
+   defender.
 
-6. Sem `deploy-forced.sh`, a chave restrita de deploy e seu wrapper deixam de existir — confirmar
-   que o modelo de acesso do Coolify substitui a defesa que aquele wrapper comprava.
+**Bloqueadores novos que a pesquisa achou** (nenhum teste de hoje os pega):
+
+- **DM-9** — `apps/server/src/index.ts:88` faz bind em `127.0.0.1`. Em dois contêineres isso é o
+  loopback do contêiner do Node; o Caddy nunca chega lá. Sintoma seria 503 em `/api/*` desde o
+  primeiro deploy, com todo o resto verde.
+- **DM-8** — `tests/workflows.test.ts` assere que todo `uses:` casa `^actions/` e que nenhuma
+  linha diz `: write`, o que reprova qualquer publicação em registro. Saída barata: `docker
+  build`/`push` em passos `run:` (o runner já traz Docker), deixando o portão T-2-SC **intacto**,
+  mais uma exceção nomeada só para `packages: write`.
+- **DM-10** — o Caddy descarta `X-Forwarded-For` de origem não confiável por padrão. Sem
+  `trusted_proxies static private_ranges`, o limitador da fase 3 põe a internet inteira num
+  balde só.
+- **DM-20** — `tests/ops-config.test.ts` tem 74 testes; **34 morrem** com os arquivos de D2-30,
+  ~15 mudam, ~10 nascem, e o piso anti-vacuidade `>= 13` quebra em silêncio.
 
 **Bugs de `ops/` achados contra a caixa real (valem em qualquer arquitetura):**
 
@@ -211,16 +235,33 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-09T18:17:09.083Z
-Stopped at: Phase 2 context amended for containerization (D2-22..D2-31)
-Resume file: .planning/phases/02-migra-o-para-a-vps/02-CONTEXT.md
+Last session: 2026-09-09
+Stopped at: Phase 2 research redone under containerization; D2-32 decided (deploy volta a ser manual)
+Resume file: .planning/phases/02-migra-o-para-a-vps/02-RESEARCH.md
 
-Next: **`/gsd-plan-phase 2 --research-phase`** — replanejar a fase 2 sob D2-22..D2-31 (as emendas de
-containerização, já em `02-CONTEXT.md`). A pesquisa da fase é de 2026-08-31 e supõe uma caixa vazia com
-deploy por rsync; ela não cobre publicação por imagem, Coolify, nem Litestream em contêiner. O plano
-precisa cobrir os dois pendentes (02-04 e 02-12, ambos reescritos) MAIS os planos de correção do que as
-emendas mudam nos dez já executados (`ops/` perde sete arquivos por D2-30, e `tests/ops-config.test.ts`
-perde as asserções correspondentes).
+Next: **`/gsd-plan-phase 2`** — planejar com a pesquisa de 2026-09-09, que substitui a de 2026-08-31 e
+traz no cabeçalho o mapa "continua valendo / foi revogado". Todas as decisões de arquitetura estão
+fechadas: **D2-32 fixou que nada no Coolify se altera e o deploy desta fase é disparado à mão pelo
+túnel**, o que revoga D2-31, suspende D2-08 e apaga todos os segredos de deploy.
+
+A pesquisa recomenda **cinco planos, em ordem fixa**:
+
+1. **02-04′** — a caixa, os segredos e a forma do disparo manual; provar a suposição A1 (o Coolify
+   aceita a composição de dois serviços vinda do repositório). Vem primeiro porque decide a forma
+   do 02-11′. Aqui se escolhe entre clique no painel pelo túnel e um script local que faz o `curl`
+   para a porta encaminhada — os dois alteram nada na caixa, e o segundo preserva a letra do
+   critério 4 ("o deploy é um comando").
+2. **02-13** — delta de código: o bind de DM-9, o `Caddyfile` sem TLS/ACME, `trusted_proxies`,
+   `auto_https off`, o upstream do contêiner.
+3. **02-14** — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34 testes de
+   `tests/ops-config.test.ts` no mesmo commit**, incluindo o piso anti-vacuidade.
+4. **02-11′** — o `ci.yml` de publicação de imagem, com `docker build`/`push` em passos `run:` para
+   não quebrar o portão T-2-SC, mais o delta de `tests/workflows.test.ts` (DM-8).
+5. **02-12′** — a caixa de verdade: primeiro certificado pelo Traefik, deploy, reversão por imagem,
+   restauração verificada e o vigia externo.
+
+**Escopo que vazou para a fase 3:** o `03-11` ganha uma dependência que não tinha — as três regras de
+UFW (`3478/udp`, `3478/tcp`, `5349/tcp`) e a faixa de relay de D2-27. **Nenhuma existe na caixa hoje.**
 
 Depois: `/gsd-execute-phase 2` → `/gsd-execute-phase 3` (só o 03-11, que fecha SALA-04 contra o coturn
 real) → retomar `/gsd-verify-work 3`, que está pausada em `03-UAT.md` (status `partial`: os testes 15 e

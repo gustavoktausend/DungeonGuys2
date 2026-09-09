@@ -1,16 +1,18 @@
 # Phase 2: Migração para a VPS - Context
 
 **Gathered:** 2026-08-31
-**Amended:** 2026-09-09 (containerizacao — ver § Emendas de containerizacao)
+**Amended:** 2026-09-09 (containerizacao D2-22..D2-31; e D2-32 pos-pesquisa — o deploy volta a ser manual)
 **Status:** Ready for replanning
 
 > Rótulos de estrutura ficam em inglês porque são lidos por ferramenta.
 > O conteúdo é em português, como o resto dos documentos do projeto.
 >
-> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-31`. `D2-18` a `D2-21`
+> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-32`. `D2-18` a `D2-21`
 > são emendas pós-pesquisa de 2026-08-31; **`D2-22` a `D2-31` são as emendas de containerização
-> de 2026-09-09**, tomadas depois de a caixa existir. `D2-12` foi revogada por `D2-18` e `D2-06`
-> por `D2-24`. As decisões da fase 1 são citadas como `D-nn (fase 1)` para que nunca se confundam.
+> de 2026-09-09**, tomadas depois de a caixa existir; **`D2-32` é a emenda pós-pesquisa de
+> containerização**, tomada depois de a pesquisa medir a caixa. `D2-12` foi revogada por
+> `D2-18`, `D2-06` por `D2-24` e `D2-31` por `D2-32`. As decisões da fase 1 são citadas como
+> `D-nn (fase 1)` para que nunca se confundam.
 
 <domain>
 ## Phase Boundary
@@ -263,6 +265,42 @@ Estas emendas valem como decisões travadas, iguais às de cima.
   o risco que o `deploy-forced.sh` existia para conter. A relação de D2-08 se mantém — todo
   push na `main` que passar no CI publica.
 
+  > **REVOGADA por D2-32** em 2026-09-09, depois de a pesquisa medir que não existe endereço
+  > para o integrador chamar.
+
+#### Emenda pós-pesquisa de 2026-09-09
+
+- **D2-32:** **Nada no Coolify se altera; nesta fase o deploy é disparado à mão pelo túnel.**
+  Revoga D2-31. Motivo medido (`02-RESEARCH.md` §DM-7): a API do Coolify **não é alcançável
+  da internet** — 8000 e 8080 dão timeout de fora, por decisão do próprio infraKring
+  (`21-coolify-lockdown.sh`). As quatro saídas que a pesquisa custeou — dar FQDN ao painel,
+  expor só `/api/v1/deploy` pelo Traefik, um timer no host que puxa do GHCR, ou uma chave SSH
+  com `command=` fixo — **todas** exigem alterar a configuração do vizinho ou reintroduzir o
+  host-as-code que D2-22 estava eliminando. **Nenhuma se faz.** O integrador continua
+  construindo a imagem e publicando no registro (D2-23 intacta, e é ela que mantém o build
+  fora da caixa de 2 vCPU); o que deixa de existir é só o **disparo automático**: o operador
+  abre o túnel para o Coolify e sobe a versão nova à mão. É a aplicação mais estrita de
+  D-VPS-02 — a caixa é produção viva de outro projeto, e "não mexer" ganha de "automatizar"
+  enquanto o jogo não tem um único jogador. Automatizar volta à mesa quando houver motivo:
+  isto é adiamento escrito, não dívida acidental.
+
+  Consequências que o plano precisa absorver:
+
+  - **D2-08 fica suspensa nesta fase.** "Todo push na `main` que passar no CI publica" passa a
+    valer para a **imagem**, não para o **deploy**. O CI publica no registro; quem promove é
+    uma pessoa.
+  - **Nenhum segredo de deploy nasce.** Nem os quatro de SSH que o 02-04 original pedia
+    (`DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`), nem o segredo único
+    do gancho que D2-31 previa, nem `DEPLOY_ENABLED`. O `ci.yml` precisa apenas do
+    `GITHUB_TOKEN` com `packages: write` — a exceção nomeada de `02-RESEARCH.md` §DM-8.
+  - **O critério 4 do roadmap muda de forma e precisa ser reconciliado no plano.** Ele exige
+    que "o deploy é um comando e é reversível". A reversão sobrevive intacta (D2-24: apontar
+    para a imagem anterior, que já está no disco). "Um comando" é o que fica em aberto: um
+    clique no painel não é um comando. **A forma do disparo manual é decisão do 02-04′** —
+    clique no painel pelo túnel, ou um script local que faz o `curl` para a porta encaminhada
+    por SSH. Os dois alteram exatamente nada na caixa; o segundo preserva a letra do critério
+    e é o que o plano deve tentar primeiro.
+
 #### Decisões anteriores afetadas
 
 | Decisão | Estado |
@@ -273,6 +311,8 @@ Estas emendas valem como decisões travadas, iguais às de cima.
 | **D2-19** | **Desatualizada.** A caixa não é KVM 2 de 2 GB: são 8 GB, com 5,7 livres. Os limites de memória continuam obrigatórios pelo motivo original (impedir que um vazamento no signaling mate a API), agora como limites de contêiner |
 | **D2-13** | **Confirmada e especificada.** O domínio é `dg2.kring.tech`; o wildcard `*` já resolve, e o DNS não se toca |
 | **D2-16** | **Vale, com o dono trocado.** O certificado passa a ser do Traefik, então o timer local de `cert-check` sai (D2-30); a perna externa de D2-21 continua e é a que resta |
+| **D2-31** | **REVOGADA por D2-32.** Não há endereço para o integrador chamar (`02-RESEARCH.md` §DM-7); o disparo do deploy volta a ser humano nesta fase |
+| **D2-08** | **SUSPENSA por D2-32.** O push na `main` publica a imagem no registro, não o deploy. A promoção é manual até haver motivo para automatizar |
 
 #### Restrições novas que a caixa impõe
 
