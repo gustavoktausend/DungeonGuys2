@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 2 context amended for containerization (D2-22..D2-31)
-last_updated: "2026-09-09T18:17:09.103Z"
-last_activity: 2026-09-09 -- Caixa inventariada; D-VPS-01/02/03 e D2-22..D2-31 decididas; fase 2 pronta para replanejamento
+status: executing
+stopped_at: Phase 2 replanned under containerization — 5 plans written, checker passed with 0 blockers
+last_updated: "2026-09-09T21:21:51.790Z"
+last_activity: 2026-09-09 -- Phase 02 execution started
 progress:
   total_phases: 9
   completed_phases: 1
-  total_plans: 37
+  total_plans: 40
   completed_plans: 34
   percent: 11
 ---
@@ -22,14 +22,14 @@ See: .planning/PROJECT.md (updated 2026-08-28)
 
 **Core value:** Quatro amigos entram numa sala pelo código e lutam as mesmas waves no mesmo
 mundo, com o jogo respondendo na hora para cada um.
-**Current focus:** Phase 03 — sala-transporte-e-protocolo
+**Current focus:** Phase 02 — migra-o-para-a-vps
 
 ## Current Position
 
-Phase: 03 (sala-transporte-e-protocolo) — EXECUTING
-Plan: 10 of 11 (03-11 adiado — bloqueado por 02-04)
-Status: Executada 10/11 — verificação `passed` com o critério 3 (SALA-04) bloqueado pela VPS; fase NÃO marcada completa
-Last activity: 2026-09-08 -- Phase 03 executed (10/11), 03-11 deferred, VERIFICATION passed-with-override
+Phase: 02 (migra-o-para-a-vps) — EXECUTING
+Plan: 1 of 15
+Status: Executing Phase 02
+Last activity: 2026-09-09 -- Phase 02 execution started
 
 Progress: [█████████░] 91%
 
@@ -71,6 +71,21 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
 - [Roadmap] Temporadas fundidas ao ranking (fase 9); reconexão subiu para a fase 5;
   progressão durável na queda do host foi para a fase 6
 
+- [2026-09-09] **02-04 Task 1 — o disparo manual do deploy é `clique-painel` (opção B).**
+  Recusada a opção A (`tools/ops/deploy.mjs`): ela exigiria criar um token de API, que é um
+  registro novo na instância do Coolify que o infraKring opera, e D-VPS-02 ganha de preservar a
+  letra do critério 4. Consequências travadas: **`tools/ops/deploy.mjs` não nasce**; nenhum token
+  de API do Coolify é criado; e o critério 4 do roadmap é lido assim, daqui para frente —
+  > o critério 4 fecha nesta fase como um procedimento documentado e reversível, não como um
+  > comando, por decisão de D2-32
+
+  A metade reversível sobrevive intacta (D2-24: apontar para a imagem anterior, já em disco, com
+  `pull_policy: missing` garantindo que voltar não usa rede). Nenhum dos quatro secrets de SSH
+  (`DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`) nem `DEPLOY_ENABLED`
+  será criado — D2-32 os apagou. Sob esta decisão os globs de `ops/*` + `tools/ops/*` do
+  `tests/ops-config.test.ts` terminam o 02-14 com **nove entradas exatas**, não dez: é o caso
+  sem o script, que o piso `>= 9` do plano 02-14 já previu de propósito.
+
 ### Pending Todos
 
 Nenhum ainda.
@@ -98,7 +113,7 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Infra/VPS | 02-04 -- confirmar KVM 2 e regiao, criar bucket B2, chave de deploy, os 4 secrets E a variavel DEPLOY_ENABLED | Aguardando usuario | 2026-08-31 |
+| Infra/VPS | 02-04 (REESCRITO 2026-09-09 sob D2-32) -- criar o recurso do jogo no Coolify pelo tunel apontando para ops/probe/docker-compose.yml, atribuir o FQDN ao servico `web`, LER (sem alterar) a limpeza automatica de imagens, criar bucket S3 privado + chave limitada a ele, e abrir as 4 regras de UFW do coturn. **Nao ha mais chave de deploy, nem os 4 secrets de SSH, nem DEPLOY_ENABLED** -- D2-32 os apagou | Aguardando usuario | 2026-08-31 (reescrito 2026-09-09) |
 | Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-04 | 2026-08-31 |
 | Infra/VPS | 03-11 -- subir o coturn na VPS, exercitar o relay entre duas redes residenciais e medir o desfecho ICE; fecha o critério 3 (SALA-04). Portão de ação humana da Task 1 apresentado em 2026-09-08; resposta: "a caixa ainda não existe". Falta: KVM 2 em São Paulo, 02-04 e 02-12 executados, decisão ssh-do-Claude vs execução manual, segundo jogador em outra rede | Bloqueado por 02-04 | 2026-09-08 |
 
@@ -194,16 +209,21 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 1. **Estáticos: o Caddy, dentro do contêiner.** Medido no vizinho (DM-11): o Traefik do Coolify
    não manda **nenhum** cabeçalho de segurança. Se o Caddy não mandar, ninguém manda — o bloco
    `header` sobrevive sem uma linha de mudança e fica mais importante do que era.
+
 2. **coturn nativo**, confirmado pelo motivo certo (DM-15): o UFW não governa porta publicada por
    contêiner, mas governa processo nativo.
+
 3. **Litestream como PID 1 do contêiner da API**, envolvendo o Node por `-exec`. Verificado no
    código-fonte (DM-13): `-exec` repassa o **sinal exato** ao filho e espera ele sair, então o
    desligamento gracioso do 02-08 sobrevive. Precisa de `stop_grace_period: 30s`.
+
 4. **Nem GitHub App nem webhook: o disparo é manual (D2-32).** A API do Coolify não é alcançável
    da internet (DM-7, medido) e nenhuma das quatro saídas se faz, porque todas mexem no vizinho
    ou reintroduzem host-as-code. O CI publica a imagem; quem promove é uma pessoa, pelo túnel.
+
 5. **O build não roda na caixa.** D2-23 se confirma: o integrador constrói e publica; à caixa
    sobra `docker pull` e start.
+
 6. **A chave restrita de deploy simplesmente não nasce.** Sob D2-32 não há segredo de deploy
    nenhum — nem os quatro de SSH, nem o do gancho, nem `DEPLOY_ENABLED`. A defesa que o
    `deploy-forced.sh` comprava deixa de ser necessária porque não há caminho automático a
@@ -214,13 +234,16 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 - **DM-9** — `apps/server/src/index.ts:88` faz bind em `127.0.0.1`. Em dois contêineres isso é o
   loopback do contêiner do Node; o Caddy nunca chega lá. Sintoma seria 503 em `/api/*` desde o
   primeiro deploy, com todo o resto verde.
+
 - **DM-8** — `tests/workflows.test.ts` assere que todo `uses:` casa `^actions/` e que nenhuma
   linha diz `: write`, o que reprova qualquer publicação em registro. Saída barata: `docker
   build`/`push` em passos `run:` (o runner já traz Docker), deixando o portão T-2-SC **intacto**,
   mais uma exceção nomeada só para `packages: write`.
+
 - **DM-10** — o Caddy descarta `X-Forwarded-For` de origem não confiável por padrão. Sem
   `trusted_proxies static private_ranges`, o limitador da fase 3 põe a internet inteira num
   balde só.
+
 - **DM-20** — `tests/ops-config.test.ts` tem 74 testes; **34 morrem** com os arquivos de D2-30,
   ~15 mudam, ~10 nascem, e o piso anti-vacuidade `>= 13` quebra em silêncio.
 
@@ -252,15 +275,19 @@ Os cinco planos, em ordem fixa (waves 8 a 12, `depends_on` em cadeia):
    02-14) que de quebra **arranca o primeiro certificado do Traefik**. Aqui se escolhe entre clique
    no painel pelo túnel e um script local que faz o `curl` para a porta encaminhada — os dois
    alteram nada na caixa, e o segundo preserva a letra do critério 4 ("o deploy é um comando").
+
 2. **`02-13`** (wave 9) — delta de código: o bind de DM-9, os cinco comentários órfãos que citam
    `dg2.service`/`ops/deploy.sh`, o `Caddyfile` sem TLS/ACME, `trusted_proxies` (DM-10),
    `auto_https off`, o upstream do contêiner.
+
 3. **`02-14`** (wave 10) — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34
    testes de `tests/ops-config.test.ts` no mesmo commit**, com o piso anti-vacuidade descendo a 9.
+
 4. **`02-15`** (wave 11, **novo — não reescreve o `02-11`, que já foi executado**) — o `ci.yml` de
    publicação de imagem, com `docker build`/`push` em passos `run:` para não quebrar o portão
    T-2-SC, mais a exceção nomeada de `packages: write` em `tests/workflows.test.ts` (DM-8).
    `DEPLOY_ENABLED` morre aqui.
+
 5. **`02-12`** (wave 12, reescrito, **`autonomous: false`**) — a caixa de verdade: primeiro
    certificado pelo Traefik, deploy, reversão por imagem, restauração verificada e o vigia externo.
 
