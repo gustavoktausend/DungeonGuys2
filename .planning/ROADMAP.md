@@ -121,7 +121,7 @@ outro agente, em outro repositório, e é o item de maior lead time do marco.
   3. Uma requisição a `/api/` nunca é servida do cache, uma resposta não-`ok` nunca é gravada nele, e um deploy novo não deixa o cache velho para trás.
   4. O deploy é um comando e é reversível; o backup do banco foi **restaurado** num ambiente limpo e o resultado da restauração está anotado.
 
-**Plans**: 12 plans
+**Plans**: 15 plans
 
 Plans:
 **Wave 1**
@@ -132,7 +132,6 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-04-PLAN.md — A caixa e o bucket confirmados, a chave de deploy criada, e `docs/OPERACAO.md` aberto
 - [x] 02-05-PLAN.md — Playwright, a fixture do build antigo congelada, e as specs de instalação e offline em vermelho
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -153,9 +152,29 @@ Plans:
 
 - [x] 02-11-PLAN.md — O job `deploy` no `ci.yml` e o empacotamento do servidor
 
-**Wave 7** *(blocked on Wave 6 completion)*
+**Wave 7** — *vazia.* Era o lugar do 02-12, que o replanejamento de 2026-09-09 moveu para a
+onda 12. O número não foi reaproveitado de propósito: `STATE.md` e o plano `03-11` citam os
+planos desta fase pelo número, e renumerar quebraria três referências para arrumar uma tabela.
 
-- [ ] 02-12-PLAN.md — A caixa de verdade: primeiro certificado, deploy, reversão, restauração e o vigia
+**Wave 8** *(blocked on Wave 6 completion — replanejada em 2026-09-09 sob containerização)*
+
+- [ ] 02-04-PLAN.md — A caixa, os segredos e a forma do disparo manual: o recurso do Coolify provando a suposição A1, o primeiro certificado do Traefik, o bucket, a faixa de relay declarada e aberta, e `docs/OPERACAO.md` aberto
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 02-13-PLAN.md — O delta de código que a containerização exige: `DG2_BIND` com padrão em loopback (DM-9) e o `Caddyfile` de contêiner com `auto_https off`, `admin off` e `trusted_proxies` (DM-10)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 02-14-PLAN.md — `ops/` containerizado: os dois Dockerfiles e a composição; os nove arquivos aposentados e seus 34 casos de teste no mesmo commit (D2-30/DM-20); e o runbook reescrito
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 02-15-PLAN.md — O `ci.yml` de publicação de imagem sem ação de terceiro, o delta de `tests/workflows.test.ts` (DM-8), e os comandos do job exercitados localmente. **Substitui o job `deploy` que o 02-11 construiu**
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 02-12-PLAN.md — A caixa de verdade: primeiro deploy das imagens, cabeçalhos e CSP no navegador, PWA contra o domínio real, reversão com o registro inalcançável, restauração verificada e o vigia externo
 
 **Sequência interna que não pode ser trocada**: `tests/pwa/fixtures/old-build/` é congelada no
 plano 02-05 — **depois** da mudança de `base` (02-02, para que o escopo do service worker
@@ -171,6 +190,36 @@ não aconteça por acidente (D2-18).
 
 **Nota de operação**: o Let's Encrypt encerrou o aviso de expiração por e-mail em jun/2025 —
 o monitoramento externo do certificado é parte do critério 1, não item separado.
+
+**Replanejamento de 2026-09-09 — a caixa não estava vazia.** A VPS é o host do projeto
+`infraKring`: Coolify sobre Docker, **Traefik dono de 80 e 443**, produção viva de outro projeto.
+As emendas `D2-22` a `D2-32` de `02-CONTEXT.md` trocaram a arquitetura de entrega inteira —
+releases por sha com symlink, `rsync` sobre SSH, `systemd` supervisionando o Node e o
+`cert-check` local morreram; o jogo vira um app do Coolify com duas imagens publicadas pelo
+integrador. **Dez planos já executados (02-01 a 02-03, 02-05 a 02-11) sobreviveram sem uma linha
+de mudança**, com uma exceção de uma linha: o bind do servidor (DM-9). Os dois pendentes
+(`02-04` e `02-12`) foram reescritos no lugar e três planos novos (`02-13`, `02-14`, `02-15`)
+entraram para o delta de código, de `ops/` e do `ci.yml`.
+
+**A ordem das ondas 8 a 12 não pode ser trocada**, e cada elo é uma dependência real: o `02-04`
+vem primeiro porque a suposição A1 (o Coolify aceita uma composição de dois serviços vinda do
+repositório) decide a forma de `ops/docker-compose.yml`, e porque a forma do disparo manual
+decide o `02-15`; o `02-13` vem antes do `02-14` porque o `Dockerfile.web` copia o `Caddyfile`
+final; o `02-14` vem antes do `02-15` porque o CI constrói a partir dos Dockerfiles; e o `02-12`
+não existe sem os quatro.
+
+**`D2-08` fica suspensa nesta fase, e isso é adiamento escrito.** A API do Coolify não é
+alcançável da internet (medido), e as quatro saídas custeadas pela pesquisa alteram a
+configuração do vizinho ou reintroduzem host-as-code — `D2-32` recusou as quatro. Todo push na
+`main` que passar no CI publica a **imagem**; quem promove é uma pessoa. A leitura do critério 4
+sob essa decisão é escrita em `docs/OPERACAO.md` pelo plano `02-04`, antes de alguém tentar
+verificá-la.
+
+**Escopo que vazou para a fase 3:** as três regras de UFW do coturn (`3478/udp`, `3478/tcp`,
+`5349/tcp`) e a faixa de relay de `D2-27` **não existiam na caixa**, e o plano `03-11` passou a
+depender delas. Elas são abertas pelo plano `02-04`, junto com a declaração da faixa em
+`ops/turnserver.conf` — as duas metades no mesmo plano, porque uma sem a outra produz o sintoma
+"um amigo específico nunca entra".
 
 ### Phase 3: Sala, transporte e protocolo
 

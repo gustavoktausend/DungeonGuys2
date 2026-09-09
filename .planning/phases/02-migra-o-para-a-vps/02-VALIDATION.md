@@ -1,10 +1,11 @@
 ---
 phase: 2
 slug: migra-o-para-a-vps
-status: mapeado (planos 02-01 a 02-12)
+status: mapeado (planos 02-01 a 02-12); addendum de 2026-09-09 para as ondas 8 a 12 (02-04, 02-13, 02-14, 02-15, 02-12)
 nyquist_compliant: true
 wave_0_complete: false
 created: 2026-08-31
+amended: 2026-09-09
 ---
 
 # Phase 2 — Validation Strategy
@@ -148,6 +149,52 @@ created: 2026-08-31
    Se `@playwright/test` reclamar de tipos de Node, a saída barata é um
    `tests/pwa/tsconfig.json` próprio — **não** acrescentar `"node"` ao `types` da raiz, que
    afrouxaria a disciplina DOM-only do cliente.
+
+---
+
+## Addendum — replanejamento de 2026-09-09 (planos 02-04, 02-13, 02-14, 02-15, 02-12)
+
+> A tabela de `## Per-Task Verification Map` acima é de 2026-08-31 e descreve o conjunto
+> original de doze planos. **Dez deles foram executados e as linhas correspondentes continuam
+> válidas.** As linhas que apontam para `ops/cert-check.sh`, `ops/deploy.sh` e `ops/rollback.sh`
+> descrevem arquivos que o plano 02-14 remove (D2-30) — **não as execute**. As substituições
+> estão abaixo, e elas são o contrato de validação das ondas 8 a 12.
+
+| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | Status |
+|---------|------|------|-------------|------------|-----------------|-----------|-------------------|--------|
+| 02-04 T2 | 02-04 | 8 | INFRA-04 | T-2-RELAY / T-2-SECRET | Faixa de relay declarada e `total-quota` menor ou igual ao tamanho da faixa, calculado do próprio arquivo; `docs/OPERACAO.md` sem endereço nem credencial | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+| 02-04 T3 | 02-04 | 8 | INFRA-01 | T-2-TLS / T-2-NEIGHBOR | A1 provada: o Coolify lê a composição do repositório e o Traefik emite o primeiro certificado; as quatro regras de UFW abertas | shell + painel (VPS) | saída colada em `docs/OPERACAO.md` | ⬜ pending |
+| 02-13 T1 | 02-13 | 9 | INFRA-04 | T-2-BIND | `DG2_BIND` com padrão em loopback, recusado em branco, `0.0.0.0` aceito e fora do código | unit | `npx vitest run tests/server-env.test.ts` | ⬜ pending |
+| 02-13 T2 | 02-13 | 9 | INFRA-02 / INFRA-03 | T-2-XFF / T-2-ACME / T-2-HEADER | `trusted_proxies static private_ranges`, `auto_https off` e `admin off` presentes; os quatro cabeçalhos e as três classes de cache intactos; nenhum domínio no arquivo | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+| 02-14 T1 | 02-14 | 10 | INFRA-04 | T-2-SC / T-2-MEM / T-2-BACKUP / T-2-ROLLBACK | Nenhum `ports:`, nenhum `networks:`, nenhum `build:`; `pull_policy: missing`; tag por sha; `mem_limit` pareado com o heap do V8; `stop_grace_period` maior que `SHUTDOWN_GRACE_MS` importado; `ENTRYPOINT` com `-exec`; Litestream fixado por sha256 | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+| 02-14 T2 | 02-14 | 10 | INFRA-04 | T-2-VACUOUS | Nenhum `.sh` em `ops/`; piso anti-vacuidade dos globs em 9 e **provado por remoção** | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+| 02-14 T3 | 02-14 | 10 | INFRA-04 | T-2-SECRET / T-2-LOOP | O runbook diz `sudo docker`, a retenção de 5, a reversão por `DG2_IMAGE_TAG`, as quatro regras do coturn, o alerta de 30 dias, e que o Docker tenta para sempre onde o systemd chegava a `failed` | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+| 02-15 T1 | 02-15 | 11 | INFRA-01 / INFRA-04 | T-2-SC / T-2-TOKEN / T-2-SSH / T-2-MOVTAG | Nenhuma ação de terceiro; **exatamente um** `packages: write` e só no job da imagem; tag por sha; token por `stdin`; nenhuma linha com `ssh`/`rsync`/`scp`; nenhum marcador do Pages | unit | `npx vitest run tests/workflows.test.ts` | ⬜ pending |
+| 02-15 T2 | 02-15 | 11 | INFRA-02 / INFRA-03 / INFRA-04 | T-2-BIND / T-2-HEADER / T-2-404 | Os comandos do job rodados localmente; o Caddy de um contêiner alcança o Node do outro; quatro cabeçalhos, três classes de cache, 404 honesto e 503 em JSON medidos na resposta real | shell (local, Docker) | `npm run build && npm run server:build && npm test` mais as seis medições coladas no SUMMARY | ⬜ pending |
+| 02-12 T1 | 02-12 | 12 | INFRA-01 / INFRA-02 / INFRA-03 | T-2-TLS / T-2-CACHE / T-2-CSP | Certificado válido do Traefik; os três `Cache-Control` contra o domínio real (A10); CSP observado no navegador; PWA instalado, offline e atualizado | shell + navegador (VPS) | saída colada em `docs/OPERACAO.md` | ⬜ pending |
+| 02-12 T2 | 02-12 | 12 | INFRA-01 / INFRA-04 | T-2-ROLLBACK / T-2-BACKUP / T-2-MUTE / T-2-HOSTS | Reversão com o registro **inalcançável**; restauração em contêiner descartável com duração medida e prova de recusa; monitor verde **e** vermelho, com alerta de certificado de 30 dias | shell (VPS) + painel de terceiro | saída colada em `docs/OPERACAO.md` | ⬜ pending |
+| 02-12 T3 | 02-12 | 12 | INFRA-01..04 | T-2-SECRET | Nenhuma seção de `docs/OPERACAO.md` ficou com texto de marcador; nenhum endereço nem credencial nas saídas coladas | estrutural | `npx vitest run tests/ops-config.test.ts` | ⬜ pending |
+
+### Comandos manuais que SUBSTITUEM os da tabela original
+
+| Saiu (arquivo removido por D2-30) | Entrou |
+|---|---|
+| `ops/cert-check.sh` | conferência de fora da cadeia TLS servida pelo Traefik, mais o monitor externo com alerta de expiração de 30 dias |
+| `ops/deploy.sh <sha>` | a forma de disparo manual decidida no plano 02-04, mais a comparação do campo de release da rota de saúde com o sha publicado |
+| `ops/rollback.sh` | apontar `DG2_IMAGE_TAG` para o sha anterior e promover, **com o host do registro resolvendo para um endereço morto** |
+| `node tools/ops/restore-verify.mjs` na máquina | o mesmo script num **contêiner descartável** da imagem do servidor, com o volume do banco em somente-leitura |
+
+### Sampling Rate das ondas 8 a 12
+
+- **Por commit de tarefa:** `npm test`
+- **Por onda:** `npm run lint && npm test && npm run build && npm run sw:verify && npm run server:build && npm run test:e2e`
+- **Portão de fase:** a suíte completa verde no CI **mais** as execuções contra a caixa das ondas 8 e 12, com a saída colada em `docs/OPERACAO.md`
+
+### Lacunas de amostragem declaradas
+
+- O `-exec` do Litestream **não** é exercitado localmente no plano 02-15 (não há bucket na máquina de desenvolvimento): o entrypoint é sobrescrito para o Node. O repasse de sinal está verificado no código-fonte do Litestream (DM-13) e é exercitado de verdade no plano 02-12.
+- A porta interna `8080` **não** é exercitada pela composição de prova do plano 02-04, que usa o padrão da imagem oficial do Caddy. O número muda, o mecanismo não; a porta real é provada no plano 02-15 (local) e no 02-12 (caixa).
+- O `healthcheck` da composição e a política de reinício do Docker **não** têm portão automatizado: a corrente de alarme é o monitor externo, e o plano 02-12 a exercita fazendo o monitor ficar vermelho.
 
 ---
 
