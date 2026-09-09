@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: VPS inventariada; fase 2 a replanejar sob D-VPS-03
-last_updated: "2026-09-09T00:00:00.000Z"
-last_activity: 2026-09-09 -- VPS inventariada; D-VPS-01/02/03 decididas; fase 2 a replanejar como app do Coolify
+status: verifying
+stopped_at: Phase 2 context amended for containerization (D2-22..D2-31)
+last_updated: "2026-09-09T18:17:09.103Z"
+last_activity: 2026-09-08 -- Phase 03 executed (10/11), 03-11 deferred, VERIFICATION passed-with-override
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 37
-  completed_plans: 24
+  completed_plans: 34
   percent: 11
 ---
 
@@ -169,6 +169,7 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
   daquele projeto (a 8080 do Traefik fora da lista do lockdown; `coolify-lockdown.service`
   inativo) ficam como observação registrada, sem ação. Alterações no host só aditivas e
   confirmadas antes.
+
 - **D-VPS-03** **O jogo vira um app do Coolify**, containerizado, com deploy por push do GitHub.
   Escolhido sobre as alternativas (Caddy nativo atrás do Traefik; só o Node atrás do Traefik)
   por ter **um único modelo operacional na caixa** — e de quebra fecha a tarefa T8 do infraKring.
@@ -195,6 +196,7 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 4. Deploy pelo GitHub App do Coolify (fecha T8 do infraKring) ou webhook a partir do CI?
 5. O build passa a rodar na caixa, com 2 vCPU. `npm run build` faz `sim:build`, `tsc` e
    `vite build`; medir antes de assumir que cabe.
+
 6. Sem `deploy-forced.sh`, a chave restrita de deploy e seu wrapper deixam de existir — confirmar
    que o modelo de acesso do Coolify substitui a defesa que aquele wrapper comprava.
 
@@ -203,13 +205,14 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 - `ops/turnserver.conf` **não declara `min-port`/`max-port`**, e `ops/README.md` §12 manda abrir
   só 3478 e 5349. Sem a faixa, o coturn aloca relay em 49152-65535/udp, que o UFW `deny incoming`
   bloqueia. Sintoma: "um amigo específico nunca entra" — indistinguível de NAT ruim.
+
 - `DG2_PORT` tem **8080** como padrão e o Traefik já ocupa `0.0.0.0:8080`.
 - `rsync` não existe na caixa (só importa se algum caminho de deploy voltar a precisar dele).
 
 ## Session Continuity
 
-Last session: 2026-09-09
-Stopped at: VPS encontrada, inventariada e acessível (`ssh dg2vps`). Três decisões tomadas (D-VPS-01/02/03). A fase 2 precisa de replanejamento sob D-VPS-03; a UAT da fase 3 segue pausada em `03-UAT.md` (portões automatizados verdes, fluxo manual parado no teste 1).
-Resume file: .planning/STATE.md § Decisão de infraestrutura — 2026-09-09
+Last session: 2026-09-09T18:17:09.083Z
+Stopped at: Phase 2 context amended for containerization (D2-22..D2-31)
+Resume file: .planning/phases/02-migra-o-para-a-vps/02-CONTEXT.md
 
 Next: `/gsd-discuss-phase 2` para responder as seis perguntas abertas e replanejar 02-04/02-12 como app do Coolify; depois `/gsd-execute-phase 2`, `/gsd-execute-phase 3` (03-11) e retomar `/gsd-verify-work 3`
