@@ -1,14 +1,16 @@
 # Phase 2: Migração para a VPS - Context
 
 **Gathered:** 2026-08-31
-**Status:** Ready for planning
+**Amended:** 2026-09-09 (containerizacao — ver § Emendas de containerizacao)
+**Status:** Ready for replanning
 
 > Rótulos de estrutura ficam em inglês porque são lidos por ferramenta.
 > O conteúdo é em português, como o resto dos documentos do projeto.
 >
-> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-21` (`D2-18` a `D2-21`
-> são emendas pós-pesquisa de 2026-08-31; `D2-12` foi revogada por `D2-18`). As decisões
-> da fase 1 são citadas como `D-nn (fase 1)` para que nunca se confundam.
+> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-31`. `D2-18` a `D2-21`
+> são emendas pós-pesquisa de 2026-08-31; **`D2-22` a `D2-31` são as emendas de containerização
+> de 2026-09-09**, tomadas depois de a caixa existir. `D2-12` foi revogada por `D2-18` e `D2-06`
+> por `D2-24`. As decisões da fase 1 são citadas como `D-nn (fase 1)` para que nunca se confundam.
 
 <domain>
 ## Phase Boundary
@@ -177,6 +179,114 @@ a discussão não podia conhecer. Valem como decisões travadas, iguais às de c
   keyword matching em `"status":"ok"`. Configuração manual, com a primeira checagem verde
   registrada em `docs/OPERACAO.md`.
 
+### Emendas de containerização (2026-09-09)
+
+Dez decisões tomadas **depois** de a caixa existir e ser inventariada. A discussão original
+de 2026-08-31 supunha uma VPS vazia de 2 GB onde o Caddy seria dono da porta 443. A caixa
+real é o host do projeto **infraKring**: Coolify sobre Docker, **Traefik ocupando 80 e 443**
+(TCP e UDP), produção viva de outro projeto (`militias3dstore.kring.tech`), 8 GB de RAM e
+85 GB de disco livres. Inventário completo em `.vps-inventario.local` (fora do git).
+
+Estas emendas valem como decisões travadas, iguais às de cima.
+
+- **D2-22:** **O jogo vira um app do Coolify**, containerizado, publicado por push. Escolhido
+  contra as duas alternativas medidas (Caddy nativo atrás do Traefik; só o Node atrás do
+  Traefik) por dar **um único modelo operacional na caixa** — e de quebra fecha a tarefa T8
+  do infraKring, pendente desde junho. Efeito colateral que resolve um conflito de graça: o
+  servidor escuta 8080 **dentro do contêiner**, nada é publicado no host, e a colisão com o
+  painel do Traefik (que ocupa `0.0.0.0:8080`) desaparece por construção.
+
+- **D2-23:** **O integrador contínuo constrói a imagem e a publica no registro; o Coolify só
+  puxa.** Emenda D2-05 preservando o argumento dela inteiro: *o que é publicado é sempre o
+  que passou no portão cross-engine*. Deixar o Coolify construir a partir do git contornaria
+  esse portão — um push que quebrasse o determinismo entre motores publicaria assim mesmo,
+  anulando o que custou a fase 1. Segundo motivo, específico desta caixa: o build não disputa
+  os dois núcleos com a produção do outro projeto (D-VPS-02).
+
+- **D2-24:** **Reverter é apontar para a imagem anterior, que já está no disco.**
+  Substitui D2-06 (releases por sha com symlink), que morreu com D2-22, **preservando o
+  requisito que a justificava**: a reversão é a única rede de segurança numa caixa só, e não
+  pode depender da infraestrutura que acabou de falhar. O Docker guarda o que puxou, então
+  voltar não usa rede. Consequência a planejar: **quantas imagens ficam antes da poda** — sem
+  esse número, a reversão sem rede é acidente e não garantia.
+
+- **D2-25:** **Caddy e Node como dois serviços de uma composição.** O Caddy serve o jogo e
+  repassa `/api` e `/ws` ao Node. Motivo: `ops/Caddyfile` **não é sobre TLS** — carrega a
+  política de conteúdo derivada arquivo por arquivo, as três classes de cache, a recusa
+  deliberada de servir o índice em rota inexistente (DM-5) e o 503 em JSON que o monitor
+  externo de D2-21 consome. Reescrever isso em código seria o item mais caro da migração, e
+  desnecessário. **O Caddy do contêiner não termina TLS**: quem termina é o Traefik, em
+  `dg2.kring.tech`.
+
+- **D2-26:** **O coturn roda nativo no host, com systemd — exceção consciente a D2-22.** Não é
+  aplicação web: precisa de uma faixa larga de portas UDP sem tradução de endereço, e é
+  infraestrutura, não produto. Encaixa no modelo de host-as-code que o infraKring já usa.
+  `ops/turnserver.conf` e `ops/coturn-dropin.conf` continuam versionados e cobertos por teste.
+
+- **D2-27:** **A faixa de portas de relay é declarada e pequena, e a cota desce junto.**
+  Corrige um defeito real medido contra a caixa: `ops/turnserver.conf` **não declara**
+  `min-port`/`max-port`, e `ops/README.md` §12 manda abrir só 3478 e 5349. Sem a faixa, o
+  coturn aloca relay entre 49152 e 65535, que o UFW `deny incoming` bloqueia — o relay
+  autenticaria, entregaria um endereço ao navegador e o tráfego nunca chegaria. O sintoma é
+  **"um amigo específico nunca entra"**, indistinguível de NAT ruim, que é a mesma armadilha
+  que o runbook descreve para o segredo duplicado. Cerca de cem portas dão vinte e cinco
+  salas inteiramente por relay ao mesmo tempo; `total-quota=1200` desce para casar com a
+  faixa, porque o próprio runbook diz que aquele número é dimensionamento e não só
+  anti-abuso.
+
+- **D2-28:** **O Litestream envolve o processo do servidor** (`litestream replicate -exec`),
+  no padrão documentado pelo próprio projeto para contêiner. Mantém D2-17 intacta — réplica
+  contínua do WAL para bucket S3-compatível, fora da caixa — e elimina a janela em que o
+  banco recebe escrita e ninguém replica. Para um ledger de moeda, essa janela é soul gold
+  que some.
+
+- **D2-29:** **Segredos: painel do Coolify para o app, arquivo no host para o coturn.**
+  Emenda D2-15, que dizia que reconstruir a caixa é clonar o repo mais restaurar um arquivo
+  de env. Metade disso deixa de valer: as variáveis do app passam a viver no banco do
+  Coolify. **A consequência tem de estar escrita no runbook, em voz alta:** o
+  `static-auth-secret` do relay agora existe em dois lugares de **naturezas diferentes** — um
+  arquivo (`/etc/turnserver.conf`) e um painel web. Trocar num só faz o relay recusar toda
+  credencial, com o mesmo sintoma de D2-27.
+
+- **D2-30:** **`ops/` perde o que a containerização aposenta.** Saem `deploy.sh`,
+  `rollback.sh`, `deploy-forced.sh`, `prune-releases.sh`, `dg2.service` e os três arquivos de
+  `cert-check`. Ficam `turnserver.conf`, `coturn-dropin.conf` e o `README.md`, reescrito. As
+  asserções de `tests/ops-config.test.ts` sobre os arquivos removidos são reescritas no mesmo
+  commit. Motivo: um arquivo que ninguém executa e continua no repositório é uma armadilha
+  para quem ler o runbook daqui a seis meses — o git guarda a história sem precisar do
+  arquivo vivo.
+
+- **D2-31:** **A publicação é um gancho do Coolify, chamado pelo integrador.** Substitui os
+  quatro secrets de SSH que o plano 02-04 pedia (`DEPLOY_SSH_KEY`, `DEPLOY_HOST`,
+  `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`) por **um** segredo. Ganho de segurança direto: deixa de
+  existir uma chave com escrita na caixa guardada em serviço de terceiro, que era exatamente
+  o risco que o `deploy-forced.sh` existia para conter. A relação de D2-08 se mantém — todo
+  push na `main` que passar no CI publica.
+
+#### Decisões anteriores afetadas
+
+| Decisão | Estado |
+|---|---|
+| **D2-05** | **Emendada por D2-23.** O argumento sobrevive; muda o mecanismo — imagem no registro em vez de rsync sobre SSH |
+| **D2-06** | **REVOGADA por D2-24.** Releases por sha com symlink não existem sob contêiner; o requisito de reverter sem rede foi preservado |
+| **D2-15** | **Emendada por D2-29.** Config versionada em `ops/` continua; o `/etc/dg2/env` deixa de ser o lugar único dos segredos |
+| **D2-19** | **Desatualizada.** A caixa não é KVM 2 de 2 GB: são 8 GB, com 5,7 livres. Os limites de memória continuam obrigatórios pelo motivo original (impedir que um vazamento no signaling mate a API), agora como limites de contêiner |
+| **D2-13** | **Confirmada e especificada.** O domínio é `dg2.kring.tech`; o wildcard `*` já resolve, e o DNS não se toca |
+| **D2-16** | **Vale, com o dono trocado.** O certificado passa a ser do Traefik, então o timer local de `cert-check` sai (D2-30); a perna externa de D2-21 continua e é a que resta |
+
+#### Restrições novas que a caixa impõe
+
+- **Não mexer no infraKring** (D-VPS-02). Há produção viva. Alterações no host são **só
+  aditivas** e confirmadas antes. A única exigida por esta fase e pela fase 3 é abrir
+  3478/udp, 3478/tcp, 5349/tcp e a faixa de D2-27 no UFW.
+- **Dois achados de segurança do infraKring ficam como observação, sem ação:** a porta 8080 do
+  Traefik está publicada em todas as interfaces e fora da lista do `coolify-lockdown.sh`
+  (`PORTS="8000 6001 6002"`), protegida hoje por acidente e não por projeto; e
+  `coolify-lockdown.service` está `inactive (dead)`, então um reinício do Docker sem reboot
+  apagaria as regras até o próximo boot.
+- **`rsync` não existe na caixa.** Deixa de importar sob D2-22, mas fica registrado: qualquer
+  caminho que volte a precisar dele precisa instalá-lo.
+
 ### Claude's Discretion
 
 Decisões técnicas deixadas para o pesquisador e o planejador resolverem a partir do código
@@ -213,6 +323,19 @@ e da pesquisa já feita:
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
+
+### A caixa real (levantada em 2026-09-09 — LER ANTES de planejar)
+
+- `.planning/STATE.md` § "Decisão de infraestrutura — 2026-09-09" — D-VPS-01/02/03, o impacto
+  por artefato de `ops/`, as perguntas abertas e os três defeitos achados contra a caixa
+- `.vps-inventario.local` (raiz, fora do git por `*.local`) — inventário completo: portas em
+  escuta, containers, firewall, memória, disco, e a lista do que o jogo precisa e não existe
+- `.vps.local` (raiz, fora do git) — endereço, usuário, chave, domínio, credenciais do bucket.
+  Acesso pelo alias `ssh dg2vps`; **root não loga pela internet**, é reservado ao Coolify
+- Repositório **infraKring** (fora deste repo, em `Documents/Projetos/infraKring`) —
+  `docs/STATUS.md` (estado da caixa, T1–T7 feitas, T8 e T9 pendentes), `docs/runbook.md` (acesso,
+  túnel do painel, o bloco `Match Address` que reserva o root ao Coolify) e
+  `scripts/21-coolify-lockdown.sh` (a lista de portas trancadas, que **não** inclui a 8080)
 
 ### Escopo e requisitos desta fase
 - `.planning/ROADMAP.md` § "Phase 2: Migração para a VPS" — Goal, os 4 Success Criteria e a
@@ -313,17 +436,20 @@ e da pesquisa já feita:
   existir inteira para o critério 1 fechar.
 
 ### Constraints que limitam as opções
-- **VPS de 1-2 GB rodando tudo**: Caddy, Node, SQLite e, na fase 3, coturn. `MemoryMax` por
-  unit não é higiene, é o que impede um vazamento no signaling de matar a API.
+- ~~**VPS de 1-2 GB rodando tudo**~~ — **corrigido em 2026-09-09**: a caixa tem **8 GB**, com
+  5,7 livres, e 85 GB de disco. O teto de memória continua obrigatório pelo motivo original
+  (impedir que um vazamento no signaling mate a API), agora como limite de contêiner. O que
+  divide a caixa não é o jogo: é o Coolify mais a produção de outro projeto.
 - **Operação é do usuário**, incluindo TLS e uptime, sem plantão. Toda peça que exige
   manutenção manual é uma peça que vai quebrar num domingo — é o argumento que escolheu
   Caddy (renovação sem cron) e que recusou o timer de restauração recorrente em D2-03.
 - **A região da VPS importa para a fase 3**, não para esta: o mesmo servidor vai hospedar o
   TURN, e um relay fora do Brasil vira +200 ms. Se a caixa ainda não estiver provisionada na
   região certa, este é o último momento barato para mover.
-- **A porta 443 vai ser disputada na fase 3** (TURN sobre TLS quer 443 para atravessar
-  firewall corporativo). O Caddyfile desta fase não precisa resolver isso, mas quem o
-  escrever deve saber que a disputa está agendada.
+- ~~**A porta 443 vai ser disputada na fase 3**~~ — **resolvido de outro jeito em 2026-09-09**:
+  a 443 nunca foi do Caddy nesta caixa. É do Traefik, em TCP e UDP. O relay fica em 3478 e
+  5349, como `ops/turnserver.conf` já decidira, e TURN sobre TLS na 443 segue como dívida
+  registrada e não construída.
 
 </code_context>
 
@@ -390,6 +516,21 @@ Consequências registradas e portas que estas decisões deixaram encostadas:
 - **Limpar Cache Storage e IndexedDB no logout** — item 5 da prevenção da armadilha 8. Não
   há logout até a fase 6; anotado aqui para que a fase 6 não o redescubra do zero.
 
+Acrescentados em 2026-09-09, com a caixa na mesa:
+
+- **Os dois achados de segurança do infraKring** — a 8080 do Traefik fora da lista do lockdown,
+  e `coolify-lockdown.service` inativo. **Registrados e não corrigidos**, por D-VPS-02: há
+  produção viva ali e o infraKring não é escopo desta fase. São dele, não do jogo.
+- **A tarefa T9 do infraKring (backup off-site)** — o Litestream que D2-17/D2-28 põem de pé
+  serviria os dois projetos com pouco trabalho extra. Fora do escopo pelo mesmo motivo acima;
+  vale a conversa depois que o jogo estiver no ar.
+- **Remover `hello.kring.tech`** — o app de teste de junho segue no ar, e o `STATUS.md` do
+  infraKring já pedia sua remoção. Não é nosso.
+- **TLS na 5349 do coturn** — continua adiado (é o mesmo débito de WR-09 na fase 3). Piora de
+  forma interessante: o certificado agora é do Traefik e vive dentro do `acme.json` do Coolify,
+  que o usuário do coturn não lê. O caminho continua sendo um gancho de renovação, e continua
+  não valendo o peso antes de alguém ficar de fora por um firewall que se possa nomear.
+
 Nenhum item de escopo criativo apareceu na discussão — ela ficou dentro da fronteira da
 fase.
 
@@ -398,4 +539,4 @@ fase.
 ---
 
 *Phase: 2-Migração para a VPS*
-*Context gathered: 2026-08-31*
+*Context gathered: 2026-08-31 · amended 2026-09-09 (containerização)*
