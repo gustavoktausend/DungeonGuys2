@@ -5,7 +5,7 @@ milestone_name: milestone
 status: executing
 stopped_at: Phase 3 UI-SPEC approved
 last_updated: "2026-09-09T00:00:00.000Z"
-last_activity: 2026-09-09 -- Sessão retomada; revisão da fase 3 corrigida 13/13, reverificação pendente
+last_activity: 2026-09-09 -- UAT da fase 3 pausada no teste 1; dados da VPS a caminho para 02-04/02-12/03-11
 progress:
   total_phases: 9
   completed_phases: 1
@@ -156,7 +156,7 @@ anterior às correções e precisa ser refeita antes de a fase 4 abrir.
 ## Session Continuity
 
 Last session: 2026-09-09
-Stopped at: Sessão retomada — revisão da fase 3 corrigida (13/13, `349cb7d`); falta reverificar a fase e abrir a fase 4
-Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-REVIEW-FIX.md
+Stopped at: UAT da fase 3 pausada (`03-UAT.md`, status partial): portões automatizados verdes (testes 15 e 17 pass), fluxo manual parado no teste 1 com reporte "ERR_CONNECTION_REFUSED" sem URL/terminal informados (diagnóstico: servidor só em 127.0.0.1:8080, Vite só em [::1]:5173; `localhost` funciona nos dois). Gustavo decidiu atacar o bloqueio da VPS: vai fornecer os dados da caixa para executar 02-04 → 02-12 → 03-11 com o Claude operando por SSH.
+Resume file: .planning/phases/03-sala-transporte-e-protocolo/03-UAT.md
 
-Next: reverificar a fase 3 (`/gsd-verify-work 3`, a `03-VERIFICATION.md` é anterior às correções); depois `/gsd-discuss-phase 4`; `/gsd-execute-phase 3` de novo quando a VPS existir (03-11)
+Next: dados da VPS num arquivo local ignorado pelo git; `/gsd-execute-phase 2` (02-04, 02-12); `/gsd-execute-phase 3` (03-11); depois retomar `/gsd-verify-work 3` pelo teste 1
