@@ -1,13 +1,13 @@
 # Phase 2: Migração para a VPS - Context
 
 **Gathered:** 2026-08-31
-**Amended:** 2026-09-09 (containerizacao D2-22..D2-31; e D2-32 pos-pesquisa — o deploy volta a ser manual)
+**Amended:** 2026-09-10 (containerizacao D2-22..D2-31; D2-32 o deploy volta a ser manual; D2-33 Litestream replica para a caixa, nao para bucket)
 **Status:** Ready for replanning
 
 > Rótulos de estrutura ficam em inglês porque são lidos por ferramenta.
 > O conteúdo é em português, como o resto dos documentos do projeto.
 >
-> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-32`. `D2-18` a `D2-21`
+> **Convenção de numeração:** as decisões desta fase são `D2-01` a `D2-33`. `D2-33` é emenda de execução de 2026-09-10, tomada no portão humano do 02-04. `D2-18` a `D2-21`
 > são emendas pós-pesquisa de 2026-08-31; **`D2-22` a `D2-31` são as emendas de containerização
 > de 2026-09-09**, tomadas depois de a caixa existir; **`D2-32` é a emenda pós-pesquisa de
 > containerização**, tomada depois de a pesquisa medir a caixa. `D2-12` foi revogada por
@@ -301,6 +301,42 @@ Estas emendas valem como decisões travadas, iguais às de cima.
     por SSH. Os dois alteram exatamente nada na caixa; o segundo preserva a letra do critério
     e é o que o plano deve tentar primeiro.
 
+#### Emenda de execução — 2026-09-10 (tomada durante o 02-04)
+
+- **D2-33:** **O Litestream replica para um caminho da própria caixa (`file`), não para bucket.**
+  Emenda D2-17 e D2-28. Gustavo decidiu, durante o portão humano do 02-04, não criar bucket:
+  *"não vamos deixar as imagens em bucket isso vai ficar tudo manual vindo da minha maquina local
+  pelo tunel com a vps"*. (A frase confundia imagem com banco — o bucket era do Litestream, não
+  das imagens; a correção foi apresentada e a decisão mantida para o banco.) O Litestream 0.5
+  suporta oito tipos de réplica, e `file` é um deles, então a réplica contínua **sobrevive**:
+  o que muda é o destino.
+
+  O que isso preserva e o que isso custa, escrito antes de alguém verificar:
+
+  - **Preserva** o `litestream replicate -exec` de D2-28 — o processo, o repasse de sinal medido
+    em DM-13 e o `stop_grace_period: 30s` continuam iguais. Só a seção de destino do
+    `ops/litestream.yml` muda de `s3` para `file`.
+  - **Preserva o critério 4**: o ensaio de restauração de D2-03 roda na caixa, em diretório
+    descartável, sobre a réplica `file`, e o resultado vai para `docs/OPERACAO.md`. "Restaurado
+    num ambiente limpo e o resultado anotado" continua literalmente verdadeiro.
+  - **Custa a garantia off-site.** A réplica protege contra corrupção do banco, migração ruim e
+    deploy errado — **não** contra perder a caixa. Se o disco morrer, a réplica morre com ele, a
+    menos que Gustavo tenha puxado pelo túnel recentemente. **Isto não é descuido, é escolha
+    registrada**, e a tarefa T9 do infraKring (backup off-site) deixa de ser fechada por esta
+    fase.
+  - **Apaga quatro variáveis** do painel: `LITESTREAM_BUCKET`, `LITESTREAM_ENDPOINT`,
+    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. Nasce no lugar um caminho de réplica.
+  - **Exige volume persistente para a réplica.** O caminho do `file` tem de viver num volume
+    persistente do Coolify, como o do banco. Numa camada de contêiner, a réplica é apagada no
+    primeiro redeploy e o backup desaparece sem avisar — é a armadilha que esta linha existe para
+    impedir. O `02-14` declara os dois volumes e o `02-12` prova que a réplica sobreviveu a um
+    redeploy.
+
+- **D2-23 reafirmada no mesmo portão.** Gustavo confirmou manter o integrador construindo e
+  publicando a imagem no GHCR, com a caixa fazendo `pull` — o que o deploy de prova de hoje já
+  exercitou (`Image caddy:2.11.4-alpine Pulling → Pulled`, sem etapa de build). O `02-15`
+  segue como planejado. O que é manual é só o **disparo** (D2-32), nunca a **construção**.
+
 #### Decisões anteriores afetadas
 
 | Decisão | Estado |
@@ -313,6 +349,8 @@ Estas emendas valem como decisões travadas, iguais às de cima.
 | **D2-16** | **Vale, com o dono trocado.** O certificado passa a ser do Traefik, então o timer local de `cert-check` sai (D2-30); a perna externa de D2-21 continua e é a que resta |
 | **D2-31** | **REVOGADA por D2-32.** Não há endereço para o integrador chamar (`02-RESEARCH.md` §DM-7); o disparo do deploy volta a ser humano nesta fase |
 | **D2-08** | **SUSPENSA por D2-32.** O push na `main` publica a imagem no registro, não o deploy. A promoção é manual até haver motivo para automatizar |
+| **D2-17** | **Emendada por D2-33.** A réplica contínua continua; o destino deixa de ser bucket e passa a ser caminho na própria caixa, em volume persistente. A garantia off-site cai, por escolha registrada |
+| **D2-28** | **Emendada por D2-33.** O `litestream replicate -exec`, o repasse de sinal e o `stop_grace_period` sobrevivem intactos; só a seção de destino do `ops/litestream.yml` muda de `s3` para `file` |
 
 #### Restrições novas que a caixa impõe
 
