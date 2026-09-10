@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: **02-15 CONCLUÍDO (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa**
-stopped_at: 02-15 concluído (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa
-last_updated: "2026-09-10T17:00:35.473Z"
-last_activity: 2026-09-10
+status: executing
+stopped_at: context exhaustion at 84% (2026-09-10)
+last_updated: "2026-09-10T18:12:42.552Z"
+last_activity: 2026-09-10 -- Phase 02 execution started
 progress:
   total_phases: 9
   completed_phases: 1
@@ -26,25 +26,43 @@ mundo, com o jogo respondendo na hora para cada um.
 
 ## Current Position
 
-Phase: 02 (migra-o-para-a-vps) — EXECUTING
-Plan: 12 of 15
-Status: **02-15 CONCLUÍDO (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa**
-Last activity: 2026-09-10
+Phase: 02 (migra-o-para-a-vps) — **TODOS OS 15 PLANOS EXECUTADOS; A FASE NÃO FECHA**
+Plan: 15 of 15
+Status: **02-12 concluído como `partial` — o jogo está no ar, três critérios adiados com dono**
+Last activity: 2026-09-10 -- primeira promoção real contra a caixa
 
-> **A fase 02 roda por WAVE, não por número de plano**, e o contador de plano do
-> GSD não sabe disso: `state advance-plan` incrementa de um em um. Concluídos:
-> 02-01 a 02-11, **02-13** (wave 9), **02-14** (wave 10) e **02-15** (wave 11).
-> Falta **um só**: o **02-12** (wave 12, `autonomous: false`), que é o de portão
-> humano contra a caixa. O número acima aponta o plano em curso, corrigido à mão
-> depois do 02-15 — e por isso ele DESCE de 15 para 12.
+> **O jogo está no ar no domínio próprio, sob HTTPS, servindo `9cba5c9`.** A política HTTP foi
+> medida contra o domínio real e chega intacta: os três `Cache-Control`, os quatro cabeçalhos de
+> segurança, 404 honesto e 503 em JSON. O vizinho (infraKring) ficou intocado — `Up 2 months` sem
+> quebra de uptime. Registro completo, com as saídas coladas, em `docs/OPERACAO.md`.
 >
-> **Um ponteiro quebrado, inerte e com dono:** o recurso do Coolify aponta para
-> `ops/probe/docker-compose.yml`, que o 02-14 apagou. Sob D2-32 nada dispara
-> deploy sozinho, então ele não quebra nada até alguém promover à mão — e o
-> `user_setup` do **02-12** já carrega a tarefa de repontá-lo para
-> `ops/docker-compose.yml`.
+> **A fase 02 fecha INCOMPLETA por escolha do operador em 2026-09-10.** Três itens foram adiados,
+> e cada um é critério de sucesso da fase. Dono e condição de volta em `docs/OPERACAO.md`
+> § "O que continua aberto ao fim do plano 02-12":
+>
+> 1. **Reversão com o registro inalcançável** — critério 4, metade "reversível". Custa ~10 min, e
+>    a imagem anterior JÁ está em disco (duas tags por serviço).
+> 2. **Monitor externo** — critério 4, metade "alguém avisa". **Prazo real: 2026-11-08**, 30 dias
+>    antes de o certificado expirar em 2026-12-08. Enquanto não existir, NADA avisa se o jogo cair
+>    — nem o certificado, nem o crash-loop que o Docker tenta para sempre (P-9 perdida, T-2-LOOP).
+> 3. **CSP observado no navegador, PWA limpo offline e PWA atualizado** — critério 2. A advertência
+>    do `ops/Caddyfile` de que o CSP é derivado-da-fonte e não observado PERMANECE DE PÉ.
+>
+> **Não são pendências, são decisões registradas:** D2-11 (PWA em iOS/Safari físico segue aberto em
+> `docs/PARIDADE.md`), D2-32 (disparo manual; o critério 4 fecha como procedimento, não comando),
+> D2-33 (sem garantia off-site; a réplica mora no mesmo disco).
+>
+> **Quatro defeitos reais foram achados por executar, nenhum previsto pelo plano:** o par de relay
+> tornava o servidor imbootável; a tag automática da imagem é impossível no Coolify (a referência a
+> `${SOURCE_COMMIT}` cria a variável vazia que suprime a injeção do commit); a composição podia
+> deixar de ser YAML sem nenhum teste notar; e o comando do ensaio de restauração não rodava por
+> faltar `DG2_REPLICA_PATH`. Os quatro corrigidos, com asserção e prova por remoção.
+>
+> **Custo registrado:** o domínio ficou em 503 entre 18:36 e 19:34 UTC, em quatro deploys com três
+> falhas. A primeira era o defeito que o plano existia para achar; as outras duas vieram de medir
+> numa reprodução isolada e aplicar no artefato real sem remedir.
 
-Progress: [██████████] 95%
+Progress: [██████████] 100% dos planos executados · fase não fechada
 
 ## Performance Metrics
 
@@ -305,8 +323,8 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-10T17:00:35.460Z
-Stopped at: 02-15 concluído (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa
+Last session: 2026-09-10T18:06:16.193Z
+Stopped at: context exhaustion at 84% (2026-09-10)
 Resume file: None
 
 ## ⚡ Queda de energia em 2026-09-10 — o que ela fez e o que foi restaurado

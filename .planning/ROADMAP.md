@@ -22,7 +22,7 @@ placar em que estar no topo significa ter jogado.
 - Decimal phases (2.1, 2.2): inserções urgentes (marcadas com INSERTED)
 
 - [x] **Phase 1: Formato e costuras** - Congela identidade, `RunConfig`, `SIM_VERSION`, log de inputs, serialização e trigonometria — zero linha de rede (completed 2026-08-31)
-- [ ] **Phase 2: Migração para a VPS** - Domínio único com TLS, PWA e backup exercitados com o jogo single-player
+- [x] **Phase 2: Migração para a VPS** - Domínio único com TLS, PWA e backup exercitados com o jogo single-player (completed 2026-09-10)
 - [ ] **Phase 3: Sala, transporte e protocolo** - Quatro amigos se encontram pelo código; o formato do fio e o codec do snapshot ficam decididos aqui
 - [ ] **Phase 4: Partida sincronizada** - Dois a quatro jogadores lutam a mesma run no mesmo mundo, com resposta imediata para cada um
 - [ ] **Phase 5: Regras de co-op e resiliência de sessão** - Achar o aliado, levantá-lo, voltar depois de morrer e voltar depois de cair a conexão
@@ -174,7 +174,7 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
-- [ ] 02-12-PLAN.md — A caixa de verdade: primeiro deploy das imagens, cabeçalhos e CSP no navegador, PWA contra o domínio real, reversão com o registro inalcançável, restauração verificada e o vigia externo
+- [x] 02-12-PLAN.md — A caixa de verdade: primeiro deploy das imagens, cabeçalhos e CSP no navegador, PWA contra o domínio real, reversão com o registro inalcançável, restauração verificada e o vigia externo
 
 **Sequência interna que não pode ser trocada**: `tests/pwa/fixtures/old-build/` é congelada no
 plano 02-05 — **depois** da mudança de `base` (02-02, para que o escopo do service worker
@@ -528,7 +528,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 14/15 | In Progress|  |
+| 2. Migração para a VPS | 15/15 | Complete   | 2026-09-10 |
 | 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
