@@ -5,8 +5,22 @@
 // (draft-uberti-behave-turn-rest-00) works by both sides knowing one shared
 // string and neither side sending it: this process derives a username/password
 // pair from it, coturn re-derives the same pair to check, and the string itself
-// stays in /etc/dg2/env and /etc/turnserver.conf. What travels to the browser
+// never leaves the two places it is configured. What travels to the browser
 // expires, and expires soon.
+//
+// THOSE TWO PLACES ARE OF DIFFERENT NATURES, and D2-29 asks for that to be said
+// out loud rather than merely recorded. The Node half is `DG2_TURN_SECRET` among
+// the app's variables in the Coolify panel; the relay half is
+// `static-auth-secret` in /etc/turnserver.conf, root-only 0600 on the host. D2-29
+// retired the env file on the host as the app's source of secrets, so this
+// process reads NO file for this string — it reads its own environment.
+//
+// The cost of that split is the part worth writing down: there is no single
+// place to look and no diff that can show the two copies out of step, because
+// one of them lives in a web panel's database. Changing one without the other
+// makes the relay reject every credential this file mints, and the symptom is
+// "one specific friend never gets in" — indistinguishable from bad NAT, which is
+// the same trap the declared relay port range exists to avoid (T-3-11).
 //
 // THE CREDENTIAL IS TIED TO THE ROOM, and that is a second property on top of
 // the expiry (D3-10): a tag derived from the room code and the slot is inside

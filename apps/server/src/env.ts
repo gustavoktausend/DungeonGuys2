@@ -27,6 +27,22 @@ export interface ServerEnv {
   dbPath: string;
   /** A TCP port in [1, 65535]. Never 0 — see readEnv. */
   port: number;
+  /**
+   * The address handed to listen(2), and the one key here that is
+   * DELIBERATELY NOT VALIDATED beyond being non-blank.
+   *
+   * Everything listen(2) accepts is legitimate: a v4 address, a v6 address, a
+   * hostname, a container's service name. A validator guessing at that would
+   * refuse a correct value the day the topology changed — a refusal at boot
+   * over a configuration that was right — so the only thing enforced is that
+   * an operator who wrote the line wrote something in it.
+   *
+   * The default is the loopback, which is where the original defence lived and
+   * where every native run and every developer's machine stays. The container
+   * value is declared in the compose instead of here, because that is where it
+   * is a reviewable line in a diff rather than a constant nobody re-reads.
+   */
+  bind: string;
   /** The git sha /api/health publishes. Never empty. */
   release: string;
   /**
@@ -68,6 +84,17 @@ export type EnvSource = Record<string, string | undefined>;
 export const DEFAULTS = {
   DG2_DB: '/var/lib/dg2/dg2.db',
   DG2_PORT: '8080',
+  /**
+   * The loopback, and it is a PRODUCTION path like the two above it rather than
+   * a development convenience: every way of running this process that is not a
+   * container — a native unit, a restore drill, `npm run dev` — keeps the bind
+   * that makes the API unreachable from outside the machine.
+   *
+   * The deployment that needs every interface says so in its own compose, so
+   * the one environment where this default is wrong is the one that overrides
+   * it, in writing.
+   */
+  DG2_BIND: '127.0.0.1',
   DG2_RELEASE: 'dev',
   /**
    * The Vite dev server's origin, and the ONE default in this table that is a
@@ -166,6 +193,18 @@ export function readEnv(source: EnvSource): ServerEnv {
     throw new Error(`/env/DG2_PORT: "${rawPort}" não é uma porta entre 1 e 65535`);
   }
 
+  // The bind address, read with required() and NOT with optional(), and the
+  // difference is the whole reasoning. optional() exists for values that have
+  // no honest default — a secret, and the realm scoping it — where absent means
+  // "this deployment has none". This key is the opposite: absent means "the
+  // default", and the default is a real, correct, production answer. Reading it
+  // with optional() would make `bind` nullable and hand the caller a decision
+  // that belongs here.
+  //
+  // Nothing below this line parses the value. See ServerEnv.bind for why a
+  // format check would be a refusal of legitimate configuration.
+  const bind = required(source, 'DG2_BIND', DEFAULTS.DG2_BIND);
+
   // DG2_ORIGIN is the allowlist the signalling upgrade checks before completing
   // a WebSocket handshake, and it is the one key here whose default is a
   // DEVELOPMENT value. Left alone in production it would mean the server accepts
@@ -208,5 +247,5 @@ export function readEnv(source: EnvSource): ServerEnv {
     );
   }
 
-  return { dbPath, port, release, origin, turnSecret, turnRealm };
+  return { dbPath, port, bind, release, origin, turnSecret, turnRealm };
 }

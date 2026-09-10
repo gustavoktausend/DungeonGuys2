@@ -1,5 +1,12 @@
-// index.ts — the entrypoint dg2.service runs. Everything here is a side effect,
-// in a fixed order: read the environment, open the database, migrate, serve.
+// index.ts — the entrypoint of the `api` container. Everything here is a side
+// effect, in a fixed order: read the environment, open the database, migrate,
+// serve.
+//
+// THIS PROCESS IS NOT PID 1 OF THAT CONTAINER. Litestream is, wrapping it with
+// `replicate -exec`, so that the database never takes a write while nothing is
+// replicating it — for a currency ledger that window is soul gold that vanishes
+// (D2-28). What that arrangement costs and what it buys for the shutdown below
+// is spelled out at the signal wiring at the bottom of this file.
 //
 // The one other entrypoint in this repository, src/main.ts, has the same shape
 // and the same top-level `await`. The difference is what failure means: a
@@ -25,18 +32,26 @@ import {
   UPGRADE_LIMIT,
 } from './signaling/limiter';
 
-// All three come from /etc/dg2/env, which is NOT in this repository (ops/
-// README.md §1: the repo never says where the machine lives). The defaults are
-// the production paths, so a MISSING env file fails loudly on the box rather
-// than silently writing a database somewhere else.
+// Every value readEnv needs arrives in the PROCESS ENVIRONMENT, and where that
+// environment is authored moved with D2-29: the deployment's values are the
+// app's variables in the Coolify panel, a developer's are whatever the shell
+// exports. Neither is in this repository, which is the half of D2-15 that
+// survived intact — the repo still never says where the machine lives. The
+// defaults are the production paths, so a deployment that forgot a key fails
+// loudly rather than silently writing a database somewhere else.
 //
-// A missing file was never the dangerous case, though. A BLANK value is: the
+// A missing value was never the dangerous case, though. A BLANK one is: the
 // reading used to be `process.env.DG2_DB ?? '...'`, and `??` falls back only on
-// undefined, which an EnvironmentFile never produces. `DG2_DB=` arrived as ''
-// and openDb('') opens an anonymous temporary database that is discarded when
-// the connection closes — with the migration passing, /api/health answering ok
-// and Litestream replicating a file nobody writes. readEnv() refuses instead;
-// see env.ts for the reasoning and tests/server-env.test.ts for the measurement.
+// undefined, which neither a shell export nor a saved panel field ever produces.
+// `DG2_DB=` arrived as '' and openDb('') opens an anonymous temporary database
+// that is discarded when the connection closes — with the migration passing,
+// /api/health answering ok and Litestream replicating a file nobody writes.
+// readEnv() refuses instead; see env.ts for the reasoning and
+// tests/server-env.test.ts for the measurement.
+//
+// A PANEL MAKES THAT MORE LIKELY, NOT LESS. A text field somebody cleared and
+// saved is the same empty string a truncated line in a file used to be, and
+// there is no diff of it anywhere to notice.
 let env: ServerEnv;
 try {
   env = readEnv(process.env);
@@ -53,14 +68,21 @@ const { sqlite, db } = openDb(env.dbPath);
 
 // D2-07: migrate BEFORE accepting a request, and exit non-zero if it fails.
 //
-// Exiting is the correct behaviour and not a cop-out. It is what lets
-// StartLimitIntervalSec=60 / StartLimitBurst=5 in dg2.service turn a broken
-// migration into a `failed` unit instead of an invisible restart loop; a failed
-// unit means nothing is listening on 8080, which means Caddy's `handle_errors`
-// answers 503, which means the external monitor stops matching "status":"ok"
-// and raises an alarm (P-9). Every link in that chain depends on this process
-// refusing to run half-configured. Serving with an unmigrated database would
-// give the monitor a green light over a server that cannot store anything.
+// Exiting is the correct behaviour and not a cop-out, and the alarm chain it
+// starts survived containerisation with exactly one link replaced. The restart
+// policy is the compose's (`restart: unless-stopped`) rather than a supervisor's
+// give-up counter, so a broken migration now produces a container that
+// crash-loops with backoff instead of one that gives up and stays down. Either
+// way NOTHING IS LISTENING on the port the web container proxies to, which means
+// Caddy's `handle_errors` answers 503, which means the external monitor stops
+// matching "status":"ok" and raises an alarm (P-9).
+//
+// What the replacement lost is a TERMINAL state: the container will be retried
+// forever, so the alarm is now the only thing that ever says "stop waiting".
+// That makes the external monitor of D2-16/D2-21 load-bearing rather than a
+// nicety — and it makes this refusal to run half-configured load-bearing too.
+// Serving with an unmigrated database would give the monitor a green light over
+// a server that cannot store anything.
 const { error } = await new Migrator({ db, provider }).migrateToLatest();
 if (error) {
   console.error(`apps/server:/migrate: ${String(error)}`);
@@ -79,19 +101,47 @@ const app = createApp({ sqlite, release: env.release });
  * reason Hono was chosen over Fastify, whose websocket plugin keeps the server
  * behind its own abstraction.
  *
- * The bind address is access control, not configuration: on loopback, the
- * process is reachable only through Caddy, so the API cannot be spoken to
- * outside TLS. Binding every interface instead — the default if this argument
- * is dropped — would publish the API to the internet on a plain HTTP port and
- * leave the defence to a firewall nobody has configured (T-2-BIND).
+ * THE BIND ADDRESS IS CONFIGURATION NOW, AND THE DEFENCE MOVED HOUSE RATHER
+ * THAN LEFT. The literal that used to sit here was the loopback, on the reading
+ * that a process bound to loopback can only be spoken to through Caddy. That
+ * reading was right while Caddy and Node shared one host's loopback, and it is
+ * WRONG for two containers: `127.0.0.1` inside a container is that container's
+ * own loopback, and the Caddy container has no route to it. The symptom would
+ * have been 503 on every /api/* from the first deploy with every other check
+ * green — the static game loading perfectly, which reads as a Node fault and is
+ * a routing one (DM-9).
+ *
+ * So what keeps the API off the internet is no longer this argument. Under
+ * D2-22 NOTHING IS PUBLISHED ON THE HOST, and that is the whole of it: a
+ * container port with no published mapping crosses neither the host's NAT nor
+ * its firewall, so `0.0.0.0` in here means "reachable from the isolated bridge
+ * network Coolify created" and nothing more. The boundary became the compose
+ * network plus the ABSENCE of a `ports:` key — an absence somebody has to keep,
+ * which is why plan 02-14, which writes that compose, also carries the assertion
+ * that no service declares `ports:` (T-2-BIND). Delete that assertion and this
+ * line becomes the hole the old literal prevented.
+ *
+ * `DG2_BIND` therefore defaults to the loopback, so every native run, every
+ * restore drill and every developer's machine keeps the original defence
+ * untouched; the container value is written in the compose, where it is one
+ * reviewable line in a diff instead of a constant nobody re-reads.
+ *
+ * AND THE PORT BELOW IS NOT A CONFLICT, though it reads like one. `DG2_PORT`
+ * defaults to 8080 and the Traefik that fronts the neighbouring app on this box
+ * already holds 0.0.0.0:8080 on the host. The two cannot collide, by
+ * construction rather than by luck: a container's ports live in that container's
+ * own network namespace, and nothing here is published into the host's. Do not
+ * "fix" the default — it would buy nothing and would put this file out of step
+ * with the compose, the healthcheck and the upstream the web container proxies
+ * to.
  */
-export const server = serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
+export const server = serve({ fetch: app.fetch, port: env.port, hostname: env.bind });
 
 /**
- * One JSON object per line, which is what the journal wants and what a later
- * pino would emit unchanged. Correlated by room code, because debugging a
- * WebRTC failure without being able to group the lines of one room is not
- * debugging.
+ * One JSON object per line on stdout, which is what a container log collector
+ * wants and what a later pino would emit unchanged. Correlated by room code,
+ * because debugging a WebRTC failure without being able to group the lines of
+ * one room is not debugging.
  *
  * Named rather than written inline now that two consumers share it: the
  * signalling leg and the telemetry recorder both log through this one function,
@@ -169,13 +219,23 @@ attachSignalling(server, {
 });
 
 // The other end of the process's life, and it is a DEPLOY path rather than a
-// crash path: ops/deploy.sh runs `systemctl restart dg2` every time the server
-// bundle changed, systemd stops a unit with SIGTERM, and Node's default action
-// for SIGTERM is to terminate at once. Every deploy therefore used to sever
-// whatever was mid-response — Caddy turns those into 502s — and skip
-// sqlite.close() entirely, so nothing checkpointed on the way out. open.ts
-// accepts that risk for a power cut under `synchronous = NORMAL`; it should not
-// also be the price of shipping.
+// crash path: shipping a new server bundle means a new image and a new
+// container, so every deploy replaces this process. The replacement opens with
+// SIGTERM — `docker stop` sends it, and the recreation of the container is what
+// issues that stop — and Node's default action for SIGTERM is to terminate at
+// once. Every deploy would therefore sever whatever was mid-response (Caddy
+// turns those into 502s) and skip sqlite.close() entirely, so nothing
+// checkpointed on the way out. open.ts accepts that risk for a power cut under
+// `synchronous = NORMAL`; it should not also be the price of shipping.
+//
+// THE SIGNAL REACHES THIS PROCESS THROUGH LITESTREAM, which is PID 1 of the
+// container and runs the server as the child of `replicate -exec`. Measured in
+// its own source (02-RESEARCH.md §DM-13): it forwards the EXACT signal to the
+// child and waits for the child to exit before terminating itself. That is why
+// the graceful shutdown built here is still the graceful shutdown that runs on
+// the box, and it is also why the container's stop grace has to exceed this
+// process's own watchdog — the drain happens first, and only then does
+// Litestream make its final sync. Plan 02-14 owns that number.
 //
 // The sequence itself lives in shutdown.ts, tested; what stays here is the
 // wiring, which is the half that cannot be tested in-process (see
@@ -193,8 +253,9 @@ const shutdown = createShutdown({
   },
 });
 
-// SIGTERM is the one systemd sends. SIGINT is not symmetry: it makes Ctrl+C in
-// development take the same path production takes, so the sequence is exercised
-// by hand daily instead of being run for the first time on the box.
+// SIGTERM is the one `docker stop` sends, handed over unchanged by the
+// Litestream process that wraps this one. SIGINT is not symmetry: it makes
+// Ctrl+C in development take the same path production takes, so the sequence is
+// exercised by hand daily instead of being run for the first time on the box.
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
