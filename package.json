@@ -24,7 +24,7 @@
     "sim:build": "vite build --config packages/sim/vite.config.ts",
     "sim:version": "node tools/sim-version/emit.mjs",
     "sim:version:verify": "node tools/sim-version/verify.mjs",
-    "server:build": "esbuild apps/server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --outfile=dist-server/server.mjs",
+    "server:build": "esbuild apps/server/src/index.ts --bundle --platform=node --format=esm --target=node24 --external:better-sqlite3 --external:ws --outfile=dist-server/server.mjs",
     "sw:emit": "node tools/sw/emit.mjs",
     "sw:verify": "node tools/sw/verify.mjs",
     "bench:snapshot": "tsx tools/bench/snapshot.mjs",
