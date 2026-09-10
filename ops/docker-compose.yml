@@ -121,8 +121,25 @@ services:
       # Where Litestream writes the replica. Inside the second volume above, and
       # a test asserts that containment rather than trusting this line.
       - DG2_REPLICA_PATH=/var/lib/dg2-replica/dg2
-      - DG2_TURN_SECRET=${DG2_TURN_SECRET}
-      - DG2_TURN_REALM=${DG2_TURN_REALM}
+      # THE RELAY PAIR IS NOT DECLARED HERE, AND THE ABSENCE IS THE POINT.
+      # apps/server/src/env.ts reads the pair with `optional()`, whose contract is
+      # three-valued: absent together is a SUPPORTED state (no relay, ICE with
+      # STUN only), present together is the configured one, and blank is REFUSED
+      # — an operator who wrote the line meant something by it (T-3-10).
+      #
+      # Compose cannot express the first of those three. Measured, not assumed:
+      # `KEY=${VAR}` with VAR undefined renders `KEY: ""` and the container gets
+      # the key PRESENT AND EMPTY, so declaring the pair here made the supported
+      # state unreachable and the server unable to boot at all. The short form
+      # `- KEY` renders `KEY: null` and would be absent — but Coolify appends
+      # `env_file: .env` to every service, so a blank panel row re-injects the
+      # empty value and the bug returns by the other door. Both halves have to be
+      # empty of the pair: no line here, no row in the panel.
+      #
+      # Phase 3 brings coturn and returns both lines TOGETHER with a panel value
+      # for each. ops/README.md keeps naming the two keys, and a test keeps them
+      # named there, so what left this file is the declaration and not the
+      # knowledge.
       # P-10 HOLDS IDENTICALLY INSIDE A CGROUP: V8 sizes its default old space
       # from the memory of the MACHINE — nearly 8 GiB here — and not from the
       # cgroup ceiling below, so capping one without the other trades garbage

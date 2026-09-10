@@ -386,6 +386,29 @@ function composeVolumes(): string[] {
  * property of this deployment is unguarded.
  */
 describe('ops/docker-compose.yml e as duas imagens', () => {
+  it('não declara o par de relay, porque Compose não sabe dizer "ausente"', () => {
+    // MEASURED IN A REAL CONTAINER, not read off the spec. `- KEY=${VAR}` with
+    // VAR undefined renders `KEY: ""` and the container receives the key PRESENT
+    // AND EMPTY; `optional()` in apps/server/src/env.ts refuses blank on purpose
+    // (T-3-10), so declaring the pair here made the state the server calls
+    // supported — no relay at all — impossible to reach, and the api could not
+    // boot in ANY configuration. The short form `- KEY` renders `KEY: null` and
+    // would be absent, but Coolify appends `env_file: .env` to every service, so
+    // one blank row in the panel re-injects the empty value.
+    //
+    // This assertion is what stops phase 3 from returning ONE of the two lines,
+    // or from returning them before coturn exists to give them a value. The
+    // names are matched without a following `=` or `:` so the D2-15 anti-leak
+    // block below is not tripped by this test's own vocabulary.
+    const api = composeServices().get('api')!;
+    for (const key of ['DG2_TURN_SECRET', 'DG2_TURN_REALM']) {
+      expect(
+        new RegExp(`^\\s*-\\s*${key}\\b`, 'm').test(api),
+        `o serviço api declara ${key}: Compose entregaria a chave vazia e o servidor recusa subir`,
+      ).toBe(false);
+    }
+  });
+
   it('limita a memória do cgroup E o heap do V8, e o segundo é menor (P-10)', () => {
     // Heir of the dg2.service pair. V8 sizes its default old space from the
     // MACHINE's memory — nearly 8 GiB on this box — and not from the cgroup
