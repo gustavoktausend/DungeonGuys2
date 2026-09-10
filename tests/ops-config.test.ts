@@ -986,6 +986,29 @@ const ENV_KEYS = [
 ];
 
 describe('ops/README.md', () => {
+  it('o comando do ensaio passa DG2_REPLICA_PATH, e com o valor da composição', () => {
+    // MEASURED ON THE BOX, 2026-09-10: the documented command failed on its first
+    // real run with `file replica path required`. ops/litestream.yml takes the
+    // replica destination as an environment reference and ops/docker-compose.yml
+    // hands it to the `api` service — but a bare `docker run` inherits nothing
+    // from the composition, so the path resolved to empty and the rehearsal died
+    // with a message about configuration rather than about backup.
+    //
+    // A runbook command that cannot run is worse than no runbook: D2-03 requires
+    // the restore to be REHEARSED, and a procedure that fails on the operator's
+    // first attempt is how a rehearsal quietly stops happening. The value is
+    // compared against the composition rather than against a literal spelled
+    // here, because a literal would be the third copy.
+    const compose = composeServices().get('api')!;
+    const declared = /^\s*-\s*DG2_REPLICA_PATH=(\S+)\s*$/m.exec(compose);
+    expect(declared, 'a composição não declara DG2_REPLICA_PATH').not.toBeNull();
+    const readme = read('README.md');
+    expect(
+      readme.includes(`DG2_REPLICA_PATH=${declared![1]}`),
+      `o comando do ensaio em ops/README.md não passa DG2_REPLICA_PATH=${declared![1]}`,
+    ).toBe(true);
+  });
+
   it('o runbook nomeia todas as chaves de configuração do app', () => {
     // SURVIVED THE REWRITE UNCHANGED IN SUBSTANCE, because it was never about the
     // machine: a key that exists and is named nowhere is the one a rebuild

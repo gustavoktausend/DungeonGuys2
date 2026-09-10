@@ -370,6 +370,7 @@ tag em produção:
 ```
 sudo docker volume ls | grep dg2          # o Coolify prefixa os nomes; confira
 sudo docker run --rm \
+  -e DG2_REPLICA_PATH=/var/lib/dg2-replica/dg2 \
   -v <volume do banco>:/var/lib/dg2:ro \
   -v <volume da réplica>:/var/lib/dg2-replica:ro \
   --entrypoint node <imagem do api>:<sha> \
@@ -377,6 +378,15 @@ sudo docker run --rm \
 ```
 
 O que cada parte compra:
+
+- **`-e DG2_REPLICA_PATH`, e ele não é opcional.** `ops/litestream.yml` recebe o
+  destino da réplica por referência de ambiente, e `ops/docker-compose.yml` a
+  entrega ao serviço `api` — mas um `docker run` avulso não herda nada da
+  composição. Sem essa linha o litestream resolve `path` para vazio e o ensaio
+  morre com `file replica path required`, que é uma mensagem sobre configuração e
+  não sobre backup, e manda o leitor investigar o lugar errado. **Medido em
+  2026-09-10**: a primeira execução deste procedimento contra a caixa falhou
+  exatamente assim, porque esta linha não estava aqui.
 
 - **`--rm` e um contêiner novo** — o arquivo restaurado é uma cópia completa do
   ledger, e deixá-lo em disco faria do verificador o vazamento. Ele morre com o
