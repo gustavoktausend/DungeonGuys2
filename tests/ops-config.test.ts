@@ -315,6 +315,260 @@ describe('ops/Caddyfile', () => {
 });
 
 /**
+ * ops/docker-compose.yml sliced into its services, and the slicing itself
+ * carries an assertion: the names have to be exactly `web` and `api`.
+ *
+ * That is not bookkeeping. ops/Caddyfile defaults its upstream to `api:8080`,
+ * so the Compose service name is half of a contract written in a different
+ * file — rename the service and the only symptom is every /api request becoming
+ * a 502 with nothing in either file looking wrong.
+ *
+ * Line-based rather than a YAML parser because this program has no YAML
+ * dependency and the structure being read is two levels deep. code() and not
+ * read(): every assertion below is about the state of a directive, and the
+ * header of that file explains at length four directives it deliberately does
+ * NOT declare — without the comment filter, the explanation would fail the
+ * assertions it exists to justify.
+ */
+function composeServices(): Map<string, string> {
+  const out = new Map<string, string>();
+  let inServices = false;
+  let current: string | null = null;
+  let buf: string[] = [];
+  const flush = (): void => {
+    if (current !== null) out.set(current, buf.join('\n'));
+    current = null;
+    buf = [];
+  };
+  for (const line of code('docker-compose.yml').split('\n')) {
+    if (/^services:\s*$/.test(line)) { inServices = true; continue; }
+    // Any other column-zero key ends the services block.
+    if (/^\S/.test(line)) { flush(); inServices = false; continue; }
+    if (!inServices) continue;
+    const m = /^ {2}([A-Za-z][\w-]*):\s*$/.exec(line);
+    if (m) { flush(); current = m[1]!; continue; }
+    if (current !== null) buf.push(line);
+  }
+  flush();
+  expect([...out.keys()].sort(), 'os serviços da composição mudaram de nome')
+    .toEqual(['api', 'web']);
+  return out;
+}
+
+/** The named volumes declared at the bottom of the composition. */
+function composeVolumes(): string[] {
+  const names: string[] = [];
+  let inVolumes = false;
+  for (const line of code('docker-compose.yml').split('\n')) {
+    if (/^volumes:\s*$/.test(line)) { inVolumes = true; continue; }
+    if (/^\S/.test(line)) { inVolumes = false; continue; }
+    if (!inVolumes) continue;
+    const m = /^ {2}([A-Za-z][\w-]*):\s*$/.exec(line);
+    if (m) names.push(m[1]!);
+  }
+  return names;
+}
+
+/**
+ * The composition and the two images, and every case here is the HEIR of an
+ * assertion that died with ops/dg2.service or ops/litestream.service. Each one
+ * names its ancestor, because a property that migrated without a note reads like
+ * a property that was dropped.
+ *
+ * The whole point of writing them in the same commit that creates the files, and
+ * before the commit that deletes the units, is that no window exists in which a
+ * property of this deployment is unguarded.
+ */
+describe('ops/docker-compose.yml e as duas imagens', () => {
+  it('limita a memória do cgroup E o heap do V8, e o segundo é menor (P-10)', () => {
+    // Heir of the dg2.service pair. V8 sizes its default old space from the
+    // MACHINE's memory — nearly 8 GiB on this box — and not from the cgroup
+    // ceiling, so a limit on one without the other converts a slow leak into an
+    // OOM-kill instead of into garbage collection. The pair IS the assertion,
+    // and the two numbers are compared rather than merely both present.
+    const api = composeServices().get('api')!;
+    const heap = /--max-old-space-size=(\d+)/.exec(api);
+    const cgroup = /^\s*mem_limit:\s*(\d+)m\s*$/m.exec(api);
+    expect(heap, 'o serviço api não declara teto de heap do V8').not.toBeNull();
+    expect(cgroup, 'o serviço api não declara mem_limit').not.toBeNull();
+    expect(Number(heap![1])).toBeLessThan(Number(cgroup![1]));
+    // And the other service is capped too, for the neighbour's sake rather than
+    // for this project's: the ceilings exist so a leak in the phase 3 signalling
+    // cannot reach another project's production on the same box (T-2-MEM).
+    const web = composeServices().get('web')!;
+    expect(web, 'o serviço web não declara mem_limit').toMatch(/^\s*mem_limit:/m);
+  });
+
+  it('nenhum serviço publica porta no host — é disso que o bind de contêiner depende', () => {
+    // THE HEIR OF "não publica a API fora do loopback", AND THE ASSERTION THIS
+    // ARCHITECTURE ACTUALLY NEEDS. The old unit could be checked for the absence
+    // of a wide bind address; this deployment binds every interface ON PURPOSE
+    // (DM-9), because 127.0.0.1 would be the loopback of the api container and
+    // Caddy lives in another one. What replaces the defence is structural: with
+    // nothing published on the host, the port crosses neither the UFW nor the
+    // NAT, and the only origin that can reach it is the bridge Coolify created
+    // (T-2-BIND).
+    //
+    // apps/server/src/index.ts names this file and this assertion in the comment
+    // above serve(). Delete this case and that comment becomes a lie — which is
+    // why it is spelled out there and asserted here.
+    expect(code('docker-compose.yml'), 'a composição publicou porta no host')
+      .not.toMatch(/^\s*ports:/m);
+  });
+
+  it('não declara rede própria nem passo de build', () => {
+    const yml = code('docker-compose.yml');
+    // Coolify's own documentation records that declaring a network here causes
+    // intermittent route loss in Traefik — and the route that drops is shared
+    // with the neighbouring project (T-2-NEIGHBOR).
+    expect(yml, 'a composição declarou rede própria').not.toMatch(/^\s*networks:/m);
+    // D2-23: the images COPY artifacts that passed the cross-engine gate. A
+    // build step here would be a no-op today and construction on a 2-vCPU box
+    // shared with production tomorrow, and it would annul phase 1 (T-2-BUILD).
+    expect(yml, 'a composição declarou passo de build').not.toMatch(/^\s*build:/m);
+  });
+
+  it('dá ao contêiner mais tempo que o watchdog do processo pede (WR-07)', () => {
+    // Heir of TimeoutStopSec, and the form that made it right survives: the
+    // process's own deadline is IMPORTED from apps/server/src/shutdown.ts, not
+    // copied, because a copy is what drifts. The Node process drains for up to
+    // SHUTDOWN_GRACE_MS and only THEN does Litestream run its final sync, so
+    // Docker's 10 s default would cut the second step — and what is lost are the
+    // last writes of a currency ledger (T-2-BACKUP).
+    const api = composeServices().get('api')!;
+    const m = /^\s*stop_grace_period:\s*(\d+)s\s*$/m.exec(api);
+    expect(m, 'o serviço api herda os 10s do padrão do Docker').not.toBeNull();
+    expect(Number(m![1]) * 1000).toBeGreaterThan(SHUTDOWN_GRACE_MS);
+  });
+
+  it('toda imagem é referenciada pela tag de sha, nunca por uma tag móvel (C-6)', () => {
+    // Heir of "arranca pelo symlink que o rollback move". A moving tag destroys
+    // the rollback of D2-24 outright: there is no "previous image" when the
+    // previous NAME points at the new content (T-2-ROLLBACK).
+    const bad: string[] = [];
+    for (const [name, body] of composeServices()) {
+      const m = /^\s*image:\s*(\S+)\s*$/m.exec(body);
+      expect(m, `o serviço ${name} não declara imagem`).not.toBeNull();
+      if (!m![1]!.endsWith(':${DG2_IMAGE_TAG}')) bad.push(`${name}: ${m![1]}`);
+    }
+    expect(bad, 'imagem fora da tag de sha').toEqual([]);
+    expect(code('docker-compose.yml')).not.toMatch(/:(latest|main)\b/);
+  });
+
+  it('todo serviço busca no registro só o que não estiver em disco (D2-24)', () => {
+    // The line that makes reverting use NO NETWORK, which is the scenario the
+    // rollback exists for — the network being one of the things that may be
+    // broken. Asserted per service, because one service missing it is enough to
+    // turn a rollback into a pull.
+    const bad: string[] = [];
+    for (const [name, body] of composeServices()) {
+      if (!/^\s*pull_policy:\s*missing\s*$/m.test(body)) bad.push(name);
+    }
+    expect(bad, 'serviço sem pull_policy: missing').toEqual([]);
+  });
+
+  it('o caminho do banco é a MESMA string nos dois arquivos, comparada entre eles', () => {
+    // Neither side is compared against a literal written here: the test reads
+    // both files and compares them to each other, so the pair cannot drift in
+    // the one direction that matters. The symptom of drift is the quietest a
+    // backup has — litestream replicating a file nobody writes, reporting
+    // success throughout.
+    const api = composeServices().get('api')!;
+    const declared = /^\s*-\s*DG2_DB=(\S+)\s*$/m.exec(api);
+    expect(declared, 'o serviço api não declara o caminho do banco').not.toBeNull();
+    expect(code('litestream.yml'), 'o Litestream replica outro caminho')
+      .toContain(`path: ${declared![1]}`);
+  });
+
+  it('a réplica do Litestream vive num SEGUNDO volume persistente (D2-33)', () => {
+    // THE ASSERTION AGAINST A SILENT FAILURE, AND THE SILENCE IS WHAT MAKES IT
+    // WORTH A CASE OF ITS OWN. If the replica path fell in a container layer,
+    // the first redeploy would erase the backup WITH NO ERROR AT ALL: the
+    // configuration still names a path, litestream still reports success, and
+    // the loss is discovered on the one day the backup is needed. D2-33 records
+    // the trap explicitly; this is what keeps it shut.
+    //
+    // A SECOND volume, not a subdirectory of the database's: two volumes is the
+    // literal requirement, and a replica inside the database's own volume would
+    // satisfy "persistent" while making `restore` read from the thing it is
+    // restoring.
+    const api = composeServices().get('api')!;
+    const replica = /^\s*-\s*DG2_REPLICA_PATH=(\S+)\s*$/m.exec(api);
+    expect(replica, 'o serviço api não declara o caminho da réplica').not.toBeNull();
+    const dbMount = /^\s*-\s*([\w-]+):(\/\S+)\s*$/gm;
+    const mounts = [...api.matchAll(dbMount)].map((m) => [m[1]!, m[2]!] as const);
+    expect(mounts.length, 'o serviço api monta menos de dois volumes')
+      .toBeGreaterThanOrEqual(2);
+    const declaredVolumes = composeVolumes();
+    const holder = mounts.find(([, target]) => replica![1]!.startsWith(`${target}/`));
+    expect(holder, `nada monta um volume que contenha ${replica![1]}`).toBeTruthy();
+    expect(declaredVolumes, `${holder?.[0]} não é volume nomeado da composição`)
+      .toContain(holder![0]);
+    // And it is not the database's volume.
+    const dbPath = /^\s*-\s*DG2_DB=(\S+)\s*$/m.exec(api)![1]!;
+    const dbHolder = mounts.find(([, target]) => dbPath.startsWith(`${target}/`));
+    expect(holder![0], 'a réplica mora no volume do banco, não num segundo')
+      .not.toBe(dbHolder![0]);
+  });
+
+  it('o Dockerfile.api roda como usuário não-root', () => {
+    // Heir of "roda como dg2 num sandbox, nunca como root". The process opens a
+    // durable database on a mounted volume, on a box that hosts another
+    // project's production (T-2-DATA).
+    const img = code('Dockerfile.api');
+    const m = /^USER\s+(\S+)\s*$/m.exec(img);
+    expect(m, 'ops/Dockerfile.api não declara USER').not.toBeNull();
+    expect(m![1]).not.toBe('root');
+  });
+
+  it('o Litestream é PID 1 e o Node é filho dele, não o contrário', () => {
+    // Heir of "é irmã de dg2.service e não filha". Measured in the v0.5 source:
+    // `replicate -exec` forwards the exact signal and WAITS for the child before
+    // the final sync, so the graceful shutdown of plan 02-08 survives with no
+    // tini, no shell trap and no supervisor. A shell entrypoint with a `trap` is
+    // the classic PID 1 trap and would eat the signal in silence.
+    const img = code('Dockerfile.api');
+    const m = /^ENTRYPOINT\s+(\[[\s\S]*?\])/m.exec(img);
+    expect(m, 'ops/Dockerfile.api não declara ENTRYPOINT em forma exec').not.toBeNull();
+    const argv = [...m![1]!.matchAll(/"([^"]*)"/g)].map((x) => x[1]!);
+    expect(argv[0], 'o ENTRYPOINT não começa pelo litestream').toBe('litestream');
+    expect(argv).toContain('-exec');
+    // The Node process is an ARGUMENT to -exec and never the entrypoint itself.
+    expect(argv.indexOf('-exec')).toBeGreaterThan(0);
+    expect(argv[argv.indexOf('-exec') + 1], 'o -exec não envolve o node')
+      .toMatch(/^node\s/);
+  });
+
+  it('o Dockerfile.web copia o dist/ para a raiz que o Caddyfile serve', () => {
+    // Two files that have to agree, compared to each other. Disagree and the
+    // container serves an empty directory: every request a 404, with Caddy
+    // healthy and nothing in any log saying why.
+    const root = /^\s*root \* (\S+)\s*$/m.exec(code('Caddyfile'));
+    expect(root, 'o Caddyfile não declara raiz estática').not.toBeNull();
+    expect(code('Dockerfile.web'), 'a imagem copia o dist/ para outro lugar')
+      .toContain(`dist/ ${root![1]}`);
+    // And nothing is built here: the bytes are the artifact that passed the
+    // cross-engine gate (D2-05/D2-23, T-2-BUILD).
+    expect(code('Dockerfile.web')).not.toMatch(/npm (ci|run|install)/);
+  });
+
+  it('o binário do Litestream entra com sha256 fixado e verificado (T-2-SC)', () => {
+    // A third-party binary that opens the database. The pin is only worth
+    // something if it is CHECKED before extraction, so both halves are asserted:
+    // the digest literal and the verification step.
+    const img = code('Dockerfile.api');
+    const sha = /\b[0-9a-f]{64}\b/.exec(img);
+    expect(sha, 'ops/Dockerfile.api não fixa o sha256 do tarball').not.toBeNull();
+    expect(img).toContain('sha256sum -c');
+    // The asset name the release actually publishes. The spelling used by the
+    // phase research does not exist and produces a 404 at build time, which is
+    // cheap to catch here and expensive to catch there.
+    expect(img).toContain('linux-x86_64');
+    expect(img).not.toContain('linux-amd64');
+  });
+});
+
+/**
  * Every shell script of ops/: the four a deploy touches, in the order it
  * touches them, plus the one the certificate timer runs. The list is exact and
  * the test below compares it to the glob, so adding a script without deciding
@@ -860,22 +1114,37 @@ describe('ops/litestream.yml', () => {
     expect(lines.filter((l) => l.includes('replicas:'))).toHaveLength(0);
   });
 
-  it('replica o banco que dg2.service escreve, para bucket S3-compatível', () => {
+  it('replica o banco que o serviço `api` escreve, para um caminho local (D2-33)', () => {
     const yml = code('litestream.yml');
-    // The same path StateDirectory creates. If the two ever disagree,
-    // litestream replicates a file nobody writes and reports success.
+    // The path the COMPOSITION hands the server, not the one a StateDirectory
+    // used to create — the unit that owned that directive is gone and the volume
+    // of ops/docker-compose.yml took its place. If the two files ever disagree,
+    // litestream replicates a file nobody writes and reports success; the
+    // cross-file comparison that prevents it lives in the composition's block.
     expect(yml).toContain('/var/lib/dg2/dg2.db');
-    expect(yml).toContain('type: s3');
-    // Explicit endpoint: the target is B2 or equivalent, not AWS, and the
-    // endpoint is what turns on path-style addressing.
-    expect(yml).toContain('endpoint:');
+    // `file`, not `s3`. D2-33 revoked the bucket and kept the MECHANISM: the
+    // `replicate -exec` of D2-28, the signal forwarding of DM-13 and the 30 s
+    // stop grace are all untouched. Only the destination moved, and asserting
+    // the absence of the old one is what keeps a pasted pre-D2-33 snippet from
+    // reintroducing a target nobody created.
+    expect(yml).toContain('type: file');
+    expect(yml).not.toContain('type: s3');
+    expect(yml).not.toContain('endpoint:');
+    // And the destination arrives as an environment reference, exactly as the
+    // bucket values used to — which is what lets the composition be the single
+    // place the real path is written, and therefore comparable to the volume.
+    expect(yml).toContain('path: ${DG2_REPLICA_PATH}');
   });
 
-  it('não carrega nenhum valor de credencial, só referências de ambiente', () => {
-    const yml = code('litestream.yml');
+  it('não nomeia nenhuma variável de bucket — as quatro foram revogadas (D2-33)', () => {
+    // read() and not code(): the point is that the four names are GONE, and a
+    // name surviving in a comment is the one that sends an operator looking for
+    // a credential nobody ever created. The file explains the revocation without
+    // spelling them, which is the shape that keeps this assertion honest.
+    const yml = read('litestream.yml');
     for (const key of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
                        'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT']) {
-      expect(yml, `${key} deveria aparecer interpolado`).toContain(`\${${key}}`);
+      expect(yml, `${key} sobreviveu a D2-33 em ops/litestream.yml`).not.toContain(key);
     }
   });
 });
@@ -1374,7 +1643,51 @@ const NOT_A_TLD = new Set([
   'conf',
   // systemd.
   'service', 'timer', 'target',
+  // The two Dockerfile suffixes, for exactly the reason 'conf' and 'service'
+  // are above: they are extensions THIS subsystem writes, and the hostname
+  // assertion below reads `Dockerfile.api` as a two-label domain. Neither is a
+  // real TLD, so excusing them widens nothing.
+  'api', 'web',
+  // The release tarball ops/Dockerfile.api downloads, whose name ends in
+  // `.tar.gz`. Only the last label is tested, so `gz` is the one that matters.
+  'gz',
 ]);
+
+/**
+ * The TWO public artifact hosts ops/ is allowed to name: the image registry the
+ * composition pulls from, and the host the Litestream binary is downloaded from.
+ *
+ * THIS IS NOT A LOOSENING OF D2-15, AND THE DISTINCTION THE RULE ACTUALLY MAKES
+ * IS THE WHOLE ARGUMENT. That rule forbids "segredo, domínio, host ou IP"
+ * because an address says WHERE THIS BOX LIVES. A public artifact registry says
+ * where a BINARY comes from — it is the same string in every deployment on
+ * earth, and it has to be in the file for the pin of T-2-SC to be reviewable at
+ * all. Hiding it would push the provenance out of the repository in exchange for
+ * an address leak that these two names cannot carry.
+ *
+ * Exactness, as with the reserved ranges above: the tokens are spelled in full,
+ * so the game's own domain is still refused — which is the proof that this
+ * exception opened no hole. Two entries, and the list is meant to STAY two.
+ */
+const PUBLIC_ARTIFACT_HOSTS = new Set(['ghcr.io', 'github.com']);
+
+/**
+ * The container-internal values ops/docker-compose.yml assigns literally, and
+ * which the "no env key carries a literal value" assertion would otherwise
+ * refuse.
+ *
+ * The same reasoning, one level down: a path INSIDE a container and a Compose
+ * service name say nothing about where this box lives, and the second one does
+ * not even resolve outside the bridge network of that one composition. They are
+ * literals on purpose — the panel cannot own them, because a test compares each
+ * of them against a second file that has to agree (ops/litestream.yml for the
+ * database path, ops/Caddyfile for the upstream), and a value only the panel
+ * knows is a value no test can compare.
+ *
+ * Token exactness, as with the reserved ranges: the exact path is excused, a
+ * neighbouring path is not.
+ */
+const CONTAINER_INTERNAL = new Set(['/var/lib/dg2/dg2.db', 'api:8080']);
 
 /**
  * The ONLY IP literals allowed into ops/: the loopback, the bind address the
@@ -1507,6 +1820,8 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
         if (!/^[a-z]{2,}$/i.test(tail)) continue;
         if (NOT_A_TLD.has(tail.toLowerCase())) continue;
         if (labels.length === 2 && MEMBER_ACCESS.has(labels[0]!)) continue;
+        // The registry and the release host, by exact token. See the constant.
+        if (PUBLIC_ARTIFACT_HOSTS.has(m[0].toLowerCase())) continue;
         bad.push(`${path}: ${m[0]}`);
       }
     }
@@ -1538,6 +1853,12 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
           .replace(/\$\{[^}]*\}/g, '')
           .replace(/\{\$[^}]*\}/g, '')
           .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
+        // Container-internal values are excused here and NOWHERE ELSE in this
+        // block: they are assignments, which is what this assertion rules on,
+        // and they are not addresses, which is what D2-15 forbids. Checked by
+        // exact token against the untouched line, so a neighbouring path still
+        // fails.
+        if ([...CONTAINER_INTERNAL].some((t) => line.includes(t))) continue;
         for (const key of ENV_KEYS) {
           if (new RegExp(`${key}\\s*[=:]\\s*\\S`).test(clean)) bad.push(`${path}: ${line.trim()}`);
         }

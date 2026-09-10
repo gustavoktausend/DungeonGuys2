@@ -1,0 +1,39 @@
+# ops/Dockerfile.web — the Caddy that holds the hostname, and the dist/ that
+# passed the cross-engine gate.
+#
+# THIS IMAGE BUILDS NOTHING, AND THAT ABSENCE IS THE WHOLE POINT. `dist/` is
+# downloaded from the artifact the CI `test` job uploaded, so what is published
+# is BYTE FOR BYTE what cleared the determinism gate in Chromium, Firefox and
+# WebKit (D2-05, preserved by D2-23). A multi-stage Dockerfile that ran
+# `npm run build` here would be shorter to write and would annul phase 1
+# entirely: the bytes a player downloads would be the output of a build nobody
+# gated. The build context is the repository root, so the two COPY paths below
+# read as they are written.
+#
+# WHY THERE IS NO `USER` HERE, AND IT IS A DECISION RATHER THAN AN OVERSIGHT.
+# ops/Dockerfile.api drops to a non-root user because it opens a database on a
+# persistent volume; neither half of that reasoning applies here. Caddy writes
+# to its own data directory on boot, the alpine image ships no unprivileged
+# user with that directory prepared, and this container publishes no port on the
+# host, mounts no volume and opens no database. What `USER` buys in the api is
+# containment of a process that touches durable state — there is no durable
+# state on this side. Declared here so the next reader finds a reason instead of
+# an omission.
+#
+# The tag is an EXACT PATCH VERSION and never `latest` (C-6, T-2-SC). The known
+# improvement — pinning by digest — is registered in ops/README.md rather than
+# discovered later: a patch tag is still a name the publisher can move, and the
+# day that matters is the day it moves to something hostile.
+FROM caddy:2.11.4-alpine
+
+# The config path the image's own default CMD already reads, which is why this
+# image overrides no command. ops/Caddyfile is the file plan 02-13 wrote: the
+# global block, the four security headers the Traefik of Coolify does not send
+# (DM-11), the three cache matchers, and the deliberate absence of try_files.
+COPY ops/Caddyfile /etc/caddy/Caddyfile
+
+# The static root, and it has to agree with `root * /srv/www` in the Caddyfile.
+# Disagree and the container serves an empty directory: every request a 404,
+# with Caddy healthy and nothing in any log saying why. A test compares the two
+# files for exactly that reason.
+COPY dist/ /srv/www/

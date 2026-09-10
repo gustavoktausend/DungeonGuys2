@@ -1,0 +1,121 @@
+# ops/Dockerfile.api — the server, the Litestream that wraps it, and nothing
+# else.
+#
+# THIS IMAGE BUILDS NOTHING EITHER. `dist-server/server.mjs` is downloaded from
+# the artifact the CI `test` job uploaded, so the bundle that opens the database
+# is the one that passed every gate of the repository (D2-05, preserved by
+# D2-23). The build context is the repository root.
+#
+# LITESTREAM IS PID 1 AND THE NODE PROCESS IS ITS CHILD, which is the one
+# structural decision in this file. Measured in the v0.5 source of
+# `cmd/litestream` (DM-13): `replicate -exec` forwards the EXACT signal it
+# receives to the child and WAITS for the child to exit before performing the
+# final sync. That is the whole reason the graceful shutdown of plan 02-08
+# survives containerisation with no tini, no shell `trap` and no supervisor
+# inside the image. The obvious alternative — an entrypoint shell script with a
+# `trap` — is the classic PID 1 trap: a shell that is not `exec`ing eats the
+# signal, the child never learns the container is stopping, and SIGKILL arrives
+# 30 s later with the drain never having run. The symptom is invisible: the
+# deploy looks clean and the last writes of a currency ledger are gone.
+#
+# THE REPLICA TARGET IS A PATH ON THIS BOX, NOT A BUCKET (D2-33, 2026-09-10).
+# No bucket was created and no provider credential exists. The mechanism of
+# D2-28 is untouched — same `replicate -exec`, same signal forwarding, same
+# 30 s stop grace; only the destination changed. What it costs is the off-site
+# guarantee, and that cost is written down in ops/README.md instead of
+# discovered on the night the disk dies.
+FROM node:24.20.0-trixie-slim
+
+# Three packages, no recommends, and the package lists removed in the SAME layer
+# so they never reach the published image.
+#
+#   sqlite3          the CLI, not the library. tools/ops/restore-verify.mjs
+#                    shells out to it in read-only mode, and installing the
+#                    npm package does not install this.
+#   ca-certificates  the Node process needs a trust store for any outbound TLS
+#                    it ever makes. THE EARLIER REASON WRITTEN HERE — "litestream
+#                    speaks HTTPS to the bucket" — STOPPED BEING TRUE WITH D2-33:
+#                    the replica is a local path and speaks no HTTPS at all. The
+#                    package stays because the first reason stands; a dependency
+#                    justified by something that no longer exists is a dependency
+#                    nobody can evaluate.
+#   wget             the healthcheck command of ops/docker-compose.yml. Installed
+#                    explicitly rather than assumed: the slim base is free to
+#                    drop it at any patch release, and the failure mode of a
+#                    missing healthcheck binary is a container that is reported
+#                    unhealthy forever while being perfectly healthy.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends sqlite3 ca-certificates wget \
+ && rm -rf /var/lib/apt/lists/*
+
+# The Litestream binary from the official release, OUTSIDE the npm graph, with
+# its sha256 pinned and verified in a layer of its own before anything is
+# extracted (T-2-SC). A tarball swapped at the release fails the build instead
+# of entering the image that opens the database.
+#
+# NO `ARG` FOR EITHER VALUE, DELIBERATELY. An ARG is overridable with
+# `--build-arg` at build time, so a pin expressed as an ARG is a pin anybody on
+# the build path can lift — and the one thing this block exists to guarantee is
+# that the bytes are these bytes. Written as literals, changing the version is a
+# reviewable diff that changes both lines together.
+#
+# PROVENANCE OF THE THREE VALUES: the `digest` field the GitHub releases API
+# publishes for the assets of tag v0.5.17 of benbjohnson/litestream, re-checked
+# on 2026-09-09. The asset name is `litestream-0.5.17-linux-x86_64.tar.gz` — note
+# that the version inside the filename carries NO `v` while the tag does, and
+# note that the architecture is spelled the x86 way and NOT the amd way: the
+# second spelling, which the phase research used, names an asset that does not
+# exist and produces a 404 at build time. Both halves are asserted, so the dead
+# spelling cannot come back through a copy-paste. The binary sits at the ROOT of
+# the tarball under the name `litestream`, so extracting that single member into
+# /usr/local/bin works.
+ADD https://github.com/benbjohnson/litestream/releases/download/v0.5.17/litestream-0.5.17-linux-x86_64.tar.gz /tmp/litestream.tar.gz
+RUN echo "cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d  /tmp/litestream.tar.gz" | sha256sum -c - \
+ && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz litestream \
+ && rm /tmp/litestream.tar.gz
+
+WORKDIR /srv
+
+# THE ORDER OF THE NEXT FOUR LINES IS THE POINT, NOT HOUSEKEEPING. The manifests
+# are copied BEFORE the bundle, so the npm layer is keyed on the lock file and is
+# shared by every build whose dependencies did not move. Each deploy then costs a
+# few MB of new layer instead of a few tens of MB — which is what makes the
+# retention of 5 images per service (D2-24) cheap enough to keep on a disk shared
+# with another project's production (DM-16).
+#
+# NO COMPILER, AND NONE IS NEEDED: better-sqlite3 13.0.3 ships its prebuilt
+# binaries inside the npm tarball, linux-x64 included (DM-12). No python3, no
+# make, no g++ — and the manual node_modules step the old runbook documented for
+# the box CEASES TO EXIST, which is the single largest line the containerisation
+# removes from operations.
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/
+RUN npm ci --omit=dev --workspace @dg2/server
+
+COPY dist-server/server.mjs /srv/server.mjs
+COPY ops/litestream.yml /etc/litestream.yml
+COPY tools/ops/restore-verify.mjs /srv/tools/ops/restore-verify.mjs
+
+# BOTH DIRECTORIES ARE CREATED AND HANDED TO THE NON-ROOT USER BEFORE `USER`,
+# and this is not hygiene — it is what prevents a first-deploy defect. An empty
+# named volume inherits the owner and mode of the directory that exists at its
+# mount point in the image. Left root:root, the process would open the database
+# with no write permission: the migration fails, the container exits, and
+# `restart: unless-stopped` turns that into a crash loop that Docker retries
+# forever. Two directories because there are two volumes — the database and the
+# Litestream replica — and the replica one is the easier to forget precisely
+# because nothing reads it until the day it is needed.
+RUN mkdir -p /var/lib/dg2 /var/lib/dg2-replica \
+ && chown node:node /var/lib/dg2 /var/lib/dg2-replica
+
+# The base image already ships `node`, uid 1000. Never root: this process opens
+# a durable database on a mounted volume, on a box that hosts another project's
+# production (T-2-DATA).
+USER node
+
+# See the header for the measurement. `litestream` is the command; the Node
+# process is an ARGUMENT to -exec and never the entrypoint itself — which is the
+# containerised heir of "the backup is a sibling, not a child": the final sync
+# belongs to the process that outlives the one being drained.
+ENTRYPOINT ["litestream", "replicate", "-config", "/etc/litestream.yml", \
+            "-exec", "node /srv/server.mjs"]

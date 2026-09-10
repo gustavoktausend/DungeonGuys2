@@ -1,39 +1,59 @@
-# litestream.yml — continuous replication of the SQLite database off this box.
+# litestream.yml — continuous replication of the SQLite database.
 #
-# Installed at /etc/litestream.yml (ops/README.md §3); this copy is the
-# reviewable source of truth, and the two must be kept identical. Litestream
-# reads the WAL, not the file: copying a .db that is under write with cron
-# produces a corrupt archive, which is why this exists instead of a nightly
+# THIS FILE IS NOT INSTALLED ON THE BOX BY HAND ANY MORE. It enters the image by
+# `COPY ops/litestream.yml /etc/litestream.yml` in ops/Dockerfile.api, so the copy
+# in git and the copy in production cannot drift: there is only one, and changing
+# it means rebuilding the image. The earlier instruction here — copy it to
+# /etc/litestream.yml on the machine and keep the two identical — described a box
+# with a Litestream unit on it, and that box no longer exists (D2-28).
+#
+# Litestream reads the WAL, not the file: copying a .db that is under write with
+# cron produces a corrupt archive, which is why this exists instead of a nightly
 # tarball. Recovery point in seconds rather than a day, because for a currency
 # ledger a lost day is soul gold that simply vanished (D2-17).
 #
-# THE SINGULAR `replica` IS NOT A TYPO. Litestream v0.5 changed it: each
-# database now supports exactly one replica. Every tutorial written before v0.5
-# shows a LIST under a plural key, and pasting one here makes litestream reject
-# or ignore the configuration — a backup that was never running, discovered on
-# the day it was needed (P-8). If you are copying from the internet, check the
-# version of what you are copying first.
+# THE SINGULAR `replica` IS NOT A TYPO. Litestream v0.5 changed it: each database
+# now supports exactly one replica. Every tutorial written before v0.5 shows a
+# LIST under a plural key, and pasting one here makes litestream reject or ignore
+# the configuration — a backup that was never running, discovered on the day it
+# was needed (P-8). If you are copying from the internet, check the version of
+# what you are copying first.
 #
-# NOTHING IN THIS FILE IS A SECRET, and that is a property to preserve. Bucket,
-# endpoint and credentials are environment references, expanded by litestream
-# when it loads the file; the values live in /etc/dg2/env (root, 0600), read by
-# systemd before the process drops privilege (D2-15, T-2-SECRET). A literal
-# here would be a credential in git history, which is not something a later
-# commit can undo.
+# THE DESTINATION IS A PATH ON THIS BOX, NOT A BUCKET (D2-33, 2026-09-10). No
+# bucket was created, no provider credential exists, and the four variables an
+# earlier draft of this file interpolated were revoked before they were ever set.
+# Litestream 0.5 supports eight replica types and `file` is one of them, so
+# continuous replication SURVIVES INTACT — the mechanism of D2-28 is untouched
+# (same `replicate -exec` as PID 1, same signal forwarding measured in DM-13,
+# same 30 s stop grace). Only the destination moved.
+#
+# What the move costs: the off-site guarantee. The replica protects against
+# database corruption, a bad migration and a wrong deploy. It does NOT protect
+# against losing the box — same disk, both copies. Registered choice, written in
+# ops/README.md §11 rather than discovered.
+#
+# WHERE THE VALUE OF THE REFERENCE BELOW COMES FROM. It used to be /etc/dg2/env,
+# root-owned and 0600, read by systemd before the process dropped privilege.
+# There is no such file and no such unit: the app's configuration now lives in the
+# Coolify panel as the resource's environment variables (D2-29), and
+# ops/docker-compose.yml is what declares WHICH keys exist while the panel decides
+# what they are worth. Nothing in this file is a secret, and that is a property to
+# preserve — a literal here would be a value in public git history, which no later
+# commit can undo (D2-15, T-2-SECRET).
 dbs:
+  # THE SAME STRING ops/docker-compose.yml HANDS THE SERVER AS ITS DATABASE PATH,
+  # and a test compares the two files rather than either of them against a literal
+  # written in the test. Two copies of a path that have to agree are one edit away
+  # from not agreeing, and the symptom is the quietest one a backup has:
+  # litestream faithfully replicates a file nobody writes, and reports success the
+  # whole time.
   - path: /var/lib/dg2/dg2.db
     replica:
-      type: s3
-      bucket: ${LITESTREAM_BUCKET}
-      # Explicit endpoint, because the target is an S3-COMPATIBLE bucket
-      # (Backblaze B2 or equivalent), not AWS itself. Setting it also switches
-      # on path-style addressing by itself, which is what those providers need
-      # and what an AWS-shaped default would get wrong.
-      endpoint: ${LITESTREAM_ENDPOINT}
-      # Fixed prefix inside the bucket, deliberately NOT an environment
-      # reference: tools/ops/restore-verify.mjs restores through this same
-      # config file, so the two sides can never disagree — but an operator
-      # reading a bucket listing should also be able to tell what wrote it.
-      path: dg2
-      access-key-id: ${AWS_ACCESS_KEY_ID}
-      secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+      type: file
+      # The replica directory, arriving as an environment reference exactly as
+      # the bucket values used to. ops/docker-compose.yml gives it a value that
+      # falls inside a SECOND named volume — not the database's, and not a
+      # container layer. In a container layer the first redeploy erases the
+      # backup with no error at all, which is the trap D2-33 records explicitly;
+      # a test asserts the containment instead of trusting this comment.
+      path: ${DG2_REPLICA_PATH}

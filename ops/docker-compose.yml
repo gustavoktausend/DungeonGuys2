@@ -1,0 +1,151 @@
+# ops/docker-compose.yml — the composition Coolify reads from this repository.
+#
+# FOUR THINGS THIS FILE DOES NOT DECLARE, AND EACH ABSENCE IS A DECISION.
+# They are spelled without their YAML colon on purpose, so that the greps which
+# prove the absences cannot be satisfied by the prose explaining them.
+#
+#   No own network. Coolify creates an isolated bridge per resource, and its own
+#   documentation warns that declaring one here causes intermittent route loss in
+#   Traefik — and the route that would drop is the one the neighbouring project
+#   uses too (T-2-NEIGHBOR).
+#
+#   Nothing published on the host. No host port mapping anywhere, which is what
+#   makes the collision with the 8080 the Traefik panel already holds disappear
+#   by construction (D2-22) AND what keeps the `0.0.0.0` bind of the `api`
+#   service an access control instead of a hole: a container port with no
+#   publication crosses neither the UFW nor the NAT (DM-15, T-2-BIND). The
+#   comment on `serve()` in apps/server/src/index.ts names this file and this
+#   absence by name, so deleting the assertion that guards it makes that comment
+#   a lie.
+#
+#   No build step (D2-23). The integrator builds, the box pulls — which is also
+#   what makes the deploy log say `pull`. A build injected over a composition
+#   that declares none would be a no-op today and construction on a 2-vCPU box
+#   shared with production tomorrow (C-7).
+#
+#   No hand-written Traefik label. Coolify generates them from the FQDN it
+#   assigns to the service; labels written here would fight the generator the
+#   first time the domain moves.
+#
+# EVERY ${VAR} REFERENCE BECOMES AN EDITABLE FIELD IN THE COOLIFY PANEL (D2-29).
+# This file says WHICH keys exist; the panel says what they are worth. The domain
+# and the secrets stay out of the repository (D2-15, T-2-SECRET).
+#
+# TWO PERSISTENT VOLUMES, NOT ONE, AND THE SECOND ONE IS THE WHOLE REASON THIS
+# PARAGRAPH EXISTS (D2-33, 2026-09-10). One holds the database; the other holds
+# the Litestream replica, because the replica target stopped being a bucket and
+# became a path on this box. A replica path landing in a container layer is
+# erased by the first redeploy WITH NO ERROR OF ANY KIND — the backup keeps
+# looking like it exists, which is the worst failure mode a backup has. Both are
+# mounted on `api` alone: nothing else writes either one.
+#
+# What that choice costs, written before anyone verifies it: the replica lives on
+# the SAME DISK as the database, so a disk failure takes both. That is a
+# registered decision of D2-33 and not an oversight — the requirement is that it
+# be written down, not that it be solved. Off-site backup left this phase with it.
+#
+# BOTH SERVICES SHARE ONE ${DG2_IMAGE_TAG}, AND THERE IS A CONSEQUENCE. Compose
+# decides recreation from the hash of the service definition, and the tag is part
+# of it — so every deploy changes the `image` string of both services and `up -d`
+# recreates both containers, including a deploy that only touched the client. The
+# phase research assumed the opposite. The decision record, in the language this
+# repository keeps its decisions in:
+#
+#   Com uma tag só, todo deploy recria os dois contêineres, e o item de
+#   discrição "se o servidor reinicia em todo deploy" fica resolvido na direção
+#   oposta POR ESCOLHA: ele reinicia, a migração é idempotente e o drain é
+#   gracioso, então o custo hoje é alguns segundos. A alternativa são duas
+#   variáveis de tag, uma por serviço, e ela passa a valer quando derrubar as
+#   WebSockets vivas do signaling custar algo — ou seja na fase 3 ou 4, e não
+#   antes. A diferença entre "decidimos assim" e "não percebemos" é só este
+#   parágrafo.
+services:
+  # The service that holds the hostname. It serves static files and forwards;
+  # it opens no database and mounts no volume.
+  web:
+    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG}
+    # The line that makes the rollback of D2-24 use no network: Docker only
+    # fetches from the registry what is not already on disk. New tag, it pulls;
+    # previous tag, no network at all — which is the scenario the rollback exists
+    # for, because the network is one of the things that may be broken.
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on: [api]
+    # Declares the container port WITHOUT publishing it, and it is the single
+    # value Coolify turns into the port label of the Traefik router. It has to
+    # agree with the site address of ops/Caddyfile.
+    expose: ['8080']
+    environment:
+      # A Compose service name, resolved by the internal Docker DNS. The default
+      # baked into ops/Caddyfile is the same string; this line is what makes the
+      # dependency explicit instead of implied.
+      - DG2_UPSTREAM=api:8080
+    mem_limit: 96m
+    cpus: 0.5
+
+  api:
+    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG}
+    pull_policy: missing
+    restart: unless-stopped
+    # DM-13 and C-4. The Node process drains for up to SHUTDOWN_GRACE_MS and ONLY
+    # THEN does Litestream perform its final sync, so the deadline here has to
+    # cover both steps in sequence. Docker's default of 10 s would cut the second
+    # one, and what is lost are the last writes of a currency ledger — exactly
+    # what D2-17 exists to prevent. A test imports the constant from
+    # apps/server/src/shutdown.ts and compares it to this number rather than to a
+    # copy of it (T-2-BACKUP).
+    stop_grace_period: 30s
+    volumes:
+      # The database. The path matches DG2_DB below and the `path` of
+      # ops/litestream.yml; a test compares the strings across the files,
+      # because two copies of a path that must agree are one edit away from not
+      # agreeing, and the symptom is a backup faithfully replicating a file
+      # nobody writes.
+      - dg2-data:/var/lib/dg2
+      # The replica, and see the header: in a container layer this one vanishes
+      # on the first redeploy without a word.
+      - dg2-replica:/var/lib/dg2-replica
+    environment:
+      - DG2_DB=/var/lib/dg2/dg2.db
+      - DG2_PORT=8080
+      # DM-9: `127.0.0.1` would be the loopback of THIS container, and Caddy lives
+      # in another one. The default in the code stays the loopback; this line is
+      # the declared exception, sitting exactly where it is reviewable in a diff.
+      # It is only an access control because nothing here is published on the
+      # host — see the header.
+      - DG2_BIND=0.0.0.0
+      # Makes "did the deploy land?" a string comparison against the health route,
+      # with no new infrastructure.
+      - DG2_RELEASE=${DG2_IMAGE_TAG}
+      - DG2_ORIGIN=${DG2_ORIGIN}
+      # Where Litestream writes the replica. Inside the second volume above, and
+      # a test asserts that containment rather than trusting this line.
+      - DG2_REPLICA_PATH=/var/lib/dg2-replica/dg2
+      - DG2_TURN_SECRET=${DG2_TURN_SECRET}
+      - DG2_TURN_REALM=${DG2_TURN_REALM}
+      # P-10 HOLDS IDENTICALLY INSIDE A CGROUP: V8 sizes its default old space
+      # from the memory of the MACHINE — nearly 8 GiB here — and not from the
+      # cgroup ceiling below, so capping one without the other trades garbage
+      # collection for an OOM-kill. The two numbers travel together, always, and
+      # the heap cap stays the smaller of the two. A test compares them (T-2-MEM).
+      - NODE_OPTIONS=--max-old-space-size=192
+    # 256 MiB for the Node process, which is the ceiling the retired systemd unit
+    # already carried, plus headroom for Litestream — which stopped having a unit
+    # of its own and now lives in this cgroup (D2-28).
+    mem_limit: 320m
+    cpus: 1.0
+    # The loopback of this container, which is the one address that is always
+    # correct here regardless of what the bind above says. `wget` is installed
+    # explicitly by ops/Dockerfile.api rather than assumed.
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+# Named volumes, managed by Coolify, surviving every redeploy. The second one is
+# the subject of the header paragraph about D2-33.
+volumes:
+  dg2-data:
+  dg2-replica:
