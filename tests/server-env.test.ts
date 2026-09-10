@@ -28,20 +28,28 @@ import { DEFAULTS, readEnv, type EnvSource } from '../apps/server/src/env';
  * DG2_ORIGIN carries a REAL-LOOKING origin rather than the default, because
  * DG2_RELEASE here is a git sha — that is, not a development release — and
  * readEnv refuses that combination on purpose. See the DG2_ORIGIN block below.
+ *
+ * DG2_BIND carries the CONTAINER value for the same kind of reason: a complete
+ * environment is the deployed one, and the deployed one binds every interface
+ * because Caddy lives in a different container (DM-9). The loopback default is
+ * asserted separately, over an EMPTY environment, which is the case that
+ * default exists for.
  */
 const GOOD: EnvSource = {
   DG2_DB: '/var/lib/dg2/dg2.db',
   DG2_PORT: '8080',
+  DG2_BIND: '0.0.0.0',
   DG2_RELEASE: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
   DG2_ORIGIN: 'https://dg2.example',
 };
 
 describe('readEnv com o ambiente completo', () => {
-  it('devolve exatamente as seis chaves, com os valores do arquivo', () => {
+  it('devolve exatamente as sete chaves, com os valores do arquivo', () => {
     const env = readEnv(GOOD);
-    // Set equality and length: a seventh field would be a seventh thing the
+    // Set equality and length: an eighth field would be an eighth thing the
     // operator has to get right, and it must not appear unnoticed.
     expect(Object.keys(env).sort()).toEqual([
+      'bind',
       'dbPath',
       'origin',
       'port',
@@ -52,6 +60,10 @@ describe('readEnv com o ambiente completo', () => {
     expect(env).toEqual({
       dbPath: '/var/lib/dg2/dg2.db',
       port: 8080,
+      // Returned INTACT, which is the whole contract of this key: the value
+      // goes straight to listen(2), so anything added or normalised here would
+      // be a bind address nobody wrote.
+      bind: '0.0.0.0',
       release: GOOD.DG2_RELEASE,
       origin: 'https://dg2.example',
       // Absent from GOOD on purpose: the pair is OPTIONAL, and the environment
@@ -64,14 +76,23 @@ describe('readEnv com o ambiente completo', () => {
 
   it('apara espaços em volta do valor', () => {
     // An EnvironmentFile line with a trailing space is invisible in an editor.
-    const env = readEnv({ ...GOOD, DG2_DB: '  /var/lib/dg2/dg2.db  ', DG2_PORT: ' 8080 ' });
+    const env = readEnv({
+      ...GOOD,
+      DG2_DB: '  /var/lib/dg2/dg2.db  ',
+      DG2_PORT: ' 8080 ',
+      DG2_BIND: '  0.0.0.0  ',
+    });
     expect(env.dbPath).toBe('/var/lib/dg2/dg2.db');
     expect(env.port).toBe(8080);
+    // A bind address with a trailing space is not an address: listen(2) would
+    // be handed a string no resolver accepts, and the process would die at the
+    // one step that happens AFTER the migration succeeded.
+    expect(env.bind).toBe('0.0.0.0');
   });
 });
 
 describe('chave ausente — o único caso em que o padrão vale', () => {
-  it('um ambiente vazio devolve os quatro padrões', () => {
+  it('um ambiente vazio devolve os cinco padrões', () => {
     // An empty environment is a DEVELOPER's machine: DG2_RELEASE falls back to
     // 'dev', which is exactly the case in which the DG2_ORIGIN default is
     // legitimate. That is why this test does not trip the refusal below, and
@@ -79,6 +100,7 @@ describe('chave ausente — o único caso em que o padrão vale', () => {
     const env = readEnv({});
     expect(env.dbPath).toBe(DEFAULTS.DG2_DB);
     expect(env.port).toBe(Number(DEFAULTS.DG2_PORT));
+    expect(env.bind).toBe(DEFAULTS.DG2_BIND);
     expect(env.release).toBe(DEFAULTS.DG2_RELEASE);
     expect(env.origin).toBe(DEFAULTS.DG2_ORIGIN);
     // Anti-vacuity: '' is a string and would satisfy a type check. The floor
@@ -91,11 +113,11 @@ describe('chave ausente — o único caso em que o padrão vale', () => {
 });
 
 describe('chave definida e VAZIA — o caso que o ?? deixava passar', () => {
-  // The three keys, each with the four blank shapes an EnvironmentFile can
+  // The five keys, each with the four blank shapes an EnvironmentFile can
   // produce. Every one of these used to become a silent, wrong default.
   const BLANK = ['', ' ', '\t', '   \t  '];
 
-  for (const key of ['DG2_DB', 'DG2_PORT', 'DG2_RELEASE', 'DG2_ORIGIN'] as const) {
+  for (const key of ['DG2_DB', 'DG2_PORT', 'DG2_BIND', 'DG2_RELEASE', 'DG2_ORIGIN'] as const) {
     for (const blank of BLANK) {
       it(`recusa ${key}=${JSON.stringify(blank)} nomeando a chave`, () => {
         // The message has to NAME the key: the operator is reading journalctl
@@ -142,6 +164,43 @@ describe('DG2_PORT — 0 é válido para listen(2) e por isso é recusado à mã
       expect(readEnv({ ...GOOD, DG2_PORT: value }).port).toBe(Number(value));
     });
   }
+});
+
+// DG2_BIND — the key that exists because the same literal meant two different
+// things before and after containerisation (DM-9).
+//
+// `hostname: '127.0.0.1'` in index.ts was correct while Caddy and Node shared
+// one host's loopback. In two containers it is the loopback OF THE NODE
+// CONTAINER, which the Caddy container cannot reach, and the symptom is 503 on
+// /api/* from the first deploy with every other check green. The default stays
+// the loopback so that nothing native and no developer's machine loses the
+// defence; the container value is declared in the compose, in diff.
+describe('DG2_BIND — o bind virou configuração, e o padrão continua o loopback', () => {
+  it('um ambiente vazio faz bind no loopback', () => {
+    // Two assertions and not one. Comparing only against DEFAULTS.DG2_BIND
+    // would stay green if that table said '0.0.0.0' — which is precisely the
+    // mistake this key makes possible, so the LITERAL is pinned too.
+    expect(readEnv({}).bind).toBe(DEFAULTS.DG2_BIND);
+    expect(DEFAULTS.DG2_BIND).toBe('127.0.0.1');
+  });
+
+  it('aceita 0.0.0.0 e o devolve intacto', () => {
+    // The value the compose of plan 02-14 sets. Accepting it is the point of
+    // the key existing; returning it unchanged is the point of reading it with
+    // required() rather than parsing it.
+    expect(readEnv({ ...GOOD, DG2_BIND: '0.0.0.0' }).bind).toBe('0.0.0.0');
+  });
+
+  it('não valida formato: o que listen(2) aceita, esta chave aceita', () => {
+    // DELIBERATELY NO ADDRESS VALIDATION. listen(2) takes a v4 address, a v6
+    // address and a hostname, and a validator guessing at that would refuse a
+    // legitimate value the day the topology changed — a refusal at boot for a
+    // configuration that was right. The absence is the decision, so it is
+    // asserted rather than assumed.
+    expect(readEnv({ ...GOOD, DG2_BIND: '::1' }).bind).toBe('::1');
+    expect(readEnv({ ...GOOD, DG2_BIND: '::' }).bind).toBe('::');
+    expect(readEnv({ ...GOOD, DG2_BIND: 'api' }).bind).toBe('api');
+  });
 });
 
 // The measurement this block stands in for is not a crash: it is a SILENCE. An
