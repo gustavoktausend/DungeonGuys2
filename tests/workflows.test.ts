@@ -19,11 +19,23 @@
 // mismatch, a commented-out `deploy-pages` is still a workflow that somebody
 // will uncomment. Here prose is not exempt.
 //
-// Since plan 02-11 the file guards a second thing: the shape of the one job
-// that holds an SSH key with write access to the box. Those assertions are not
-// style — they are the mitigations of T-2-SSH, T-2-SC and T-2-RACE written as a
+// Since plan 02-11 the file guards a second thing, and plan 02-15 changed what
+// that thing IS. It used to be the shape of the one job that held an SSH key
+// with write access to the box; under D2-32 no such job and no such key exist,
+// and what the file guards now is the shape of the job that PUBLISHES AN IMAGE
+// to a registry. Those assertions are not style — they are the mitigations of
+// T-2-SSH, T-2-SC, T-2-TOKEN, T-2-CREDLOG, T-2-MOVTAG and T-2-RACE written as a
 // gate, and a gate is the only form in which a mitigation does not regress in
 // silence six months from now.
+//
+// THE SSH ASSERTIONS DID NOT SIMPLY DIE: one of them was INVERTED. Five of the
+// six cases that guarded the key path are gone because the path is gone, but
+// "no line of the workflow speaks to the box over the network" replaced them,
+// because the absence of that path is a property to defend rather than an
+// accident of the moment. The workflow cooperates by never spelling the three
+// command names in its own prose — the same device it already uses for the
+// broad permission value — which is what lets the refusal here stay blind to
+// comments without making the file unable to explain itself.
 import { describe, it, expect } from 'vitest';
 
 // Vite's raw glob, not node:fs — the root tsconfig's `types` is ["vite/client"]
@@ -49,6 +61,23 @@ const FORBIDDEN = [
 /** The one workflow this repository has. Named once so the helper below and the
  *  exact-count guard cannot drift apart. */
 const CI_PATH = '../.github/workflows/ci.yml';
+
+/** The composition of plan 02-14, read for ONE reason: it is the consumer of
+ *  what the publishing job pushes, and the two files carry the image names as
+ *  separate literals. Two copies of a value that must agree are one edit away
+ *  from not agreeing, and the symptom here would be a deploy pulling a name
+ *  nobody pushed — a container that never starts, on a box reached through a
+ *  tunnel, with the panel reporting only that the pull failed.
+ *
+ *  It is globbed here and not in tests/ops-config.test.ts, which owns ops/,
+ *  because the file under repair is the workflow: the assertion belongs beside
+ *  the thing that must agree with the composition rather than inside the suite
+ *  that would also go red for thirty unrelated reasons. Its own glob, so the
+ *  exact-count guard over FILES above is untouched. */
+const COMPOSE_PATH = '../ops/docker-compose.yml';
+const COMPOSE = import.meta.glob<string>('../ops/docker-compose.yml', {
+  query: '?raw', import: 'default', eager: true,
+});
 
 /** The workflow source, with the emptiness check that every assertion in this
  *  file depends on. `''.includes(x)` is false for every x, so a glob that
@@ -79,23 +108,24 @@ function hasLine(src: string, literal: string): boolean {
 }
 
 /**
- * Just the `deploy` job's lines, sliced out of the workflow by indentation.
+ * Just the `image` job's lines, sliced out of the workflow by indentation.
  *
- * Job-scoped assertions need the slice and not the file. `timeout-minutes:`
- * and `if: always()` are both things another job could legitimately carry one
- * day, and a whole-file match would then be green while the one job that holds
- * a private key carried neither — which is the failure this helper exists to
- * make impossible rather than unlikely.
+ * Job-scoped assertions need the slice and not the file, and the reasoning did
+ * not change when the job did — only the name. `timeout-minutes:` and a
+ * `permissions:` block are both things another job could legitimately carry one
+ * day, and a whole-file match would then be green while the one job that writes
+ * outside this repository carried neither, which is the failure this helper
+ * exists to make impossible rather than unlikely.
  *
  * The end of the slice is the next line at TWO spaces that is not a comment:
- * job keys sit at two, everything inside a job sits at four or more. `deploy`
+ * job keys sit at two, everything inside a job sits at four or more. `image`
  * is currently last, so the slice usually runs to the end of file; the search
  * is there so that stops being load-bearing the moment a job is appended.
  */
-function deployJob(src: string): string {
+function imageJob(src: string): string {
   const lines = src.split('\n');
-  const start = lines.findIndex((l) => /^ {2}deploy:[ \t]*\r?$/.test(l));
-  expect(start, 'não há job `deploy:` no ci.yml').toBeGreaterThanOrEqual(0);
+  const start = lines.findIndex((l) => /^ {2}image:[ \t]*\r?$/.test(l));
+  expect(start, 'não há job `image:` no ci.yml').toBeGreaterThanOrEqual(0);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     if (/^ {2}[^\s#]/.test(lines[i]!)) { end = i; break; }
@@ -104,22 +134,29 @@ function deployJob(src: string): string {
   // Anti-vacuity, and the number is a real floor rather than `> 0`: a slice
   // that found the heading and stopped at the next line is a slice every
   // "nothing is missing" assertion below would pass over.
-  expect(slice.length, 'a fatia do job `deploy` veio vazia ou truncada').toBeGreaterThan(1500);
+  //
+  // MEASURED, not guessed: the job is ~5.3 KB as written. The floor sits well
+  // under that on purpose — its job is to catch a slice that collapsed, not to
+  // police how much prose the job carries, and a floor pinned to today's byte
+  // count would turn every comment edit into a red test for no property at all.
+  expect(slice.length, 'a fatia do job `image` veio vazia ou truncada').toBeGreaterThan(2000);
   return slice;
 }
 
 /**
- * The `deploy` job's own `if:`, and only it.
+ * The `image` job's own `if:`, and only it.
  *
  * COLUMN FOUR IS THE WHOLE POINT, which is why this is a regex and not a
- * search over deployJob(). A job key sits at four spaces and a step key at
- * eight, so a plain scan of the slice would hand back the `if: always()` of
- * the key-cleanup step — and every assertion built on the result would then be
- * measuring the wrong line while reading as though it measured the gate.
+ * search over imageJob(). A job key sits at four spaces and a step key at
+ * eight, so a plain scan of the slice would hand back a step-level condition —
+ * and every assertion built on the result would then be measuring the wrong
+ * line while reading as though it measured the gate. The job has no step-level
+ * `if:` today; that is exactly the kind of fact that stops being true quietly,
+ * which is why the column is in the regex and not in a comment.
  */
-function deployIf(src: string): string {
-  const m = /^ {4}if:[ \t]*(\S[^\n]*?)[ \t]*\r?$/m.exec(deployJob(src));
-  expect(m, 'o job `deploy` não declara `if:` no nível do job').not.toBeNull();
+function imageIf(src: string): string {
+  const m = /^ {4}if:[ \t]*(\S[^\n]*?)[ \t]*\r?$/m.exec(imageJob(src));
+  expect(m, 'o job `image` não declara `if:` no nível do job').not.toBeNull();
   return m![1]!;
 }
 
@@ -168,13 +205,23 @@ describe('o artefato publicado é o artefato testado (D2-05)', () => {
   });
 });
 
-// T-2-SC. The pipeline that holds the deploy key is the worst place in the
-// project to take a dependency on a stranger: an action is code, it runs in the
-// same job, and every `uses:` here names a MAJOR tag, which moves —
-// `actions/checkout@v7` today is not the commit it pointed at last month, and no
-// diff in this repository records that. Keeping every `uses:` inside actions/
-// does not make the CI safe, but it makes the set of people who can change what
-// runs next to the key exactly one.
+// T-2-SC. The pipeline that publishes is the worst place in the project to take
+// a dependency on a stranger: an action is code, it runs in the same job, and
+// every `uses:` here names a MAJOR tag, which moves — `actions/checkout@v7`
+// today is not the commit it pointed at last month, and no diff in this
+// repository records that. Keeping every `uses:` inside actions/ does not make
+// the CI safe, but it makes the set of people who can change what runs beside
+// the registry token exactly one.
+//
+// This is where plan 02-15 could have gone the other way and did not. Publishing
+// to a registry is normally written with `docker/login-action` and
+// `docker/build-push-action`, and both would fail here — so the cheap move was
+// to loosen the filter below. The hosted runner already ships `docker` and
+// `buildx`, so `run:` steps do the whole job and this assertion stays exactly as
+// it was written when there was nothing to publish. If those actions ever come
+// back to the table, all four relevant ones have been measured as node24 and so
+// would not fight the runtime gate further down — but they are not here today,
+// and the day somebody adds one they should have to come here and say so.
 //
 // That sentence used to read "`@v4` is a moving tag", back when every step in
 // the file carried that number. The number is gone — the Node 20 deprecation
@@ -223,7 +270,7 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
       .toEqual(['contents: read']);
   });
 
-  it('nenhum escopo de permissão é concedido para escrita', () => {
+  it('a única escrita concedida é `packages: write`, e só no job que empurra a imagem (T-2-TOKEN)', () => {
     const src = ci();
     // The other direction, and it is not the same assertion: the block above
     // pins what the floor IS, this one pins that nothing anywhere raises it.
@@ -231,11 +278,29 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
     // block sits below the workflow block rather than under it — a nested
     // `permissions:` REPLACES the outer one, it does not intersect with it.
     expect(src).not.toContain('write-all');
-    const raised = src
+    const writes = (s: string) => s
       .split('\n')
       .filter((l) => /^\s+[a-z-]+:\s*write\s*\r?$/.test(l))
       .map((l) => l.trim());
-    expect(raised).toEqual([]);
+    // THE EXCEPTION IS NAMED ON PURPOSE, and this used to be `toEqual([])`.
+    // Pushing to the registry with the GITHUB_TOKEN requires this scope and
+    // there is no way around it that is not worse — a classic personal token
+    // with package-write scope, living in a secret, is a long-lived credential
+    // in a third-party service where this is an ephemeral job token.
+    //
+    // What is NOT acceptable is a gate that admits "some write": the list is
+    // compared by equality against exactly one entry, spelled out, so a second
+    // scope or a different one fails by naming itself in the diff of the
+    // failure. Measured by removal: adding `contents: write` to any job, or
+    // renaming this one, turns this red and nothing else in the suite moves.
+    expect(writes(src), 'o workflow concede escrita além de `packages: write`')
+      .toEqual(['packages: write']);
+    // And it is INSIDE the publishing job, not merely somewhere in the file.
+    // Without this half, moving the grant up to column zero — which would hand
+    // it to `test` and `pwa`, the two jobs that run the whole toolchain and
+    // download three browser engines — would leave the assertion above green.
+    expect(writes(imageJob(src)), 'a escrita não está no job que empurra a imagem')
+      .toEqual(['packages: write']);
   });
 });
 
@@ -245,7 +310,7 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
 // and every job that touches one is annotated. Forced is not supported: the
 // people who ship the action never exercised its vendored dependencies against
 // 24, so the annotation is the runner announcing that it is guessing on our
-// behalf — inside the pipeline that holds the deploy key, among other places.
+// behalf — inside the pipeline that publishes, among other places.
 //
 // The TABLE is the property, and it is why this is not a list of version
 // strings. `toContain('actions/cache@v6')` would go stale the day v7 ships and
@@ -259,7 +324,7 @@ describe('nenhuma ação de terceiro roda no CI (T-2-SC)', () => {
 // LOOKS like the fix and leaves the annotation exactly where it stood:
 // upload-artifact reaches node24 only at v6, and download-artifact only at v7.
 // Their v5 is node20 wearing a newer number — and those two are precisely the
-// pair this workflow uses to carry the published bytes from `test` to `deploy`.
+// pair this workflow uses to carry the published bytes from `test` to `image`.
 const MIN_NODE24_MAJOR: Readonly<Record<string, number | undefined>> = {
   'checkout': 5,
   'setup-node': 5,
@@ -308,165 +373,190 @@ describe('nenhuma ação roda no runtime depreciado (Node 20)', () => {
   });
 });
 
-// The shape of the one job that holds an SSH key with write access to the box.
-// Nothing below is style. Each assertion is a mitigation from this plan's threat
-// register turned into something a command refuses, which is the only form in
-// which a mitigation survives the six months after the person who wrote it has
-// stopped thinking about it. None of this has ever run against the real box —
-// that is plan 02-12 — so the gate is all the assurance there is today.
-describe('o caminho que carrega a chave de deploy', () => {
-  it('não descobre a chave de host — ela vem fixada de um secret (T-2-SSH)', () => {
+// The shape of the one job that writes anything outside this repository.
+// Nothing below is style. Each assertion is a mitigation from plan 02-15's
+// threat register turned into something a command refuses, which is the only
+// form in which a mitigation survives the six months after the person who wrote
+// it stopped thinking about it. None of this has ever run against the real
+// registry — the first real execution is the first push to main — so the gate is
+// all the assurance there is today.
+//
+// WHAT THIS BLOCK USED TO BE, because the deletion is the larger half of the
+// diff and a reader deserves the accounting. It guarded the job that carried an
+// SSH key with write access to the box, with six cases. Under D2-32 the panel
+// API on that box is not reachable from the internet, every way of reaching it
+// would have meant changing a neighbouring project's configuration, and so the
+// CI stops deploying and only publishes. Five of those cases are gone because
+// what they guarded is gone: the pinned host key, the mode of the private key,
+// its deletion at the end, the absolute `--link-dest`, and the refusal of four
+// empty secrets. A sixth is gone with the repository variable that gated the
+// job — it existed because that job FAILED for want of a secret, and this one
+// cannot: its only credential is the token the runner always injects, so an
+// `if:` nobody can satisfy would have turned a job that was red for weeks into
+// a job skipped forever, which the variable's own comment called the worse case.
+// The decision is written in the workflow too, not only here and in the plan's
+// summary, because that is where somebody will be standing when they wonder.
+//
+// Two cases survived with their subject changed, and five are new. The one worth
+// pointing at is the LAST one, which is an inversion rather than a replacement:
+// it asserts that no line of the workflow speaks to the box over the network.
+// That absence is the whole of what D2-32 bought — there is no longer a
+// write-capable credential for the box stored in a third-party service, which
+// was exactly the risk the retired 7.6 KB wrapper existed to contain, and CR-01
+// had already found a leak in that wrapper. An absence nobody asserts is an
+// accident of the moment rather than a property.
+describe('o caminho que publica a imagem', () => {
+  it('duas publicações nunca correm ao mesmo tempo (T-2-RACE)', () => {
     const src = ci();
-    // Plain substrings, and prose is not exempt here either: a commented-out
-    // host-key scan is precisely the line somebody uncomments while a deploy is
-    // red and the short path looks reasonable. That is also why the workflow's
-    // own comment spells the danger out without ever naming the command.
-    expect(src).not.toContain('ssh-keyscan');
-    expect(src).not.toContain('StrictHostKeyChecking=no');
-    expect(src).not.toContain('StrictHostKeyChecking=accept-new');
-
-    // And every command that actually spawns ssh must pin it. Counting
-    // occurrences would be brittle and, worse, would stay green if one command
-    // carried the option twice while another carried none — so the check is per
-    // command, with shell line continuations folded first so that a multi-line
-    // rsync counts as the single command it is. The \r is not decoration: this
-    // repository is checked out with CRLF on Windows and LF on the runner.
-    const folded = src.replace(/\\\r?\n\s*/g, ' ');
-    const spawnsSsh = folded.split('\n').filter((l) => /\bssh -/.test(l));
-    expect(spawnsSsh.length, 'nenhuma invocação de ssh encontrada — o job mudou de forma?')
-      .toBeGreaterThanOrEqual(3);
-    expect(spawnsSsh.filter((l) => !l.includes('StrictHostKeyChecking=yes'))).toEqual([]);
-
-    // WR-18, and it rides the same loop for the same reason: per command, so
-    // that one invocation carrying the option twice cannot cover for another
-    // carrying none. Without IdentitiesOnly=yes, an ssh-agent holding other
-    // identities gets them offered FIRST and can exhaust MaxAuthTries before
-    // the deploy key is ever reached. The symptom is `Permission denied
-    // (publickey)` with the right key sitting right there in $HOME/.ssh —
-    // which is precisely the confusing failure the step above says it exists
-    // to prevent, arriving by a second door. No agent runs on a hosted runner
-    // today; the pipeline that carries a private key is the wrong one to leave
-    // depending on that.
-    expect(spawnsSsh.filter((l) => !l.includes('IdentitiesOnly=yes'))).toEqual([]);
+    // Same property, different subject: what two concurrent runs would corrupt
+    // used to be the release symlink on disk and is now the registry. The group
+    // is named for what it protects so that the name does not outlive the
+    // reason, which is what `deploy-vps` had started to do.
+    expect(hasLine(src, 'group: publish-image'), 'o grupo de concorrência sumiu').toBe(true);
+    // Turning cancellation back on would look like a tidy-up and would mean a
+    // push killed halfway, leaving partial layers in the registry under a tag
+    // that already looks published.
+    expect(hasLine(src, 'cancel-in-progress: false'), 'o cancelamento foi religado').toBe(true);
   });
 
-  it('a chave privada nunca existe legível para todos (WR-18)', () => {
-    const job = deployJob(ci());
-    // `printf ... > file` creates with the process umask, which is 0022 on the
-    // runner image — so the key spends the gap between the redirect and the
-    // chmod at 0644. Small on an ephemeral hosted runner and not small on a
-    // self-hosted one, and the fix is the same size as the reasoning that
-    // justified pinning the host key: one line.
-    //
-    // Matching the redirect and requiring umask on the SAME line is what makes
-    // this structural instead of hopeful: a `umask 077` sitting anywhere in
-    // the step would satisfy a whole-step search while a later redirect ran
-    // outside the subshell that carries it.
-    const writes = job.split('\n').filter((l) => /> *"\$HOME\/\.ssh\//.test(l));
-    expect(writes.length, 'nenhuma escrita em $HOME/.ssh — o job mudou de forma?')
-      .toBeGreaterThanOrEqual(2);
-    expect(writes.filter((l) => !l.includes('umask 077')).map((l) => l.trim())).toEqual([]);
+  it('a publicação só sai depois dos dois portões, e só de um push na main (D2-08 aplicada à imagem)', () => {
+    const src = ci();
+    // Both gates, not one: `test` proves the artifact, `pwa` proves the service
+    // worker that will serve it offline. Whole line, not substring — see
+    // hasLine, and note that `needs: [test, pwa]` also appears inside a comment
+    // in the `pwa` job, which is the measured reason hasLine exists at all.
+    expect(hasLine(src, 'needs: [test, pwa]'), 'a publicação não depende dos dois portões').toBe(true);
+    const cond = imageIf(src);
+    expect(cond, 'o gate de branch sumiu').toContain("github.ref == 'refs/heads/main'");
+    expect(cond, 'o gate de evento sumiu').toContain("github.event_name == 'push'");
+    // AND NOTHING ELSE, which is the half that changed. The third clause this
+    // condition used to carry read a repository variable, and it was load-bearing
+    // while the job could fail for want of a secret. It cannot any more, so the
+    // variable would gate a job nobody can un-skip. Refusing `vars.` here is
+    // what keeps it from coming back as a one-line "fix" during an incident;
+    // the day a repository variable is legitimately needed, somebody has to come
+    // here and say so.
+    expect(cond, 'o gate voltou a depender de uma variável de repositório')
+      .not.toContain('vars.');
+    // And `secrets.` stays refused for the original reason, which survives the
+    // job it was written for: the contexts a JOB-level `if:` can read are
+    // github, needs, vars and inputs. A condition that tried to read a secret
+    // would not error — it evaluates to nothing, the condition is never true,
+    // and the job silently stops running forever. Same defect, wearing the one
+    // disguise nobody checks for, because it shows up green.
+    expect(cond, 'gate de job lendo `secrets`, contexto que não existe aí')
+      .not.toContain('secrets.');
   });
 
-  it('a chave privada é apagada ao fim, tenha o deploy passado ou não (WR-18)', () => {
-    const job = deployJob(ci());
-    const folded = job.replace(/\\\r?\n\s*/g, ' ');
-    const removal = folded.split('\n').filter((l) => /\brm -f\b.*id_ed25519/.test(l));
-    expect(removal.length, 'nada apaga a chave privada ao fim do job').toBe(1);
-    // `if: always()` and not a bare last step: a step with no condition is
-    // SKIPPED once an earlier one fails, so the cleanup would run in exactly
-    // the runs where nothing went wrong and skip the ones where something did.
-    expect(hasLine(job, 'if: always()'), 'a limpeza da chave não roda quando o deploy falha')
-      .toBe(true);
+  it('a imagem é tagueada pelo sha, e nenhuma linha tagueia por nome móvel (T-2-MOVTAG)', () => {
+    const src = ci();
+    // Shell line continuations folded first, so a command written across lines
+    // counts as the single command it is — the same fold the retired ssh
+    // assertions used, kept for the same reason.
+    const folded = imageJob(src).replace(/\\\r?\n\s*/g, ' ');
+    const commands = folded.split('\n').filter((l) => /\bdocker (build|push)\b/.test(l));
+    // Anti-vacuity, and the number is the real count: two builds and two
+    // pushes. A regex that stopped matching would leave the filter below
+    // inspecting nothing at all, with the assertion green.
+    expect(commands.length, 'nenhum `docker build`/`docker push` encontrado — o job mudou de forma?')
+      .toBe(4);
+    // Per command, never by counting occurrences: counting would stay green if
+    // one command carried the sha twice while another carried none.
+    expect(commands.filter((l) => !l.includes('$GITHUB_SHA')).map((l) => l.trim()))
+      .toEqual([]);
+    // And the moving spellings are refused across the WHOLE file, prose
+    // included. `:latest` is the one somebody adds so the panel has a friendly
+    // name to point at, and it destroys the rollback of D2-24: there is no
+    // "previous image" once the previous name points at the new content.
+    expect(src, 'uma tag móvel entrou no workflow').not.toMatch(/:latest\b/);
+    expect(src, 'uma tag móvel entrou no workflow').not.toMatch(/:main\b/);
   });
 
-  it('o job que carrega a chave tem prazo próprio (WR-18)', () => {
-    const job = deployJob(ci());
-    // With cancel-in-progress: false — which is itself a decision, since a
-    // deploy killed mid-transfer leaves a partial release on disk — a hung
-    // rsync or ssh holds the `deploy-vps` group for the full six-hour job
-    // limit. Every subsequent deploy queues behind it, including the one that
-    // would fix whatever is hung.
+  it('o job que publica tem prazo próprio (WR-18)', () => {
+    const job = imageJob(ci());
+    // With cancellation switched off — which is itself a decision, since a push
+    // killed mid-transfer leaves partial layers in the registry — a hung
+    // transfer holds the concurrency group for the full six-hour job limit.
+    // Every later publication queues behind it, including the one that would
+    // fix whatever is hung.
     const m = /^ {4}timeout-minutes:[ \t]*(\d+)[ \t]*\r?$/m.exec(job);
-    expect(m, 'o job `deploy` não declara timeout-minutes').not.toBeNull();
+    expect(m, 'o job `image` não declara timeout-minutes').not.toBeNull();
     // A ceiling, because a `timeout-minutes: 360` would satisfy "it has one"
     // and would be the six-hour default wearing a hat.
     expect(Number(m![1]), 'o prazo é largo demais para significar algo')
       .toBeLessThanOrEqual(30);
   });
 
-  it('dois deploys nunca correm sobre o mesmo symlink (T-2-RACE)', () => {
+  it('o token do registro entra por stdin, e nenhuma linha o passa em argv (T-2-CREDLOG)', () => {
     const src = ci();
-    expect(hasLine(src, 'group: deploy-vps'), 'o grupo de concorrência sumiu').toBe(true);
-    // Turning cancellation back on would look like a tidy-up and would mean a
-    // release killed halfway through a transfer, left on disk under its sha.
-    expect(hasLine(src, 'cancel-in-progress: false'), 'o cancelamento foi religado').toBe(true);
+    const folded = imageJob(src).replace(/\\\r?\n\s*/g, ' ');
+    const logins = folded.split('\n').filter((l) => /\bdocker login\b/.test(l));
+    // Exactly one, not "at least one": a second login is either a second
+    // registry nobody discussed or the same one being re-authenticated, and
+    // both deserve to be noticed.
+    expect(logins.length, 'nenhum `docker login` encontrado — o job mudou de forma?').toBe(1);
+    expect(logins.filter((l) => !l.includes('--password-stdin')).map((l) => l.trim()))
+      .toEqual([]);
+    // The two spellings that put the secret in argv instead, where it reaches
+    // the process table of the runner and any log that echoes the command.
+    // `--password-stdin` does not match either of these, which is the point.
+    expect(src, 'a senha do registro foi para a linha de comando')
+      .not.toMatch(/docker login[^\n]*\s-p\s/);
+    expect(src, 'a senha do registro foi para a linha de comando')
+      .not.toMatch(/--password[= ]/);
   });
 
-  it('o deploy só sai depois dos dois portões, e só de um push na main (D2-08)', () => {
+  it('nenhuma linha do workflow fala com a caixa pela rede (D2-32, T-2-SSH)', () => {
     const src = ci();
-    // Both gates, not one: `test` proves the artifact, `pwa` proves the service
-    // worker that will serve it offline. Whole line, not substring — see hasLine.
-    expect(hasLine(src, 'needs: [test, pwa]'), 'o deploy não depende dos dois portões').toBe(true);
-    // Clause by clause over the isolated condition, where this used to pin the
-    // whole `if:` as a single literal through hasLine(). The literal was the
-    // wrong unit: ANDing a third clause onto the gate read as "the gate
-    // changed shape" — the same red a DELETED gate produces — so the file had
-    // no way to say "these two must be there" without also saying "and nothing
-    // else may be". Two clauses that must be present is the property; what
-    // stands beside them is the next test's business.
-    const cond = deployIf(src);
-    expect(cond, 'o gate de branch sumiu').toContain("github.ref == 'refs/heads/main'");
-    expect(cond, 'o gate de evento sumiu').toContain("github.event_name == 'push'");
+    // THE INVERSION, and it is the assertion that preserves what D2-32 bought.
+    // No credential with write access to the box is stored in a third-party
+    // service any more, and the only way that stays true is if the absence is
+    // asserted rather than remembered.
+    //
+    // COMMENTS ARE NOT EXEMPT HERE, and the workflow cooperates by never
+    // spelling the three command names in its own prose — the device it already
+    // uses for the broad permission value, whose literal spelling is likewise
+    // kept out of the file so a substring refusal can stay blind. The
+    // alternative was anchoring whole lines the way hasLine() does, which would
+    // have let a commented-out command through; and a commented-out command is
+    // exactly the line somebody uncomments while a deploy is broken and the
+    // short path looks reasonable. The cost is that the workflow must explain
+    // this absence without naming it, which it does, in the comment block of
+    // the publishing job.
+    //
+    // No anti-vacuity guard of its own: ci() already refuses an empty or
+    // truncated file, which is the failure that would turn an absence assertion
+    // green for the wrong reason.
+    const bad = src
+      .split('\n')
+      .filter((l) => /\b(ssh|rsync|scp)\b/i.test(l))
+      .map((l) => l.trim());
+    expect(bad, 'o workflow voltou a ter um caminho de rede para a caixa').toEqual([]);
   });
 
-  it('o deploy é pulado enquanto o alvo de publicação não existir (D2-08)', () => {
-    const cond = deployIf(ci());
-    // Without this clause the job runs on EVERY push to main and dies on the
-    // empty-secret guard of its first step, because plan 02-04 — the one that
-    // creates the four secrets and the box — is deferred. Measured, on the
-    // first real run this workflow ever had: `test` green, `pwa` green,
-    // `deploy` red. A job that stays red for weeks teaches everybody to stop
-    // reading red CI, which is the exact opposite of what this gate was built
-    // to buy.
-    expect(cond, 'o deploy roda sem saber se o alvo de publicação existe')
-      .toContain("vars.DEPLOY_ENABLED == 'true'");
-    // And it has to be `vars`, which is why this is not the assertion above
-    // spelled twice. The contexts a JOB-level `if:` can read are github,
-    // needs, vars and inputs — `secrets` is not among them. A condition that
-    // tried to read one would not error: it evaluates to nothing, the
-    // condition is never true, and the job silently stops running forever.
-    // Same defect, wearing the one disguise nobody checks for, because it
-    // shows up green.
-    expect(cond, 'gate de job lendo `secrets`, contexto que não existe aí')
-      .not.toContain('secrets.');
-  });
-
-  it('os quatro segredos continuam recusados vazios (D2-08)', () => {
-    const job = deployJob(ci());
-    // The second line of defence, and it catches a DIFFERENT failure from the
-    // gate above: the repository variable says the target was configured, the
-    // `:?` says the value actually arrived. A secret that exists and is empty
-    // satisfies the first and is stopped only by the second — by name, before
-    // any connection, instead of as `Permission denied (publickey)` thirty
-    // seconds into a transfer. Now that the gate exists, deleting these four
-    // looks like a tidy-up; this is what refuses it.
-    for (const name of ['DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS', 'DEPLOY_USER', 'DEPLOY_HOST']) {
-      expect(job, `o guarda de segredo vazio de ${name} sumiu`)
-        .toMatch(new RegExp(`\\$\\{${name}:\\?`));
-    }
-  });
-
-  it('todo --link-dest é caminho absoluto (P-12)', () => {
+  it('as duas imagens publicadas são as duas que a composição puxa (D2-23, D2-24)', () => {
     const src = ci();
-    // rsync resolves a relative --link-dest against the DESTINATION, so a
-    // relative one works by accident in some layouts and fails in others with
-    // no error at all — just no hardlink. The symptom is a full disk months
-    // later with nothing pointing back here, which is why this is a gate and
-    // not a comment.
-    const dests = [...src.matchAll(/--link-dest=(\S+)/g)].map((m) => m[1]!);
-    expect(dests.length, 'nenhum --link-dest encontrado — o job mudou de forma?')
-      .toBeGreaterThanOrEqual(2);
-    expect(dests.filter((p) => !p.startsWith('/'))).toEqual([]);
+    const compose = COMPOSE[COMPOSE_PATH];
+    expect(compose, `o glob não encontrou ${COMPOSE_PATH}`).toBeTypeOf('string');
+    expect(compose!.length, 'ops/docker-compose.yml está vazio ou truncado').toBeGreaterThan(2000);
+    // The NAME, not the tag: the workflow spells the tag as the commit sha and
+    // the composition spells it as a panel variable, and that difference IS the
+    // contract — the integrator builds, a person promotes (D2-32). What must
+    // agree is which two images exist.
+    const names = (s: string) => [...new Set(
+      [...s.matchAll(/\/(dg2-[a-z0-9-]+):/g)].map((m) => m[1]!),
+    )].sort();
+    const pushed = names(src);
+    const pulled = names(compose!);
+    // Anti-vacuity on both sides, and it is the real count: two services, two
+    // images. A regex that stopped matching would compare two empty arrays and
+    // pass.
+    expect(pushed.length, 'o ci.yml não empurra duas imagens — o job mudou de forma?').toBe(2);
+    expect(pulled.length, 'a composição não puxa duas imagens').toBe(2);
+    expect(pushed, 'o ci.yml publica nomes que a composição não puxa').toEqual(pulled);
+    // And the same registry host on both sides, which the name comparison above
+    // cannot see: two identical names under different hosts would pass it.
+    expect(src, 'o ci.yml mudou de registro').toContain('ghcr.io');
+    expect(compose, 'a composição mudou de registro').toContain('ghcr.io');
   });
 });

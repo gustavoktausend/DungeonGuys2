@@ -22,10 +22,13 @@ on:
 # arvore, e nenhum passo escreve no repositorio. Os artefatos entre jobs sao do
 # `actions/upload-artifact`, que usa um token proprio do runner e nao este.
 #
-# O bloco do job `deploy` fica onde esta de proposito. Ele nao e redundante com
-# este: um `permissions:` de job SUBSTITUI o do workflow, entao mante-lo e o
-# que garante que subir o piso daqui um dia nao suba junto o teto do unico job
-# que carrega uma chave privada de escrita na VPS.
+# The `image` job keeps a block of its own on purpose, and it is not redundant
+# with this one: a job-level `permissions:` REPLACES the workflow's instead of
+# intersecting with it, so keeping it is what guarantees that raising this floor
+# one day does not raise the ceiling of the only job that writes anything
+# outside this repository. That job is also where the single `packages: write`
+# of the whole file lives; its own comment says why an ephemeral job token is
+# the cheap answer there.
 permissions:
   contents: read
 
@@ -35,7 +38,7 @@ permissions:
 # but are being forced to run on Node.js 24". Forcado nao e suportado -- quem
 # publica a acao nunca exercitou as dependencias vendorizadas dela contra o 24
 # -- entao a anotacao e o runner avisando que esta chutando por nos, dentro da
-# esteira que carrega a chave de deploy.
+# esteira que publica a imagem.
 #
 # Cada acao atravessa para node24 num major diferente. O primeiro numero e
 # aquele em que o `runs.using` do action.yml dela deixa de dizer node20; o
@@ -51,7 +54,7 @@ permissions:
 # PARECE a correcao e deixa a anotacao exatamente onde estava. A v5 do
 # upload-artifact e a v5 e a v6 do download-artifact ainda declaram node20 --
 # sao node20 usando um numero mais novo. E esses dois sao justamente o par que
-# leva os bytes publicaveis do job `test` ao job `deploy`, que e D2-05.
+# leva os bytes publicaveis do job `test` ao job `image`, que e D2-05.
 #
 # Por que o ultimo major de cada, e nao o minimo que cala o aviso: em CI uma
 # quebra e vermelha e imediata, ao contrario de um defeito de producao, e parar
@@ -82,14 +85,15 @@ permissions:
 #   artefatos    o par v7/v8 saiu no mesmo dia e e um par de proposito. A v7 do
 #                upload ganhou envio de arquivo solto (`archive: false`), que
 #                NAO usamos -- o padrao segue zipando, que e o que o job
-#                `deploy` espera. A v8 do download deixou de tentar
+#                `image` espera. A v8 do download deixou de tentar
 #                descompactar tudo e passou a olhar o Content-Type antes, o que
 #                casa com o zip que a v7 produz. A v8 tambem passou a ERRAR
 #                quando o digest baixado nao bate com o do servidor, onde antes
-#                so avisava: e o padrao certo para o unico job que copia bytes
-#                para a caixa. Baixar por `name:`, que e o que fazemos, nao foi
-#                tocado pela quebra da v5 do download -- ela mudou o caminho de
-#                saida de quem baixa por `artifact-ids:`.
+#                so avisava: e o padrao certo para o unico job que empurra
+#                bytes para fora deste repositorio. Baixar por `name:`, que e o
+#                que fazemos, nao foi tocado pela quebra da v5 do download --
+#                ela mudou o caminho de saida de quem baixa por
+#                `artifact-ids:`.
 
 jobs:
   test:
@@ -189,9 +193,13 @@ jobs:
       - run: npm run sw:verify
 
       # O bundle do servidor entra no mesmo par de artefatos para que cliente e
-      # servidor publicados venham do MESMO commit e do MESMO job. O script de
-      # release na caixa compara o sha256 deste arquivo para decidir se
-      # reinicia a unit, entao os dois lados do release chegam juntos.
+      # servidor publicados venham do MESMO commit e do MESMO job. O que faz os
+      # dois lados do release chegarem juntos e a tag unica: as duas imagens sao
+      # tagueadas pelo mesmo sha e `ops/docker-compose.yml` da uma
+      # `DG2_IMAGE_TAG` so aos dois servicos, entao nao existe combinacao de
+      # cliente e servidor de commits diferentes. (O script de release na caixa,
+      # que comparava o sha256 deste arquivo para decidir se reiniciava a unit,
+      # foi aposentado por D2-30 junto com a propria unit.)
       - run: npm run server:build
 
       # D2-05 escrito como bytes. O job de publicacao baixa EXATAMENTE estes
@@ -222,8 +230,8 @@ jobs:
   # sem rede -- semanas depois, sem nada para correlacionar.
   #
   # Independente do job `test` (sem `needs:`) porque os dois nao compartilham
-  # artefato nenhum: serializar so somaria minutos ao PR. O job `deploy` do
-  # plano 02-11 e que vai declarar `needs: [test, pwa]`, e e la que a
+  # artefato nenhum: serializar so somaria minutos ao PR. Quem declara
+  # `needs:` nos dois portoes e o job `image`, mais abaixo, e e la que a
   # dependencia pertence -- publicar e o unico passo que precisa dos dois.
   pwa:
     runs-on: ubuntu-latest
@@ -274,92 +282,116 @@ jobs:
       # este job ja paga: o build, o Chromium do cache e a serializacao.
       - run: npm run test:e2e
 
-  # Publicar e `git push` na main, e este job e todo o caminho.
+  # THIS JOB PUBLISHES AN IMAGE. IT DOES NOT DEPLOY, AND THE DIFFERENCE IS A
+  # DECISION RATHER THAN AN OMISSION (D2-32).
   #
-  # Ele vive AQUI, no mesmo arquivo, porque `needs:` so referencia jobs do
-  # MESMO workflow: encadear um segundo arquivo exigiria `on: workflow_run:`,
-  # que e outro gatilho, outro checkout, e le o arquivo de workflow da branch
-  # padrao em vez do commit (DM-4). Foi por isso que o deploy.yml antigo foi
-  # apagado no plano 02-01 em vez de encadeado -- ele ainda por cima duplicava
-  # lint/test/build em Node 20, contra os 24 daqui, e nao rodava nenhum dos
-  # portoes caros.
+  # It lives HERE, in the same file, because `needs:` only references jobs of
+  # the SAME workflow: chaining a second file would require `on: workflow_run:`,
+  # which is another trigger, another checkout, and which reads the workflow
+  # file from the default branch instead of from the commit (DM-4). That is why
+  # the old deploy.yml was deleted in plan 02-01 rather than chained -- it also
+  # duplicated lint/test/build on Node 20, against the 24 here, and ran none of
+  # the expensive gates.
   #
-  # Os dois artefatos sao BAIXADOS, nunca reconstruidos: e a traducao literal de
-  # D2-05 -- o que chega na caixa e byte a byte o que passou pelo portao
-  # cross-engine, que custou a fase 1 inteira.
+  # The two artifacts are DOWNLOADED, never rebuilt: that is the literal
+  # translation of D2-05, preserved by D2-23, and it means what reaches the box
+  # is byte for byte what cleared the cross-engine gate -- which cost the whole
+  # of phase 1. A multi-stage Dockerfile running the build inside the image
+  # would be shorter to write and would annul that phase entirely.
   #
-  # NADA aqui ja rodou contra a caixa. Os quatro secrets e a variavel de
-  # repositorio que liga este job sao criados no plano 02-04, e a primeira
-  # execucao real e o plano 02-12. Ate la o job e PULADO, nao vermelho -- o
-  # `if:` logo abaixo explica por que a diferenca importa.
-  deploy:
+  # NO THIRD-PARTY ACTION RUNS HERE, AND THAT IS THE GAIN RATHER THAN THE
+  # OBSTACLE (T-2-SC, DM-8). The hosted runner already ships `docker` and
+  # `buildx`, so login, build and push as `run:` steps do the entire job and
+  # leave the gate in tests/workflows.test.ts INTACT. The alternative -- the two
+  # Docker actions, both measured as node24 and therefore otherwise eligible --
+  # would have required loosening the assertion that refuses every `uses:`
+  # outside actions/, which is trading a gate for convenience in the one
+  # pipeline of this project that writes outside the repository.
+  #
+  # THERE IS NO DEPLOY TRIGGER STEP, AND THE ABSENCE IS WRITTEN DOWN INSTEAD OF
+  # DISCOVERED (D2-32). Measured on 2026-09-09: the panel API on the box is not
+  # reachable from the internet -- its two ports time out from outside, by a
+  # deliberate lockdown belonging to the neighbouring project that operates that
+  # host. The four ways out the phase research costed -- giving the panel a
+  # hostname of its own, exposing only its deploy route through the proxy in
+  # front, a timer on the box polling the registry, or a key pair with a fixed
+  # `command=` -- ALL require changing the neighbour's configuration or
+  # reintroducing the host-as-code that D2-22 exists to remove. None is done,
+  # and this is a written deferral rather than accidental debt.
+  #
+  # So what a push to main buys is that THE IMAGE EXISTS IN THE REGISTRY.
+  # Promotion is a person: the operator opens the tunnel, points the tag at the
+  # sha and deploys, which is the `clique-painel` form plan 02-04 chose and
+  # which section 5 of ops/README.md documents step by step. D2-08 is therefore
+  # SUSPENDED in its deploy half for this phase and holds in its image half.
+  #
+  # NO DEPLOY SECRET EXISTS, AND NONE EVER DID. The four that the original plan
+  # 02-04 asked for -- a private key, a host, a user and a pinned host key --
+  # were never created, and neither was the single hook secret of the revoked
+  # D2-31. This is removal of TEXT, not revocation of a credential, so nobody
+  # should go hunting for them in the repository settings and find an empty list
+  # confusing. The one credential this job reads is the GITHUB_TOKEN the runner
+  # injects, which is ephemeral by construction.
+  #
+  # THE REPOSITORY VARIABLE THAT USED TO GATE THIS JOB DIES HERE, AND THAT
+  # CONTRADICTS AN EXPLICIT RECOMMENDATION OF THE PHASE RESEARCH -- so the
+  # reasoning is written where the next person will look for it. The variable
+  # existed because the job it gated FAILED for want of a secret, and a job that
+  # stays red for weeks teaches everybody to stop reading red CI. This job
+  # cannot fail that way: its only credential is the token the runner always
+  # provides. Keeping an `if:` that nobody can satisfy would reintroduce the
+  # same defect from the other side -- a job SKIPPED forever, which is precisely
+  # the case that the variable's own comment called worse than red.
+  #
+  # Its name, like the names of the four secrets above, is deliberately NOT
+  # spelled anywhere in this file -- the same device the `permissions:` comment
+  # at column zero uses for the broad token value. The point is that a grep of
+  # this workflow for any of the five comes back EMPTY, and that emptiness is
+  # the cheapest available proof that no path here reaches the box. A comment
+  # that named them would make the proof impossible in order to be tidy.
+  image:
     needs: [test, pwa]
-    # D2-08: todo push na main que passar no CI publica, e nada mais publica.
-    # E isso que torna a reversao compreensivel, porque o symlink anterior
-    # corresponde exatamente ao commit anterior -- nao ha um segundo caminho
-    # capaz de por bytes na caixa e desalinhar os dois.
-    #
-    # A terceira clausula nao abre um segundo caminho: ela nao escolhe QUAL
-    # commit publica, so diz se ha alvo para onde publicar. Sem ela este job
-    # rodava em TODO push na main e morria na guarda de segredo vazio do
-    # primeiro passo, porque o plano 02-04 -- o que cria os secrets e a caixa
-    # -- esta adiado. Medido na primeira execucao real deste workflow: `test`
-    # verde, `pwa` verde, `deploy` vermelho. Um job vermelho por semanas ensina
-    # todo mundo a nao ler CI vermelho, que e o contrario do que este portao
-    # existe para comprar.
-    #
-    # Por que uma VARIAVEL de repositorio, e nao a presenca de um secret: os
-    # contextos que um `if:` de JOB enxerga sao github, needs, vars e inputs.
-    # `secrets` nao esta entre eles, e uma condicao que tentasse ler um nao
-    # daria erro -- avaliaria para nada, nunca ficaria verdadeira, e o job
-    # deixaria de rodar em silencio. Trocar um job vermelho por um job que some
-    # sem avisar e piorar. tests/workflows.test.ts recusa as duas metades.
-    #
-    # Pular ANTES de configurar e o certo; pular DEPOIS seria a armadilha, e o
-    # que separa os dois casos e a variavel ser propriedade do REPOSITORIO e
-    # nao do commit: nenhum PR, merge ou revert alcanca ela. Ela vira `true`
-    # uma unica vez, pela mao do operador, no mesmo ato que cria os quatro
-    # secrets (plano 02-04; a lista completa esta na secao 5 de ops/README.md).
-    # Dali em diante a condicao vale para todo push na main que passar no CI,
-    # que e literalmente D2-08. O unico jeito de ela voltar a ser falsa e
-    # alguem apagar a variavel nas configuracoes, que e o mesmo ato de
-    # aposentar a caixa.
-    #
-    # As guardas `:?` do primeiro passo FICAM, e nao sao redundantes com isto:
-    # a variavel diz que o alvo foi configurado, elas dizem que o valor chegou.
-    # Um secret criado e vazio passa por aqui e e recusado la, pelo nome, antes
-    # de qualquer conexao.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    # D2-08 applied to the IMAGE and not to the deploy (D2-32): every push to
+    # main that clears both gates puts an image in the registry, and nothing
+    # else puts one there. Two clauses and deliberately nothing else -- there is
+    # no repository variable left to gate on, which is the paragraph above
+    # written as an absence.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    # WR-18. O limite padrao de um job sao SEIS HORAS, e com o
-    # cancel-in-progress: false logo abaixo esse limite deixa de ser so
-    # desperdicio: um rsync ou um ssh pendurado segura o grupo `deploy-vps` por
-    # todo esse tempo, e todo deploy seguinte fica na fila atras dele --
-    # inclusive o que corrigiria aquilo que travou. Os passos deste job sao
-    # dois downloads de artefato e tres comandos de rede; 15 minutos e folga
-    # larga para eles e curto o suficiente para que travar seja um incidente de
-    # quinze minutos e nao de um turno inteiro.
+    # WR-18. The default job limit is SIX HOURS, and with cancellation switched
+    # off in the group below that limit stops being merely wasteful: a hung
+    # transfer holds the group for all of it, and every later publication
+    # queues behind it -- including the one that would fix whatever is hung. The
+    # steps here are a checkout, two artifact downloads and four Docker
+    # commands; 15 minutes is wide for them and short enough that hanging is a
+    # fifteen-minute incident rather than a whole shift.
     timeout-minutes: 15
-    # T-2-RACE: dois deploys nunca podem correr sobre o mesmo symlink. O
-    # cancelamento fica desligado de proposito -- interromper um deploy no meio
-    # deixaria um release parcial em disco, e o meio de uma transferencia e o
-    # unico ponto do processo que nao da para repetir por cima sem pensar.
+    # T-2-RACE: two publications must never run at once. Cancellation stays off
+    # on purpose -- interrupting a push halfway leaves partial layers in the
+    # registry, and the middle of a transfer is still the one point of the
+    # process that cannot be repeated over without thinking. The group is named
+    # for what it protects NOW: the registry, and no longer the release symlink
+    # of a machine that does not exist.
     concurrency:
-      group: deploy-vps
+      group: publish-image
       cancel-in-progress: false
-    # O token da propria GitHub nao tem o que fazer neste job: ele nao faz
-    # checkout e nao escreve no repositorio. Reduzi-lo e reduzir o alcance da
-    # unica esteira do projeto que carrega uma chave privada de escrita na VPS.
+    # THE ONLY WRITE OF THE ENTIRE WORKFLOW, and it is named rather than broad.
+    # `packages: write` is what pushing to the registry with the GITHUB_TOKEN
+    # requires, and that token is the EPHEMERAL JOB TOKEN: minted when the job
+    # starts, dead when it ends, scoped to this repository. The alternative is a
+    # classic personal access token carrying package-write scope, stored in a
+    # secret -- a long-lived credential in a third-party service, which is
+    # strictly worse (T-2-TOKEN). A job-level block REPLACES the workflow one,
+    # so raising the floor at column zero one day does not raise this ceiling
+    # with it.
     permissions:
       contents: read
-    env:
-      # Nome de maquina e de usuario NUNCA entram no repositorio (D2-15) -- o
-      # repositorio publico nao diz onde a maquina mora. Eles chegam por `env:`,
-      # e nao interpolados dentro do `run:`, que e tambem o que mantem um valor
-      # multilinha (a chave privada, abaixo) longe das aspas do shell.
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      packages: write
     steps:
+      # This job DOES check out, unlike the one it replaces: both Dockerfiles
+      # and the Caddyfile they copy are read from the tree.
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v8
         with:
           name: dist
@@ -370,108 +402,49 @@ jobs:
           name: server
           path: dist-server
 
-      # A chave de host vem FIXADA de um secret, capturada uma vez de maquina
-      # confiavel no plano 02-04. Descobri-la aqui dentro seria confiar no
-      # primeiro que responder, dentro do unico pipeline que carrega a chave
-      # privada de deploy -- e fixar custa uma linha. O teste em
-      # tests/workflows.test.ts recusa a alternativa pelo nome, inclusive em
-      # comentario, porque a hora em que alguem a escreveria e a hora em que um
-      # deploy esta vermelho e o caminho curto parece razoavel.
-      - name: Chave de deploy e known_hosts
+      # The token arrives through `env:` and reaches the command through STDIN,
+      # never through argv (T-2-CREDLOG): a secret on a command line shows up in
+      # the process table of the runner and in any log that echoes the command.
+      # `$GITHUB_ACTOR` is a default variable of the runner, used instead of a
+      # `${{ }}` expansion so that no template value is ever pasted into a shell
+      # string here -- the same reasoning that kept machine and user names in an
+      # `env:` block in the job this one replaces.
+      - name: Login no registro de imagens
         env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Um secret ausente chega como string vazia, e o sintoma seria um
-          # "Permission denied (publickey)" trinta segundos depois, no meio de
-          # uma transferencia. Falhar aqui, com o nome do secret, custa quatro
-          # linhas e e a diferenca entre um erro e uma investigacao.
-          : "${DEPLOY_SSH_KEY:?secret DEPLOY_SSH_KEY vazio ou ausente}"
-          : "${DEPLOY_KNOWN_HOSTS:?secret DEPLOY_KNOWN_HOSTS vazio ou ausente}"
-          : "${DEPLOY_USER:?secret DEPLOY_USER vazio ou ausente}"
-          : "${DEPLOY_HOST:?secret DEPLOY_HOST vazio ou ausente}"
+          set -eu
+          printf '%s' "$REGISTRY_TOKEN" \
+            | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-
-          # O umask vem ANTES da escrita, e a ordem e a correcao inteira
-          # (WR-18). Um `>` cria o arquivo com o umask do processo, 0022 na
-          # imagem do runner, entao a chave privada nasce 0644 e so o `chmod`
-          # seguinte a fecha: existe uma janela, curta, em que ela esta
-          # legivel para todos os usuarios da maquina. Numa maquina efemera da
-          # propria GitHub isso e pequeno; num runner auto-hospedado, que e
-          # para onde este job iria se o CI crescer, nao e. E o raciocinio que
-          # justificou fixar a chave de host ("fixar custa uma linha") vale
-          # aqui igual, pelo mesmo preco.
-          #
-          # O subshell existe para que o umask nao vaze para os passos
-          # seguintes -- `umask` e propriedade do shell, e o `run:` inteiro e
-          # um shell so.
-          ( umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519" )
-          ( umask 077; printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts" )
-
-          # Os chmod ficam, e nao sao redundantes com o umask acima: o umask so
-          # age na CRIACAO, e `>` sobre um arquivo que ja existe trunca sem
-          # tocar no modo. Num runner efemero nada existe antes; num
-          # auto-hospedado, um $HOME/.ssh/id_ed25519 deixado por outra coisa
-          # manteria o proprio modo. Duas linhas para cobrir os dois casos.
-          chmod 600 "$HOME/.ssh/id_ed25519"
-          chmod 600 "$HOME/.ssh/known_hosts"
-
-      # --link-dest com caminho ABSOLUTO. O rsync resolve um --link-dest
-      # relativo a partir do DESTINO, entao um `../current` funciona por
-      # acidente em alguns layouts e falha em outros sem dizer nada -- so sem
-      # hardlink, e o sintoma e disco cheio meses depois, sem nada que aponte
-      # para aqui (P-12).
+      # THE TAG IS THE COMMIT SHA AND NEVER A MOVING NAME (T-2-MOVTAG). A moving
+      # tag destroys the rollback of D2-24, because there is no "previous image"
+      # once the previous name points at the new content -- and, worse, "the
+      # image I reviewed" and "the image that is running" become one label with
+      # two contents. The known improvement, registered in ops/README.md rather
+      # than discovered later, is pinning by digest instead of by tag.
       #
-      # $HOME e nao `~`: dentro de aspas duplas o shell NAO expande o til, e o
-      # -e do rsync e entregue ao exec sem passar por shell nenhum.
+      # THE OWNER IS FORCED TO LOWER CASE, and this is the kind of defect that
+      # only appears on the first real push: the registry refuses a repository
+      # path containing an upper-case letter, and this project's repository name
+      # has two of them. The owner comes from a default variable of the runner
+      # for the same reason the login above uses one.
       #
-      # $GITHUB_SHA e o mesmo valor de github.sha e, num evento de push, e o
-      # commit publicado: 40 hexadecimais minusculos, que e a unica forma de
-      # argumento que o command= da chave aceita. A forma e fronteira de
-      # seguranca, nao estilo -- o argumento vira caminho na caixa.
-      # IdentitiesOnly=yes acompanha o -i em toda invocacao (WR-18). Sem ele o
-      # ssh oferece PRIMEIRO tudo o que houver num agente e so depois a chave
-      # do -i, e um agente com meia duzia de identidades esgota o MaxAuthTries
-      # do servidor antes de chegar nela. O sintoma e `Permission denied
-      # (publickey)` com a chave certa parada no diretorio, que e exatamente a
-      # confusao que o passo acima diz existir para evitar, entrando por outra
-      # porta. Hoje nao ha agente nenhum no runner hospedado; este e o pipeline
-      # errado para deixar dependendo disso.
-      - name: Enviar o release do cliente
-        run: |
-          rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519" \
-            --link-dest=/srv/dg2/current/ \
-            dist/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/releases/$GITHUB_SHA/"
-
-      - name: Enviar o release do servidor
-        run: |
-          rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519" \
-            --link-dest=/srv/dg2/current-server/ \
-            dist-server/ "$DEPLOY_USER@$DEPLOY_HOST:/srv/dg2/server-releases/$GITHUB_SHA/"
-
-      # A partir daqui quem decide e a caixa: a troca atomica dos dois symlinks
-      # por rename(2), o restart condicional da unit -- so quando o sha256 do
-      # bundle mudou, porque o restart re-executa a migracao e essa e a unica
-      # parte do deploy capaz de falhar -- e a poda dos releases antigos.
-      - name: Ativar o release
-        run: |
-          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519" \
-            "$DEPLOY_USER@$DEPLOY_HOST" "/srv/dg2/bin/deploy.sh $GITHUB_SHA"
-
-      # `if: always()` e nao um ultimo passo qualquer: um passo sem condicao e
-      # PULADO assim que algum anterior falha, ou seja, a limpeza rodaria
-      # justamente nas execucoes em que nada deu errado e seria pulada nas
-      # outras -- e a execucao que falhou no meio de um `ssh` e a que tem mais
-      # chance de deixar a maquina em estado inesperado.
+      # The two image names are literals, and they are the same two that
+      # ops/docker-compose.yml pulls. Two copies of a value that must agree are
+      # one edit away from not agreeing, and the symptom here would be a deploy
+      # pulling a name nobody pushed -- so tests/workflows.test.ts compares the
+      # two files against each other instead of each against a literal.
       #
-      # Num runner hospedado a maquina inteira e destruida depois do job e isto
-      # nao muda nada. O passo existe para o dia em que este job rodar num
-      # runner auto-hospedado, quando $HOME sobrevive ao job e a chave ficaria
-      # em disco esperando o proximo processo que resolvesse ler.
-      - name: Apagar a chave de deploy
-        if: always()
-        run: rm -f "$HOME/.ssh/id_ed25519"
+      # The build context is the repository ROOT, with `-f` pointing into ops/,
+      # because both Dockerfiles copy dist/, dist-server/, ops/ and the
+      # manifests.
+      - name: Construir e empurrar as duas imagens
+        run: |
+          set -eu
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          registry="ghcr.io/$owner"
+          docker build -f ops/Dockerfile.web -t "$registry/dg2-web:$GITHUB_SHA" .
+          docker build -f ops/Dockerfile.api -t "$registry/dg2-api:$GITHUB_SHA" .
+          docker push "$registry/dg2-web:$GITHUB_SHA"
+          docker push "$registry/dg2-api:$GITHUB_SHA"
