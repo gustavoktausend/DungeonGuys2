@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-14-PLAN.md
-last_updated: "2026-09-10T15:56:07.877Z"
+stopped_at: 02-15-PLAN.md Task 2 interrompida por queda de energia
+last_updated: "2026-09-10T16:36:15.000Z"
 last_activity: 2026-09-10
 progress:
   total_phases: 9
@@ -28,14 +28,14 @@ mundo, com o jogo respondendo na hora para cada um.
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
 Plan: 15 of 15
-Status: Ready to execute
+Status: **02-15 EM EXECUÇÃO — Task 1 concluída, Task 2 interrompida no meio**
 Last activity: 2026-09-10
 
 > **A fase 02 roda por WAVE, não por número de plano**, e o contador de plano do
 > GSD não sabe disso: `state advance-plan` incrementa de um em um. Concluídos:
-> 02-01 a 02-11, **02-13** (wave 9) e **02-14** (wave 10). Faltam **02-15**
-> (wave 11) e **02-12**, que é o de portão humano contra a caixa. O número acima
-> aponta o próximo a executar, corrigido à mão depois do 02-14.
+> 02-01 a 02-11, **02-13** (wave 9) e **02-14** (wave 10). Em execução: **02-15**
+> (wave 11). Falta **02-12**, que é o de portão humano contra a caixa. O número
+> acima aponta o plano em curso, corrigido à mão depois do 02-14.
 >
 > **Um ponteiro quebrado, inerte e com dono:** o recurso do Coolify aponta para
 > `ops/probe/docker-compose.yml`, que o 02-14 apagou. Sob D2-32 nada dispara
@@ -294,11 +294,62 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-10T15:56:07.865Z
-Stopped at: Completed 02-14-PLAN.md
+Last session: 2026-09-10T16:36:15.000Z (sessão de recuperação)
+Stopped at: **`02-15-PLAN.md` Task 2, interrompida por queda de energia às ~13:29 -0300**
 Resume file: None
 
-Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` está **concluído**
+## ⚡ Queda de energia em 2026-09-10 — o que ela fez e o que foi restaurado
+
+A energia caiu segundos depois do commit `fe0d804` (13:28:40 -0300). O dano foi **um arquivo de
+41 bytes**: `.git/refs/heads/main` ficou com o tamanho certo e conteúdo todo `NUL` — a assinatura
+do NTFS quando a queda pega entre a escrita e o `fsync` do metadado. Sintoma: `git log`, `git
+status` e `git branch` respondiam *"your current branch appears to be broken"*, e os 365 arquivos
+rastreados apareciam como adições novas porque, sem `HEAD`, não há com o que comparar.
+
+**Restaurado em 2026-09-10T16:33Z** a partir do reflog, que sobreviveu intacto: `refs/heads/main`
+recriada em `fe0d804`. `git fsck` limpo, árvore de trabalho limpa, **913/913 testes verdes**
+(a primeira execução acusou timeout de 5 s em `tests/lint-coverage.test.ts`, que levou 9,5 s de
+cache frio pós-reboot; reexecutado sozinho, passa em 1,24 s). Backup do reflog, do índice e da ref
+quebrada em `…/scratchpad/git-backup/`. **Nenhum commit foi perdido.**
+
+**Lição operacional:** o reflog é o que salvou. Ele é local e não vai para o remoto — e
+`origin/main` está em `0608fee`, **dezesseis commits atrás** do local. Enquanto a fase 2 não fechar,
+um `git push` depois de cada wave é o seguro barato contra a próxima queda.
+
+### Onde o `02-15` parou, exatamente
+
+- **Task 1 — CONCLUÍDA** (`fcea7de`): o job `deploy` virou job `image`, sem ação de terceiro, com
+  a exceção nomeada de `packages: write` em `tests/workflows.test.ts`.
+
+- **Task 2 — INTERROMPIDA NO MEIO.** Ela não escreve arquivo do repositório: **executa** e cola o
+  resultado no SUMMARY. O que já rendeu fato são os dois desvios achados construindo as imagens,
+  ambos corrigidos e commitados:
+  - `a3cf520` — o bundle do servidor não subia: `ws` é CJS e o shim de `require` lança (`package.json`).
+  - `fe0d804` — a imagem da API não construía: o prebuild só é alcançado com `--ignore-scripts`
+    (`ops/Dockerfile.api` + 8 asserções novas em `tests/ops-config.test.ts`).
+
+- **O que falta na Task 2:** construir as duas imagens com as tags locais, subir o par em rede de
+  ponte descartável (entrypoint do servidor sobrescrito para o Node — sem Litestream, não há
+  bucket nesta máquina), fazer **as seis medições** (saúde 200 através do Caddy com o campo de
+  release; os quatro cabeçalhos de segurança; as três classes de cache; 404 honesto; 503 em JSON
+  com o servidor parado; banco criado e migrado dentro do contêiner), remover contêineres e rede,
+  e escrever o `02-15-SUMMARY.md`.
+
+- **Pré-condição que a queda derrubou: o Docker Desktop está desligado.** `docker info` não
+  responde (`npipe:////./pipe/dockerDesktopLinuxEngine`). A Task 2 não começa sem ele, e o próprio
+  plano manda parar e reportar se ele não subir em cinco minutos — não registrar a tarefa como
+  feita com a fumaça pulada.
+
+- **Artefatos de build ainda em disco** de 13:26: `dist/` e `dist-server/server.mjs`. O `verify`
+  da tarefa (`npm run build && npm run server:build && npm test`) reconstrói de todo modo.
+
+Next: **`/gsd-execute-phase 2`** — retomando o **`02-15` na Task 2** (wave 11), com o Docker
+Desktop ligado antes. Depois dele, só o **`02-12`** (wave 12, `autonomous: false`, portão humano
+contra a caixa) fecha a fase.
+
+---
+
+**Contexto anterior, ainda válido:** o `02-04` está **concluído**
 (`004a8bd`, `0608fee`, `ec56b2f`; `02-04-SUMMARY.md` com Self-Check PASSED). Portões depois dele:
 **926 testes em 60 arquivos, lint 0**.
 
