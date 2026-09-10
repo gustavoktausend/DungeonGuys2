@@ -14,9 +14,10 @@
 // the repository with `types: ["node"]` and this file is already in it.
 //
 // The load-bearing assertion is idempotency. migrateToLatest() runs on EVERY
-// start of dg2.service (D2-07), including the restarts systemd performs by
-// itself, so "applying the same migration twice is a no-op" is not a nicety —
-// it is the property that lets a deploy, a rollback and a reboot all be safe.
+// start of this process (D2-07), and since every deploy recreates the container
+// and `restart: unless-stopped` restarts it by itself, "applying the same
+// migration twice is a no-op" is not a nicety — it is the property that lets a
+// deploy, a rollback and a reboot all be safe.
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -632,9 +633,8 @@ describe('journal_mode de openDb (D2-17)', () => {
   });
 
   it('openDb recusa o banco cujo WAL foi negado', () => {
-    // `openDb('')` is not a hypothetical: it is what the pre-CR-02 code did
-    // with `DG2_DB=` in /etc/dg2/env, and env.ts refuses that string one layer
-    // up. This is the second lock on the same door, at the layer that knows
+    // `openDb('')` is not a hypothetical: it is what the pre-CR-02 code did with
+    // `DG2_DB` defined and blank, and env.ts refuses that string one layer up. This is the second lock on the same door, at the layer that knows
     // WHY WAL matters — and it is the layer any future caller reaches first.
     expect(() => openDb('')).toThrow(/WAL/);
     expect(() => openDb('')).toThrow(/D2-17/);

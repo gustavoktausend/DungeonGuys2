@@ -1,644 +1,548 @@
 # `ops/` — a caixa, escrita em diff
 
-Configuração e scripts da VPS que serve o DungeonGuys2. Nada aqui roda na máquina
-de desenvolvimento: é o que a caixa executa, versionado para poder ser revisado
+Configuração da VPS que serve o DungeonGuys2. Nada aqui roda na máquina de
+desenvolvimento: é o que a caixa executa, versionado para poder ser revisado
 antes de existir.
 
-Este diretório nasce sem precedente no repositório. As decisões abaixo ficam
-registradas com o motivo, no mesmo espírito de `tools/README.md`: escritas para
-quem um dia vai querer mudá-las, e não para quem já concorda.
+As decisões abaixo ficam registradas com o motivo, no mesmo espírito de
+`tools/README.md`: escritas para quem um dia vai querer mudá-las, e não para quem
+já concorda.
+
+**Este runbook pressupõe que você nunca viu esta máquina.** Onde ele precisa de
+um fato sobre a caixa — endereço, domínio, credencial, o que já foi executado —
+ele aponta para `docs/OPERACAO.md`, que é o registro de operação. Este arquivo
+diz **como**; aquele diz **o quê, quando e com que resultado**.
 
 ---
 
 ## 1. O que mora aqui e por quê
 
-`Caddyfile`, as units do systemd, os scripts de release e o de restauração ficam
-**dentro do repositório** (D2-15). O ganho é duplo: mudança de infra vira diff
-revisável, e reverter a configuração é a mesma operação que reverter o código.
+Oito arquivos, e nenhum deles é executável:
 
-O que **não** entra: nome de domínio, endereço de host, credencial, chave. Isso
-vive em `/etc/dg2/env` na máquina e nos secrets do GitHub. A consequência
-prática é a que interessa — **reconstruir a caixa é clonar este repositório mais
-restaurar um arquivo de env** — e a consequência de segurança é que o
-repositório nunca diz onde a máquina mora.
-
-Os cinco scripts são POSIX `sh`, abrem com `set -eu`, e seguem o contrato de
-falha de `tools/README.md` §3 traduzido para shell: erro vai para o stderr no
-formato `script:ponteiro: mensagem` com saída 1, sucesso é **uma** linha no
-stdout. Script que falha em silêncio não conta. O sexto executável do conjunto,
-`tools/ops/restore-verify.mjs`, é Node e mora fora de `ops/` — mas segue o mesmo
-contrato, e §11 diz por que ele não está aqui.
-
-Eles estão no índice do git com o bit de execução (modo `100755`). Se algum dia
-um deles aparecer como `100644` numa cópia de trabalho, `chmod +x` na instalação
-resolve — mas o lugar certo de arrumar é o índice, porque um `command=` de
-`authorized_keys` apontando para arquivo não executável falha com
-"Permission denied" exatamente no primeiro deploy.
-
-## 2. Layout de disco
-
-| Caminho | O que é |
+| Arquivo | O que é |
 |---|---|
-| `/srv/dg2/releases/<sha>/` | o `dist/` do cliente, um diretório imutável por commit |
-| `/srv/dg2/server-releases/<sha>/` | o `server.mjs` empacotado do mesmo commit |
-| `/srv/dg2/current` | symlink para o release vivo do cliente; é o `root` do `file_server` |
-| `/srv/dg2/current-server` | symlink para o release vivo do servidor; é o `WorkingDirectory` de `dg2.service` |
-| `/var/lib/dg2/` | o banco SQLite, criado pelo `StateDirectory=` de `dg2.service` |
-| `/srv/dg2/bin/` | onde os cinco scripts vivem na caixa |
-| `/srv/dg2/node_modules/` | **um** pacote, instalado à mão; ver §3 |
+| `docker-compose.yml` | a composição que o Coolify lê do repositório: dois serviços, dois volumes, os limites |
+| `Dockerfile.web` | o Caddy com a política HTTP e o `dist/` que passou pelo portão cross-engine |
+| `Dockerfile.api` | o servidor, o Litestream que o envolve, e nada mais |
+| `Caddyfile` | a política HTTP inteira: cabeçalhos, cache, `/api`, `/ws`, 503 legível por máquina |
+| `litestream.yml` | a réplica contínua do banco |
+| `turnserver.conf` | o relay da fase 3 |
+| `coturn-dropin.conf` | o teto de memória do relay, como drop-in da unit do distribuidor |
+| `README.md` | este arquivo |
 
-O banco fica **fora da árvore de releases** de propósito (D2-07). É essa
-assimetria que torna a reversão segura: mover os dois symlinks de volta move
-código de volta e mais nada. A metade complementar — migração sempre aditiva,
-nenhum `DROP` nem rename dentro da mesma versão — mora onde as migrações moram,
-e sem ela esta metade não basta.
+**Quem executa agora é o Docker.** Até 2026-09-10 havia aqui cinco scripts de
+shell e quatro units do systemd, que descreviam um layout de disco com releases
+por sha, um symlink que um script trocava, dois usuários, uma chave de deploy e
+um supervisor. D2-30 os aposentou: **nenhum deles jamais foi instalado em lugar
+nenhum**, e é só por isso que a retirada foi barata. Um arquivo que ninguém
+executa e continua no repositório é uma armadilha para quem ler o runbook daqui a
+seis meses — e o git guarda a história sem precisar do arquivo vivo.
 
-`/srv/dg2/node_modules/` fica **acima** das duas árvores de release, e não
-dentro de uma delas, porque é isso que o faz sobreviver a um deploy e a uma
-reversão. Um `node_modules` dentro de `server-releases/<sha>/` teria de ser
-reinstalado a cada publicação — e o release para o qual você reverte às três da
-manhã seria justamente o que ainda não tem o dele.
+A consequência que interessa é a mesma de antes, com outra forma: **reconstruir a
+caixa é criar um recurso no Coolify apontado para este repositório e preencher as
+variáveis do app.** Não há árvore de releases para restaurar, não há arquivo de
+ambiente para recuperar, não há unit para instalar.
 
-## 3. Pacotes e binários
+O que **não** entra aqui: nome de domínio, endereço de host, credencial, chave.
+Isso é asserido, não prometido — `tests/ops-config.test.ts` varre este diretório
+inteiro, comentários incluídos, procurando IP, domínio e chave com valor literal
+(D2-15). As três exceções nomeadas são listas de tokens exatos: o registro de
+imagens, o host de onde o binário do Litestream é baixado, e dois caminhos
+internos de contêiner. O domínio do jogo continua recusado, e essa recusa é a
+prova de que as exceções não abriram buraco.
 
-- **`caddy`** do repositório oficial do Caddy, não o da distribuição — o pacote
-  da distro costuma estar atrás, e é o TLS automático que está em jogo.
-- **`rsync`** — o transporte do deploy.
-- **`sqlite3`** — o **CLI**, não a biblioteca. `restore-verify.mjs` roda a mesma
-  consulta nos dois bancos com ele; sem o binário no `PATH` o script sai 1
-  dizendo que ele não está instalado, o que é o comportamento certo mas é uma
-  viagem perdida à caixa. `apt install sqlite3`.
-- **Node 24 LTS** — a mesma linha que o CI usa. Publicar com um Node diferente do
-  que passou no portão é o defeito que D2-05 existe para não ter.
-- **`openssl`** — `cert-check.sh` abre a conexão TLS com ele. Já vem em
-  Debian/Ubuntu; está listado porque uma imagem mínima pode não trazer.
-- **Litestream 0.5.16**, binário do release oficial do GitHub em
-  `/usr/local/bin/litestream`, fora do grafo do npm de propósito. A configuração
-  vai para `/etc/litestream.yml`, que é uma **cópia** de `ops/litestream.yml` —
-  as duas precisam ser mantidas idênticas, e a versionada é a fonte.
-- **`sudo`** — ver §4.
+O nono executável do conjunto, `tools/ops/restore-verify.mjs`, é Node e mora fora
+de `ops/` porque segue as convenções de `tools/README.md`. §11 diz como ele roda
+agora, e a resposta mudou: num contêiner descartável.
 
-### `better-sqlite3` em `/srv/dg2/node_modules` — o passo manual que o primeiro deploy exige
+---
 
-O `server:build` empacota o servidor num único `dist-server/server.mjs` com
-`--external:better-sqlite3`. Isso é deliberado: `better-sqlite3` é módulo
-**nativo**, e esbuild não empacota um `.node`. A consequência é que o bundle
-publicado carrega um `import` de especificador nu que **não** existe dentro dele.
+## 2. O recurso do Coolify
 
-Sem o passo abaixo, o primeiro `systemctl start dg2` morre com
-`ERR_MODULE_NOT_FOUND` antes de abrir o banco — e, porque a migração roda antes
-de o processo aceitar requisição, o sintoma na caixa é a unit em `failed` com um
-erro de import, não um servidor degradado.
+O painel do Coolify **não é alcançável pela internet** (DM-7): ele escuta numa
+porta que o firewall da caixa fecha, e o acesso é por túnel SSH. `docs/OPERACAO.md`
+registra o alias e o comando do túnel. Tudo nesta seção acontece com o túnel
+aberto.
 
-```
-npm i --prefix /srv/dg2 better-sqlite3@13.0.3
-```
+**Criar o recurso, uma vez:**
 
-**Por que `--prefix /srv/dg2` e não dentro do release:** o Node resolve
-especificador nu a partir do **caminho real** do arquivo que importa, subindo a
-árvore. O bundle vive em `/srv/dg2/server-releases/<sha>/server.mjs` — que é o
-alvo real do symlink `current-server` —, então a busca passa por
-`/srv/dg2/server-releases/<sha>/node_modules`, `/srv/dg2/server-releases/node_modules`
-e chega em `/srv/dg2/node_modules`. Um só lugar, servindo todos os releases,
-presentes e passados. Note que o `WorkingDirectory` da unit **não** participa
-disso: resolução de módulo não olha o diretório de trabalho.
+1. Novo recurso do tipo **Application**, com source **Public Repository** e build
+   pack **Docker Compose**.
+2. **Docker Compose Location:** `ops/docker-compose.yml`. É o ponteiro inteiro —
+   o Coolify clona o repositório e lê esse caminho. Se o campo apontar para um
+   arquivo que não existe no clone, o painel lista **zero serviços**, e o sintoma
+   é indistinguível de "o Coolify não suporta esta composição".
+3. Confirmar que ele descobriu **dois** serviços, `web` e `api`.
+4. Atribuir o domínio ao serviço **`web`** — é ele que declara a porta interna, e
+   é de `expose` que o Coolify tira a porta para o label do Traefik. **O campo de
+   domínio já põe o esquema**: digitar a URL completa produz `https://https://…`
+   e um erro sobre FQDN. O valor que funciona é **só o hostname**.
+5. Conferir que o Coolify gerou o **par de roteadores** do Traefik (o de HTTP e o
+   de HTTPS com o resolvedor de certificado). Sem o par, o hostname responde 503
+   com certificado autoassinado, e isso não é um problema de DNS.
 
-**A caixa não precisa de toolchain.** `better-sqlite3` 13 embarca os prebuilds de
-`linux-x64` e `linux-arm64` dentro do próprio tarball e não tem `postinstall`, o
-que significa nenhum `build-essential`, nenhum `python3` e nenhuma compilação de
-seis minutos no meio de uma instalação.
+**Nada disto declara rede, porta no host, passo de build ou label do Traefik à
+mão**, e cada ausência tem o motivo escrito no cabeçalho de
+`ops/docker-compose.yml`. Em particular: uma rede própria causa queda
+intermitente de rota no Traefik — e a rota que cairia é compartilhada com a
+produção de outro projeto na mesma caixa.
 
-**Quando repetir:** ao trocar a linha major do Node (módulo nativo é compilado
-contra a ABI — Node 24 é ABI 137) e ao subir a versão de `better-sqlite3` em
-`apps/server/package.json`. Nas duas situações, `npm i --prefix /srv/dg2` de novo
-com a versão nova, **antes** do deploy que a exige.
+**Nada dispara deploy sozinho** (D2-32). O integrador constrói e publica as duas
+imagens a cada push na `main` que passe nos portões; a promoção é um ato humano,
+descrito em §5.
 
-A caixa é Debian/Ubuntu com **cgroup v2**, que é o que faz `MemoryMax` e
-`MemoryHigh` das units terem efeito. Debian 11+ e Ubuntu 22.04+ já vêm assim. Em
-cgroup v1 os limites são aceitos e ignorados, que é a pior combinação possível.
-A caixa é uma **KVM 2 (2 GB)** (D2-19).
+---
 
-## 4. Usuários
+## 3. `sudo` em todo comando de Docker
 
-**`dg2`** — usuário de sistema, sem shell, dono do diretório de estado. É quem
-`dg2.service` roda como. Não tem acesso SSH.
-
-**`dg2-deploy`** — shell `/usr/sbin/nologin`, dono da árvore de releases e de
-nada mais. A `authorized_keys` dele carrega **uma** linha:
+O usuário de deploy **não está no grupo `docker`** (DM-17). Ele tem `sudo` sem
+senha, então todo comando desta página começa com `sudo`:
 
 ```
-command="/srv/dg2/bin/deploy-forced.sh",no-port-forwarding,no-agent-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA... deploy@ci
+sudo docker compose ps
+sudo docker logs --tail 100 <contêiner>
+sudo docker volume ls
 ```
 
-A metade privada dessa chave vira o secret `DEPLOY_SSH_KEY` do GitHub. Ela
-sozinha não publica nada: o job `deploy` só sai quando a variável de
-repositório `DEPLOY_ENABLED` valer `true` — §5 traz os cinco itens que o
-GitHub precisa ter e o motivo de o quinto ser variável, e não secret.
+Isso é decisão razoável do projeto vizinho — estar no grupo `docker` é
+equivalente a ser root — e **não se mexe** (D-VPS-02). Está escrito aqui porque o
+operador tropeça no primeiro comando se o runbook não disser, e o erro
+("permission denied while trying to connect to the Docker API") aponta para o
+lugar errado.
 
-O wrapper existe porque a **mesma** chave carrega o `rsync` e chama o
-`deploy.sh`. Um `command="/srv/dg2/bin/deploy.sh"` ingênuo rodaria o deploy no
-lugar do `rsync --server`, a transferência penduraria, e a tarde seria gasta
-culpando a rede. `deploy-forced.sh` aceita exatamente dois formatos de
-`SSH_ORIGINAL_COMMAND` e recusa o resto com saída 1.
+Os comandos de Docker que este runbook dá são **de leitura e de emergência**. O
+caminho normal de publicar e reverter é o painel (§5, §6).
 
-Sem isso, uma chave privada guardada num CI de terceiro **é um shell nesta
-caixa** — e de um shell até `/etc/dg2/env` são dois comandos.
+---
 
-O ramo do `rsync` **lê o argv inteiro**, e não só os dois primeiros nomes: o
-cliente é quem gera esse argv, e `rsync --server` recebe o destino como último
-argumento. O wrapper desliga o globbing antes de dividir a linha, recusa
-`--sender`, `--daemon`, `-e` e `--rsh`, recusa qualquer argumento que carregue
-um caminho fora de `/srv/dg2`, e exige que o destino seja
-`/srv/dg2/{releases,server-releases}/<40 hexadecimais>`. O cabeçalho do script
-lista as quatro fugas concretas que a versão anterior — casamento de prefixo
-mais `exec $CMD` — deixava abertas.
+## 4. As variáveis do app no painel
 
-**A opção mais forte, para quando a caixa existir:** o `rrsync`, que vem junto
-com o próprio `rsync` (normalmente em `/usr/share/doc/rsync/scripts/rrsync`), é
-um validador de argv completo, mantido por quem escreve o argv do `rsync`.
-Trocar é uma linha na `authorized_keys`:
+`ops/docker-compose.yml` diz **quais** chaves existem; o painel do Coolify diz **o
+que elas valem** (D2-29). Abaixo estão os **nomes**, sem valores — valor nenhum
+entra neste repositório.
 
-```
-command="/usr/share/doc/rsync/scripts/rrsync -wo /srv/dg2",no-port-forwarding,...
-```
-
-Ele não está em uso hoje porque o caminho do arquivo depende da distribuição e
-este repositório não tem como conferir que ele existe numa caixa que ainda não
-existe. Confira o caminho no primeiro acesso à caixa (§10 é onde essa visita
-acontece) e faça a troca ali — mas note que o `rrsync` só cobre o `rsync`, então
-o wrapper continua sendo necessário para o ramo do `deploy.sh <sha>`.
-
-### Dono e modo — a metade da defesa que o repositório não consegue criar
-
-O wrapper valida o argv; o resto da confinação é estado de sistema de arquivos.
-A frase "dono da árvore de releases e de nada mais" lá em cima só é verdade
-depois destes comandos, e nada neste repositório os executa nem os confere —
-por isso eles estão aqui como passo, e não como suposição:
-
-```
-# 1. A chave não pode reescrever a própria authorized_keys. Se puder, ela apaga
-#    o command= acima e vira um shell completo na conexão seguinte -- que é a
-#    fuga mais curta que existe daqui. O OpenSSH aceita authorized_keys de dono
-#    root sob StrictModes; é o endurecimento padrão de chave com forced command.
-chown root:root ~dg2-deploy/.ssh ~dg2-deploy/.ssh/authorized_keys
-chmod 755 ~dg2-deploy/.ssh
-chmod 644 ~dg2-deploy/.ssh/authorized_keys
-
-# 2. Os scripts que a chave executa não podem ser reescritos por quem os
-#    executa. 755 e não 644: um command= apontando para arquivo sem bit de
-#    execução falha com "Permission denied" no primeiro deploy (§1).
-chown -R root:root /srv/dg2/bin
-chmod 755 /srv/dg2/bin
-chmod 755 /srv/dg2/bin/*.sh
-
-# 3. /srv/dg2/node_modules é carregado pelo processo Node que roda como dg2
-#    (§3). Escrita ali é execução de código como dg2, que é um usuário
-#    diferente e mais privilegiado em relação ao banco.
-chown -R root:root /srv/dg2/node_modules
-chmod -R go-w /srv/dg2/node_modules
-
-# 4. E o que dg2-deploy é dono de verdade.
-chown -R dg2-deploy:dg2-deploy /srv/dg2/releases /srv/dg2/server-releases
-
-# 5. O sticky bit, que é o passo fácil de esquecer e sem o qual os passos 2 e 3
-#    não valem nada: `deploy.sh` troca os symlinks com `ln -sfn` num nome
-#    temporário mais `mv -T`, e criar `/srv/dg2/current.tmp` exige escrita em
-#    /srv/dg2. Com escrita no diretório e sem sticky, dg2-deploy pode RENOMEAR
-#    /srv/dg2/bin -- apagando de uma vez tudo o que o passo 2 comprou. Com
-#    sticky, só o dono de uma entrada pode removê-la ou renomeá-la, e os dois
-#    symlinks são de dg2-deploy porque foi ele quem os criou.
-chown root:dg2-deploy /srv/dg2
-chmod 1775 /srv/dg2
-```
-
-Nada disso foi executado contra uma caixa real — como todo o resto de `ops/`,
-menos o `cert-check.sh`. O plano 02-12 é a primeira vez.
-
-`deploy.sh` precisa reiniciar a unit, e `dg2-deploy` não é root. O drop-in de
-sudoers dá exatamente dois verbos, numa unit só, sem senha:
-
-```
-dg2-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart dg2, /usr/bin/systemctl is-active --quiet dg2
-```
-
-Os scripts chamam `sudo -n`, que nunca abre prompt: uma regra faltando falha na
-hora em vez de pendurar num terminal que não existe.
-
-## 5. `/etc/dg2/env`
-
-Dono `root`, `chmod 600`. Lido pelo systemd via `EnvironmentFile`, portanto
-**antes** de o processo baixar privilégio — o usuário `dg2` nunca precisa poder
-ler o arquivo.
-
-Chaves, **sem nenhum valor** (e nenhum valor entra neste arquivo do
-repositório, nunca):
-
-| Chave | Para quê |
+| Variável | O que é |
 |---|---|
-| `DG2_DOMAIN` | o endereço do site no `Caddyfile` |
-| `DG2_UPSTREAM` | host:porta do processo Node, em loopback |
-| `DG2_DB` | caminho do arquivo SQLite |
-| `DG2_RELEASE` | o sha que está no ar, ecoado pelo `/api/health` |
-| `LITESTREAM_BUCKET` | o bucket da réplica |
-| `LITESTREAM_ENDPOINT` | o endpoint S3-compatível do bucket |
-| `AWS_ACCESS_KEY_ID` | credencial da réplica, lida como `${AWS_ACCESS_KEY_ID}` |
-| `AWS_SECRET_ACCESS_KEY` | credencial da réplica, lida como `${AWS_SECRET_ACCESS_KEY}` |
-| `DG2_TURN_SECRET` | o mesmo segredo que o `static-auth-secret` do coturn (§12) |
-| `DG2_TURN_REALM` | o `realm` do coturn, idêntico ao de `/etc/turnserver.conf` |
+| `DG2_IMAGE_TAG` | a tag das duas imagens: sha de commit, nunca uma tag móvel (C-6) |
+| `DG2_ORIGIN` | a origem que o servidor aceita no handshake de signaling |
+| `DG2_TURN_SECRET` | a metade Node do par de segredo do relay (fase 3) |
+| `DG2_TURN_REALM` | o realm do relay, que dobra como domínio anunciado (fase 3) |
 
-As duas últimas são da fase 3 e só significam alguma coisa depois de §12. A
-**ausência** delas é tolerada de propósito: o servidor sobe, avisa no log e
-emite configuração de ICE só com STUN, o que é o que permite desenvolver sem a
-caixa. Definida e **vazia** continua sendo erro, como todas as outras — um
-segredo em branco não é um segredo padrão, e um segredo padrão seria uma
-vulnerabilidade.
+E as que a composição declara com valor literal, em git, porque são **internas ao
+contêiner** e porque um teste as compara com um segundo arquivo que tem de
+concordar:
 
-O `litestream.yml` versionado referencia as duas últimas por interpolação
-(`${...}`), nunca por valor — e é por isso que as duas linhas acima escrevem a
-forma interpolada em vez de só nomear a chave: **toda** ocorrência do nome de
-uma credencial dentro de `ops/` traz o `${...}` junto, o que torna
-`grep -rn 'AWS_SECRET_ACCESS_KEY' ops/ | grep -v '\${'` um detector de vazamento
-que não depende de ninguém lembrar de rodá-lo com cuidado.
+| Variável | O que é |
+|---|---|
+| `DG2_DB` | o arquivo do banco, dentro do primeiro volume persistente |
+| `DG2_REPLICA_PATH` | o diretório da réplica, dentro do **segundo** volume persistente |
+| `DG2_PORT` | a porta interna do servidor |
+| `DG2_UPSTREAM` | o nome de serviço e a porta que o Caddy procura |
+| `DG2_BIND` | o bind interno, `0.0.0.0` |
+| `DG2_RELEASE` | o que a rota de saúde devolve como versão; alimentado pela tag |
 
-Do outro lado, nos **secrets do GitHub**: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`,
-`DEPLOY_USER` e `DEPLOY_KNOWN_HOSTS`. O último é o que permite manter a
-verificação de host do SSH **ligada** no job — fixar o `known_hosts` num secret,
-em vez de aceitar qualquer chave apresentada, é o que impede que um
-man-in-the-middle vire um deploy.
+**`DG2_BIND=0.0.0.0` não é um buraco, e a razão é estrutural.** `127.0.0.1` seria
+o loopback do contêiner do `api`, e o Caddy vive em outro (DM-9). O que substitui
+a defesa é que **nenhum serviço publica porta no host**: a porta do contêiner não
+atravessa o UFW nem o NAT, e a única origem capaz de falar com ela é a rede que o
+Coolify criou. Essa ausência é asserida, e o comentário sobre `serve()` em
+`apps/server/src/index.ts` nomeia a asserção — apagar uma torna o outro uma
+mentira.
 
-### O quinto item do GitHub, e ele não é um secret
+**Não existe variável de bucket, e isso é decisão e não esquecimento** (D2-33). O
+Litestream replica para um caminho desta caixa, não para um bucket; nenhuma
+credencial de provedor existe. §11 escreve o que essa escolha custa.
 
-O job `deploy` do CI **não roda** enquanto a variável de repositório
-`DEPLOY_ENABLED` não valer exatamente `true`. Ela mora ao lado dos quatro
-secrets acima, em Settings → Secrets and variables → Actions, mas na aba
-**Variables** — não na aba Secrets. Criá-la faz parte do mesmo passo que cria
-os secrets, e é a única coisa que liga a publicação.
+### O segredo do relay mora em dois lugares de naturezas diferentes
 
-| Nome | Aba | O que é |
-|---|---|---|
-| `DEPLOY_SSH_KEY` | Secrets | a metade privada da chave de `dg2-deploy` (§4) |
-| `DEPLOY_KNOWN_HOSTS` | Secrets | a linha de `known_hosts` da caixa, capturada de máquina confiável |
-| `DEPLOY_USER` | Secrets | o usuário de deploy |
-| `DEPLOY_HOST` | Secrets | o endereço da caixa |
-| `DEPLOY_ENABLED` | **Variables** | `true`, literal — e nada mais destrava o job |
+`DG2_TURN_SECRET` no painel do Coolify e `static-auth-secret` em
+`/etc/turnserver.conf`, um arquivo no host. **Trocar num só faz o relay recusar
+toda credencial que a API emitir** — e o sintoma não se parece com erro de
+configuração. Parece **"um amigo específico nunca entra"**: quem fecha conexão
+direta continua jogando, e só quem precisava do relay fica de fora. É
+indistinguível de NAT ruim a olho nu. As duas metades andam juntas, sempre, e §12
+repete isso no passo onde o erro é cometido.
 
-**Por que uma variável, e não a mera presença dos secrets:** os contextos que
-um `if:` de **job** enxerga são `github`, `needs`, `vars` e `inputs`;
-`secrets` não está entre eles. Uma condição que tentasse ler um secret ali não
-daria erro — avaliaria para nada, nunca ficaria verdadeira, e o job deixaria de
-rodar em silêncio, que é o mesmo defeito disfarçado de verde.
+---
 
-**A ordem que morde:** criar os quatro secrets e esquecer a variável deixa o
-deploy pulado sem nenhum sinal vermelho — o push fica verde e nada é
-publicado. O erro inverso, criar a variável antes dos secrets, é barulhento: o
-job roda e para na guarda de segredo vazio, nomeando o que faltou. Se for para
-errar, erre nessa ordem.
+## 5. Publicar
 
-Enquanto a variável não existir, o job aparece como **pulado** em toda execução
-e o resultado geral do CI continua verde. Esse é o estado correto antes de esta
-seção estar cumprida, e não um portão desligado: as guardas `:?` do primeiro
-passo do job continuam de pé e recusam, pelo nome, qualquer um dos quatro
-secrets vazio.
+O integrador já construiu e publicou as imagens; publicar é **promover** uma tag.
 
-## 6. Caddy e o drop-in de ambiente
+1. **Empurrar a `main` para o GitHub.** Não é higiene, é pré-requisito: o Coolify
+   clona o repositório remoto, não esta máquina. Uma `main` local adiantada
+   produz um clone sem os arquivos que você acabou de escrever, e o sintoma é
+   "nenhum serviço descoberto".
+2. Confirmar que o integrador publicou as duas imagens da tag desejada.
+3. Abrir o túnel e, no recurso do jogo, ajustar `DG2_IMAGE_TAG` para o sha
+   desejado.
+4. Disparar o deploy. O log tem de dizer **`pull`** e não `build`: a composição
+   não declara passo de build, e um build injetado pela plataforma seria
+   construção numa caixa de 2 vCPU compartilhada com produção (C-7).
+5. Conferir que a rota de saúde devolve **byte a byte** aquele sha no campo de
+   versão. É a diferença entre "o deploy foi disparado" e "a versão nova está no
+   ar".
 
-O `Caddyfile` usa `{$DG2_DOMAIN}` no endereço do site. Essa forma é substituída
-**antes do parse**, e é a única que funciona ali: a forma de runtime
-(`{env....}`) é resolvida tarde demais e o site sobe amarrado a uma string
-literal (P-6). Os valores chegam por um drop-in:
+**Os dois serviços compartilham uma tag só, então todo deploy recria os dois
+contêineres** — inclusive um deploy que só mexeu no cliente. Isso é escolha, não
+acidente: a migração é idempotente, o drain é gracioso, e o custo hoje é alguns
+segundos. O cabeçalho de `ops/docker-compose.yml` registra a alternativa (duas
+variáveis de tag) e a condição que a traria de volta.
+
+---
+
+## 6. Reverter
+
+**Reverter é apontar `DG2_IMAGE_TAG` para o sha anterior e redeployar.** O mesmo
+procedimento de §5, com a tag antiga.
+
+**E isso não usa rede**, que é o ponto inteiro: `pull_policy: missing` na
+composição faz o Docker buscar no registro **só o que não estiver em disco**, e a
+imagem anterior está em disco. No cenário em que a reversão é necessária, a rede
+é justamente o que pode estar ruim — e uma reversão que depende da mesma
+infraestrutura que acabou de falhar não é uma rede de segurança.
+
+Se o painel estiver inalcançável e a reversão for urgente, o caminho manual é
+editar o valor da tag onde o Coolify o guarda e recriar os contêineres com `sudo
+docker compose up -d`. É um caminho de emergência: ele conserta a caixa e deixa o
+painel dessincronizado, então reconcilie no painel depois.
+
+---
+
+## 7. Retenção de imagens, e a degradação honesta
+
+**Retenção: 5 imagens por serviço.** Não é número novo — é a retenção que o script
+de poda aposentado por D2-30 já havia decidido, transportada. Com o `npm ci`
+antes do `COPY` do bundle em `ops/Dockerfile.api`, a camada de `node_modules` é
+compartilhada entre builds e cada deploy custa alguns MB de camada nova, de modo
+que cinco imagens por serviço cabem folgadas.
+
+**A degradação, escrita aqui para não ser descoberta na noite em que importa.** O
+symlink de release que o desenho anterior previa era uma garantia **estrutural**:
+o diretório está lá ou não está. A imagem local é uma garantia
+**probabilística**, dependente de uma rotina de limpeza automática que **este
+projeto não controla** — ela é configuração **do servidor**, compartilhada com o
+vizinho, que se lê e não se mexe. Uma imagem de release anterior é, por
+definição, não usada por nenhum contêiner, que é exatamente o que uma limpeza de
+imagens não usadas remove (C-3).
+
+`docs/OPERACAO.md` registra que essa configuração **não foi lida**, com a data e
+o motivo. Enquanto não for, "a imagem anterior já está no disco" é suposição e
+não fato medido. Conferir é uma linha:
 
 ```
-systemctl edit caddy
-# [Service]
-# EnvironmentFile=/etc/dg2/env
+sudo docker images | grep dg2-
 ```
 
-**A regra que morde:** `systemctl reload caddy` **não** relê o `EnvironmentFile`.
-O reload roda dentro do ambiente do processo que já está de pé, relê a
-configuração e mantém os valores antigos das variáveis. Trocar o domínio exige
-`systemctl restart caddy`. A documentação do Caddy insiste em reload para não ter
-downtime; as duas coisas são verdadeiras ao mesmo tempo, e é por isso que esta
-linha está escrita em dois lugares — aqui e no cabeçalho do `Caddyfile`.
+A melhoria conhecida, registrada para o dia em que valer o trabalho: fixar as
+imagens base **por digest** em vez de por tag de patch. Uma tag de patch ainda é
+um nome que o publicador pode mover.
 
-Não há valor padrão para a variável. Sem ela, o endereço do site fica vazio e o
-Caddy recusa no parse: uma falha barulhenta no boot é melhor que uma caixa
-servindo o jogo em silêncio sob o nome errado.
-
-**A segunda coisa que o reload faz, e que não tem nada a ver com a primeira:**
-`systemctl reload caddy` **fecha todas as WebSockets ativas**, portanto derruba
-o signaling de todo mundo que estiver num lobby. Os DataChannels P2P não passam
-pelo Caddy e continuam vivos, o que torna o sintoma confuso — o jogo segue e só
-o servidor esquece. §9 traz a mitigação (o grace de 60 s antes de apagar a
-sala), e as duas metades precisam continuar existindo juntas.
-
-## 7. Publicar e reverter
-
-O job de deploy do CI faz duas coisas, com a mesma chave:
-
-1. `rsync -az --delete --link-dest=<absoluto> dist/ <user>@<host>:/srv/dg2/releases/<sha>/`
-2. `ssh <user>@<host> /srv/dg2/bin/deploy.sh <sha>`
-
-**`--link-dest` tem de ser caminho absoluto.** O `rsync` resolve um caminho
-relativo contra o **destino**, então um `--link-dest=../current` funciona por
-acidente em alguns layouts e, nos outros, deixa de deduplicar **sem erro
-nenhum** (P-12). Confira uma vez, com `stat -c %h` num arquivo que não mudou
-entre dois releases: contagem de links maior que 1 significa que o hardlink
-aconteceu.
-
-**Publicar é trocar um symlink, e a troca tem de ser atômica.** `ln -sfn` sobre
-um symlink que já existe **não** é atômico: ele desfaz e recria, e dentro dessa
-janela o caminho simplesmente não existe. Os scripts fazem `ln -sfn` num nome
-temporário seguido de `mv -T`, que é `rename(2)`.
-
-**O restart é condicional.** `deploy.sh` compara o `sha256` do `server.mjs` novo
-com o do que está no ar e só reinicia a unit se eles diferirem, ou se a unit
-estiver fora. O motivo é que o restart re-executa a migração, que é a única
-operação do deploy capaz de falhar — não vale correr esse risco por uma mudança
-de CSS.
-
-**Reverter é `rollback.sh`**, sem argumento para o release anterior ou com um sha
-para um específico. Ele não faz **nenhuma** chamada de rede, e isso é requisito
-literal (D2-06): numa caixa só, sem homologação, a reversão é a única rede de
-segurança, e a hora em que ela é chamada é exatamente a hora em que a
-infraestrutura que serviria um artefato novo é o que acabou de falhar.
-
-**Retenção: 5 releases** em cada raiz, podados por `prune-releases.sh`. O número
-não é sobre disco (um release custa ~350 KB, e o `--link-dest` faz cinco
-custarem quase um) — é "até onde eu reverteria", e 5 cobre uma tarde ruim. A
-poda resolve os dois symlinks vivos antes de apagar qualquer coisa e nunca
-remove o alvo que está no ar, mesmo quando ele cai fora dos 5 mais recentes —
-que é precisamente o estado que uma reversão deixa para trás.
+---
 
 ## 8. O que esta fase deliberadamente não tem
 
-**Sem staging** (D2-14). Uma caixa, um domínio. A confiança mora na reversão de
-§7 mais os portões do CI. Enquanto o jogo for single-player e o público for o
-desenvolvedor, produção ainda é barata de quebrar — e é esse crédito que a fase
-existe para gastar, antes de haver quatro amigos numa sala.
+**Sem staging** (D2-14). Uma caixa, um domínio. A confiança mora na reversão de §6
+mais os portões do CI. Enquanto o público for o desenvolvedor e os amigos,
+produção ainda é barata de quebrar — e é esse crédito que a fase existe para
+gastar, antes de haver quatro amigos numa sala.
 
 **Sem página HTML de manutenção.** O jogo é estático e continua no ar com o
-processo Node fora; uma página de manutenção esconderia um jogo funcionando
-atrás de um jogo quebrado. O que faltava não era uma página bonita, era um sinal
-legível por máquina: o `handle_errors` do `Caddyfile` responde `503` com corpo
-JSON genérico, e é isso que deixa o monitor externo distinguir "Caddy de pé,
-Node fora" de "caixa fora".
+processo Node fora; uma página de manutenção esconderia um jogo funcionando atrás
+de um jogo quebrado. O que faltava não era uma página bonita, era um sinal legível
+por máquina: o `handle_errors` do `Caddyfile` responde 503 com corpo JSON
+genérico, e é isso que deixa o monitor externo distinguir "Caddy de pé, Node fora"
+de "caixa fora".
 
 **Sem stack trace na resposta.** O corpo de erro não carrega caminho, nem nome de
 upstream, nem mensagem de exceção.
 
-## 9. A porta 443, decidida
+**Sem supervisor dentro da imagem.** Um contêiner, um processo — e o Litestream
+envolvendo o Node com `-exec` em vez de um entrypoint de shell com `trap`, que é
+a armadilha clássica de PID 1. §10 e §11 explicam por quê.
 
-**A 443 é do Caddy.** O que esta seção registrava como "vai ser disputada" está
-resolvido: o coturn fica em **3478 (UDP e TCP) e 5349 (TLS)**, e essas duas
-portas atravessam praticamente todo NAT e firewall doméstico — que é a
-população deste jogo, amigos em acesso residencial brasileiro. O runbook do
-relay é a **§12**.
+---
 
-TURN sobre TLS na 443 só compraria o firewall corporativo que não abre mais
-nada, e é **dívida registrada, não construída**. As duas saídas ficam nomeadas
-para quem voltar aqui: o app `layer4` do Caddy roteando por ALPN/SNI na frente
-dos dois serviços, ou um segundo IP na VPS. Nenhuma das duas paga o próprio
-peso operacional antes de existir alguém de fato trancado do lado de fora por
-um firewall que se possa nomear.
+## 9. A porta 443 não é do Caddy
 
-O bloco `handle /ws` do `Caddyfile` foi escrito uma fase antes, sem consumidor,
-para que a forma estivesse visível em revisão — e a aposta se pagou: o bloco
-**não mudou** quando o signaling chegou. O Caddy faz upgrade de WebSocket
-através do `reverse_proxy` sem módulo extra, e o CSP já cobre o caminho, porque
-`connect-src 'self'` inclui `wss://` na mesma origem.
+**A 443 é do Traefik do Coolify**, em TCP e UDP, e ele termina o TLS para o
+vizinho também. O Caddy deste projeto escuta uma porta interna em HTTP puro, com
+`auto_https off` — ligado, ele pediria certificado para um nome que não controla e
+tomaria 80 e 443 do próprio namespace, e o resultado seria um redirect em laço na
+primeira subida.
 
-**A regra operacional que vem junto:** `systemctl reload caddy` **fecha todas as
-WebSockets ativas** — por um cabeçalho, por uma regra de cache, por qualquer
-coisa. Enquanto isso os DataChannels P2P, que não passam pelo Caddy, continuam
-vivos: o jogo segue e o servidor vê todo mundo sair ao mesmo tempo. É por isso
-que existe um **grace de 60 s** antes de apagar a sala, em vez de apagá-la na
-desconexão. As duas metades andam juntas; tirar uma traz de volta o sintoma
-"todo mundo caiu ao mesmo tempo, e eu não fiz nada" logo depois de um deploy que
-tocou o `Caddyfile`.
+O relay fica em **3478 (UDP e TCP) e 5349 (TLS)**, como `ops/turnserver.conf` já
+decidira. **TURN sobre TLS na 443 fica como dívida registrada e não construída** —
+e ela ficou mais cara: a saída pelo app `layer4` do Caddy rotearia por ALPN/SNI,
+mas não alcança uma porta que o contêiner dele não tem. Quando a dívida for
+cobrada, a decisão é de operação e não de configuração.
 
-## 10. As units do systemd — instalar, habilitar, e em que ordem
+O certificado é renovado pelo Traefik, sozinho, e vive no `acme.json` do Coolify —
+que o usuário do `turnserver` não lê. §12 registra a consequência.
 
-Quatro arquivos deste diretório são units. Todos vão para
-`/etc/systemd/system/`, e nenhum deles é o original — são cópias, e a cópia
-versionada é a fonte.
+---
 
-| Arquivo | O que é | Habilitar? |
-|---|---|---|
-| `dg2.service` | o processo Node da API | `enable --now` |
-| `litestream.service` | a réplica contínua do banco | `enable --now` |
-| `cert-check.service` | a checagem do certificado, `oneshot` | **não** — quem puxa é o timer |
-| `cert-check.timer` | agenda diária da checagem | `enable --now` |
+## 10. Supervisão — e a diferença que importa
 
-**A ordem importa, e é esta:**
+`restart: unless-stopped` mais o backoff exponencial do Docker substituem o limite
+de partidas que a unit do systemd aposentada carregava. **A diferença tem de estar
+em voz alta: o systemd chegava a `failed` e parava; o Docker tenta para sempre.**
 
-1. Criar `/etc/dg2/env` (§5) e o usuário `dg2` (§4). Um `EnvironmentFile`
-   ausente faz a unit falhar no start, não no `enable`.
-2. `npm i --prefix /srv/dg2 better-sqlite3@13.0.3` (§3). **Antes** do primeiro
-   start, ou ele morre no import.
-3. Publicar um release, para que `current-server` exista e aponte para algum
-   lugar. `dg2.service` arranca por esse symlink.
-4. `systemctl enable --now dg2` — e conferir `systemctl status dg2` de verdade,
-   porque a migração roda aqui e é o único passo capaz de falhar.
-5. `cp ops/litestream.yml /etc/litestream.yml`, depois
-   `systemctl enable --now litestream`. Ela vem **depois** porque replica o
-   banco que o passo anterior criou.
-6. `cp ops/cert-check.sh /srv/dg2/bin/` e `systemctl enable --now cert-check.timer`.
-   Rode `systemctl start cert-check.service` uma vez à mão para ver a saída
-   antes de confiar no agendamento — um timer cuja primeira execução você nunca
-   viu é uma suposição, não uma vigilância.
+Não há equivalente a um limite de partidas na composição, e inventar um supervisor
+contradiz a decisão de não pôr máquinas novas na caixa. Então a perda é real e
+declarada: **uma migração quebrada agora é um laço de reinício invisível**, e
+nenhum estado de unit fica vermelho para ninguém olhar.
 
-`/srv/dg2/bin/cert-check.sh` precisa ser legível e executável pelo usuário
-`dg2`, que é quem `cert-check.service` roda como. O bit de execução vem do
-índice do git (§1); o que falta conferir na caixa é a permissão de travessia do
-diretório.
+**O que fecha a corrente de alarme passou a ser o `healthcheck` da composição mais
+o monitor externo.** O healthcheck pede a rota de saúde pelo loopback do próprio
+contêiner; um serviço sem contêiner saudável faz o roteador do Traefik responder
+503. É isso que o monitor externo vê.
 
-Depois de qualquer edição numa unit: `systemctl daemon-reload`. E vale para as
-units a mesma regra que §6 registra para o Caddy — **`reload` não relê o
-`EnvironmentFile`**. Trocar uma chave de `/etc/dg2/env` exige `restart` das
-units que a consomem.
+Ver de fora, em ordem:
 
-### Como cada peça avisa que quebrou
+```
+sudo docker compose ps          # o status de saúde dos dois serviços
+sudo docker logs --tail 200 <contêiner do api>
+```
 
-Vale escrever a cadeia inteira num lugar só, porque cada elo é barato e nenhum
-deles funciona sozinho:
+### Vigilância: a perna local morreu, e ninguém mais avisa de graça
 
-- `dg2.service` desiste depois de **5 partidas em 60 s** e fica em `failed`. Sem
-  esse limite, uma migração quebrada reiniciaria para sempre e a unit **nunca**
-  ficaria `failed` — o journald encheria e ninguém seria avisado. É a linha da
-  qual todo o resto depende.
-- Com a unit fora, nada escuta no loopback, e o `handle_errors` do `Caddyfile`
-  responde **503 com corpo JSON**.
-- O monitor externo (D2-21) deixa de casar `"status":"ok"` em `/api/health` e
-  avisa. Ele é serviço de terceiro, e não workflow agendado, porque um workflow
-  agendado é desligado sozinho após 60 dias sem atividade no repositório —
-  exatamente quando o projeto está parado é que o alarme calaria.
-- `cert-check.timer` cobre o que o monitor externo não vê, e `dg2.service` não
-  tem como ver: a validade do certificado **realmente servido**.
+O certificado passou a ser do Traefik, então o verificador local que rodava por
+timer saiu com D2-30. E o Let's Encrypt **encerrou o aviso por e-mail** em
+jun/2025. Sobra **uma** perna, a externa, e ela precisa fazer as **duas** coisas:
 
-As duas pernas existem porque falham em cenários diferentes (D2-16): o timer
-local cala junto com a caixa; o monitor externo sobrevive à queda mas só infere
-o certificado.
+1. **Disponibilidade por keyword** na rota de saúde — não basta HTTP 200, porque
+   um 200 com corpo de erro é o caso que importa.
+2. **Alerta de expiração de certificado com limiar de 30 dias.**
 
-**Teto de memória:** os números por unit fecham o orçamento de D2-19 na caixa de
-2 GB — Caddy ~64 M, `dg2` 256 M, Litestream 64 M, e ~128 M guardados para o
-coturn da fase 3. O `MemoryMax` de `dg2.service` **só funciona pareado** com o
-`--max-old-space-size` do `NODE_OPTIONS`: o V8 dimensiona o heap pela memória da
-máquina, não pelo limite do cgroup, e sem o par o kernel mata o processo em vez
-de o coletor agir. Mexer num dos dois sem mexer no outro é trocar GC por
-OOM-kill.
+O alarme de **30 dias** que D2-16 exigia **mudou de dono**: ele morava numa unit
+desta caixa e agora mora no painel de um serviço de terceiro (UptimeRobot, Better
+Stack ou equivalente — escolha um que faça monitor de SSL, porque há serviços
+ótimos de cron que não fazem). Se esse serviço for trocado um dia, **o limiar de
+30 dias vai junto**, e é por isso que ele está escrito aqui e não só configurado
+lá.
+
+`docs/OPERACAO.md` registra qual serviço foi escolhido e o que ele observa.
+
+---
 
 ## 11. Backup contínuo e o ensaio de restauração
 
-**O que roda sozinho:** `litestream.service` replica o WAL de
-`/var/lib/dg2/dg2.db` para um bucket S3-compatível, continuamente (D2-17). Ponto
-de recuperação em segundos, não em um dia — para um ledger de moeda, um dia
-perdido é soul gold que sumiu. O bucket fica **fora da VPS** por princípio: a
-Hostinger cair leva o snapshot dela junto.
+**O que roda sozinho:** o Litestream replica o WAL do banco continuamente (D2-17).
+Ponto de recuperação em segundos, não em um dia — para um ledger de moeda, um dia
+perdido é soul gold que sumiu. Ele lê o WAL, não o arquivo: copiar um `.db` sob
+escrita com cron produz um arquivo corrompido, e é por isso que isto existe em vez
+de um tarball noturno.
 
-A unit é irmã de `dg2.service`, não filha. Se o processo Node morrer, ou for
-parado por uma hora de depuração, o backup continua — a hora em que um banco
-mais corre risco é a hora em que alguém está mexendo nele.
+**Ele deixou de ser uma unit e virou PID 1 do contêiner** (D2-28). Medido no
+código-fonte da v0.5: `replicate -exec` repassa o **sinal exato** ao filho e
+**espera o filho sair** antes da sincronização final. Por isso o desligamento
+gracioso do servidor sobrevive sem `tini` e sem `trap` de shell, e por isso
+`stop_grace_period` é de 30s e não dos 10s padrão do Docker: o Node drena
+primeiro, o Litestream sincroniza **depois**, e um prazo curto cortaria a segunda
+etapa em silêncio.
 
-**O que NÃO roda sozinho, e por quê:** a verificação da restauração. D2-03 recusa
-o timer recorrente: numa VPS sem plantão, automação silenciosa é mais uma coisa
-que quebra sem avisar, e um ensaio de restauração falhando em silêncio há quatro
-meses é **pior** que nenhum ensaio, porque foi contado como um. O script existe,
-roda à mão, e o resultado é anotado.
+**O destino é um caminho desta caixa, não um bucket** (D2-33). A réplica vive num
+**segundo volume persistente** — não no do banco, e muito menos numa camada de
+contêiner, onde o primeiro redeploy a apagaria **sem erro nenhum**: o backup
+continuaria parecendo existir, que é o pior modo de falha que um backup tem.
+
+**O que essa escolha custa, e é honesto dizer antes de alguém verificar: a
+garantia off-site caiu.** A réplica protege contra corrupção do banco, migração
+ruim e deploy errado. Ela **não** protege contra perder a caixa — mesmo disco, as
+duas cópias. É escolha registrada, e a consequência é que backup off-site
+continua sendo tarefa aberta do projeto vizinho, não desta fase.
+
+### O ensaio, num contêiner descartável
+
+D2-03 recusa o timer recorrente: numa VPS sem plantão, automação silenciosa é mais
+uma coisa que quebra sem avisar, e um ensaio falhando em silêncio há quatro meses
+é **pior** que nenhum ensaio, porque foi contado como um. O script existe, roda à
+mão, e o resultado é anotado em `docs/OPERACAO.md` com a data.
+
+**"Ambiente limpo" — o texto literal do critério — deixou de ser um diretório
+temporário na mesma máquina e passou a ser um contêiner novo.** Com os dois
+volumes montados em **somente-leitura**, o entrypoint sobrescrito e a imagem da
+tag em produção:
 
 ```
-node tools/ops/restore-verify.mjs
+sudo docker volume ls | grep dg2          # o Coolify prefixa os nomes; confira
+sudo docker run --rm \
+  -v <volume do banco>:/var/lib/dg2:ro \
+  -v <volume da réplica>:/var/lib/dg2-replica:ro \
+  --entrypoint node <imagem do api>:<sha> \
+  /srv/tools/ops/restore-verify.mjs
 ```
 
-Ele mora em `tools/ops/`, e não em `ops/`, porque é Node e segue as convenções de
-`tools/README.md`. É também a única exceção deliberada ao §2 daquele arquivo:
-**não** tem entrada em `package.json`, porque roda na caixa, onde o repositório —
-e portanto `npm run` — não existe. O próprio script registra a exceção no
-cabeçalho.
+O que cada parte compra:
 
-O que ele faz, e o que cada escolha compra:
-
-- Restaura com `litestream restore -o` para um diretório temporário novo. O `-o`
-  escreve **noutro lugar**: o banco vivo nunca é tocado, que é literalmente o
-  requisito de D2-03. O diretório é novo porque o Litestream se recusa a
-  sobrescrever arquivo existente.
-- Compara **conteúdo, não bytes**: contagem de linhas e soma de `amount` em
-  `gold_entry`, nos dois bancos, com o CLI `sqlite3`. Diff binário daria
-  vermelho sempre e não provaria nada — dois SQLite semanticamente idênticos
-  diferem em disco (páginas livres, estado do WAL).
-- Compara uma **janela fixa**, não o total do banco vivo. A replicação é
-  assíncrona por construção, então o vivo se mexe enquanto o ensaio roda: uma
-  comparação contra o total dá vermelho por causa de uma escrita de três
-  segundos atrás, sobre um backup perfeitamente saudável. Como o ledger é
-  append-only, a restauração é um **prefixo** da tabela viva em ordem de
-  `rowid`, e é esse prefixo que os dois lados respondem. Linhas que chegam
-  durante o ensaio caem acima da marca e não mexem no resultado.
-- Abre os dois bancos em **somente-leitura**, e isso tem uma consequência
-  operacional: o SQLite só abre um banco em WAL como somente-leitura se o
-  arquivo `-shm` já existir, o que é verdade **enquanto `dg2.service` estiver
-  de pé**. Rodar o ensaio com o serviço parado e um `-wal` órfão faz o `sqlite3`
-  recusar, e o script sai 1 dizendo isso. Não é defeito: rode o ensaio com o
-  serviço no ar, que é também o único estado em que o número de defasagem
-  significa alguma coisa.
-- Imprime **quanto tempo levou** e **quantas linhas de defasagem** havia. Os
-  dois números são o que D2-03 manda anotar: o primeiro transforma um backup em
-  um plano de recuperação, e o segundo é o ponto de recuperação — "idêntico" e
+- **`--rm` e um contêiner novo** — o arquivo restaurado é uma cópia completa do
+  ledger, e deixá-lo em disco faria do verificador o vazamento. Ele morre com o
+  contêiner.
+- **Os dois volumes em `:ro`** — o banco vivo nunca é tocado, que é literalmente o
+  requisito de D2-03, e a réplica é origem e não destino.
+- **`--entrypoint node`** — a imagem normalmente sobe o Litestream como PID 1. Aqui
+  o que se quer é o script, e a imagem já traz o binário do Litestream, o CLI
+  `sqlite3` e a configuração, então nada precisa ser instalado.
+- **`restore-verify.mjs`** compara **conteúdo, não bytes**: contagem de linhas e
+  soma do valor no ledger, nos dois bancos. Diff binário daria vermelho sempre —
+  dois SQLite semanticamente idênticos diferem em disco.
+- Ele compara uma **janela fixa**, não o total: a replicação é assíncrona por
+  construção, então o banco vivo se mexe enquanto o ensaio roda. Como o ledger é
+  append-only, a restauração é um **prefixo** da tabela viva em ordem de `rowid`.
+- Ele imprime **quanto tempo levou** e **quantas linhas de defasagem** havia. Os
+  dois números são o que D2-03 manda anotar: o primeiro transforma um backup em um
+  plano de recuperação, e o segundo é o ponto de recuperação — "idêntico" e
   "idêntico há três segundos" são fatos diferentes sobre um backup.
-- Apaga o diretório temporário em qualquer desfecho. O arquivo restaurado é uma
-  cópia completa do ledger, e deixá-lo em `/tmp` faria do verificador o
-  vazamento.
 
-Requisitos na caixa: o binário `litestream` e o **CLI** `sqlite3` (§3). Sem
-qualquer um dos dois o script sai 1 dizendo qual falta.
+**Rode o ensaio com o serviço no ar.** O SQLite só abre um banco em WAL como
+somente-leitura se o arquivo `-shm` já existir, o que é verdade enquanto o
+contêiner do `api` estiver de pé; com ele parado, o script sai 1 dizendo isso. Não
+é defeito — é também o único estado em que o número de defasagem significa
+alguma coisa.
 
-O ensaio desta fase — data, tempo até restaurar, e o que faltou — é registrado
-em `docs/`, não aqui: este arquivo diz como operar, e o registro do ensaio é um
-fato datado.
+---
 
 ## 12. coturn — o relay da fase 3
 
-Só faz sentido depois que a caixa existir (02-04). Os dois arquivos versionados
-são `ops/turnserver.conf` e `ops/coturn-dropin.conf`, e nenhum dos dois carrega
-valor real: os placeholders são substituídos aqui, na máquina.
+Nativo no host, não em contêiner (D2-26), e só faz sentido depois que a caixa
+existe. Os dois arquivos versionados são `ops/turnserver.conf` e
+`ops/coturn-dropin.conf`, e nenhum dos dois carrega valor real: os placeholders
+são substituídos aqui, na máquina.
 
-1. `apt-get install -y coturn`. O pacote **já traz** `coturn.service` e o
-   habilita na instalação — não há nada para copiar de `ops/`, e
-   `/etc/default/coturn` com `TURNSERVER_ENABLED=1` é documentação de uma era
-   anterior.
+**A versão instalada é a do distribuidor do Debian, e isso é escolha.** Ela não é
+a última do projeto, e o que se compra em troca é o distribuidor mantendo as
+correções de segurança e a unit. `no-cli` continua sendo a mitigação certa, porque
+os CVEs históricos do coturn moraram na **interface de gestão**.
+
+1. `apt-get install -y coturn`. O pacote **já traz** a unit e a habilita na
+   instalação — não há nada para copiar de `ops/`.
 2. `cp ops/turnserver.conf /etc/turnserver.conf`, depois
    `chown root:root /etc/turnserver.conf` e `chmod 0600 /etc/turnserver.conf`.
-   **Substitua os dois placeholders**: `realm` (o domínio) e
-   `static-auth-secret` (um segredo longo e aleatório, gerado aqui).
+   **Substitua os dois placeholders**: `realm` (o domínio) e `static-auth-secret`
+   (um segredo longo e aleatório, gerado aqui).
 3. `mkdir -p /etc/systemd/system/coturn.service.d` e
    `cp ops/coturn-dropin.conf /etc/systemd/system/coturn.service.d/dg2.conf`,
-   depois `systemctl daemon-reload`. É um **drop-in**, não uma cópia da unit:
-   as três linhas que ele sobrescreve são as únicas que este projeto quer, e o
-   resto continua sendo mantido pelo pacote — inclusive as correções de
-   segurança dele.
+   depois `systemctl daemon-reload`. É um **drop-in**, não uma cópia da unit: as
+   linhas que ele sobrescreve são as únicas que este projeto quer, e o resto
+   continua sendo mantido pelo pacote.
 4. Ponha `DG2_TURN_SECRET` **com exatamente o mesmo valor do passo 2** e
-   `DG2_TURN_REALM` em `/etc/dg2/env` (§5). Depois **`systemctl restart dg2`**,
-   e não `reload`: §6 já registra que o reload não relê o `EnvironmentFile`, e
-   uma chave nova que ninguém releu é uma chave que não existe.
-5. Abra **3478/udp**, **3478/tcp** e **5349/tcp** no firewall. O UDP é o
-   caminho normal; o TCP existe para a rede que descarta UDP, que é
-   exatamente a rede por causa da qual há um relay.
+   `DG2_TURN_REALM` nas variáveis do app no painel (§4). Depois **redeploy o
+   recurso**: o contêiner só lê variável de ambiente quando é recriado, e uma
+   chave nova que nenhum processo releu é uma chave que não existe.
+5. Abra **quatro** regras no firewall — e esta é a metade que se esquece: as três
+   de sinalização **e a faixa de relay**. `3478/udp`, `3478/tcp`, `5349/tcp`, e
+   **`49200:49299/udp`**, que é a faixa declarada em `ops/turnserver.conf` por
+   `min-port`/`max-port`. **Declarar a faixa sem abri-la e abri-la sem declará-la
+   produzem o mesmo sintoma**, e é o mais caro de diagnosticar da fase 3: sem a
+   declaração o coturn aloca em 49152-65535, o `deny incoming` bloqueia a faixa
+   inteira, o relay autentica, entrega um endereço ao navegador e o tráfego nunca
+   chega — outra vez **"um amigo específico nunca entra"**. As duas metades andam
+   juntas. Se as regras já foram abertas, `docs/OPERACAO.md` registra quando e em
+   quantas regras (v4 e v6); esta seção continua servindo para quem reconstruir a
+   caixa do zero.
 6. `systemctl enable --now coturn`, e confira `systemctl status coturn` **de
    verdade**. O `ProtectSystem=strict` do drop-in é a linha capaz de recusar o
-   start se alguém acrescentar a `/etc/turnserver.conf` um diretório de log ou
-   de banco fora do que o sandbox permite — e o erro se parece com permissão
-   comum.
+   start se alguém acrescentar à config um diretório de log ou de banco fora do
+   que o sandbox permite — e o erro se parece com permissão comum.
 
-### O SEGREDO MORA EM DOIS ARQUIVOS, E ESSA É A ARMADILHA
+### O SEGREDO MORA EM DOIS LUGARES, E ESSA É A ARMADILHA
 
-O `static-auth-secret` existe **duas vezes** na caixa:
-
-| Arquivo | Nome ali | Quem lê |
+| Onde | Nome ali | Quem lê |
 |---|---|---|
-| `/etc/turnserver.conf` | `static-auth-secret` | o coturn, para **verificar** a credencial |
-| `/etc/dg2/env` | `DG2_TURN_SECRET` | o Node, para **emitir** a credencial |
+| `/etc/turnserver.conf` (host, root, 0600) | `static-auth-secret` | o coturn, para **verificar** a credencial |
+| variáveis do app no painel | `DG2_TURN_SECRET` | o Node, para **emitir** a credencial |
 
-Os dois são `root`, `chmod 600`. **Trocar num só faz o relay recusar toda
-credencial que a API emitir** — e o sintoma não se parece com um erro de
-configuração. Parece **"um amigo específico nunca entra"**: quem fecha a conexão
-direta continua jogando normalmente, e só quem precisava do relay fica de fora.
-Isso é indistinguível de NAT ruim a olho nu, e é por isso que esta seção existe
-em vez de a informação estar só no cabeçalho do arquivo de config.
+Os dois lugares são de **naturezas diferentes** — um arquivo numa máquina e um
+painel web — e é isso que torna a dessincronização fácil. **Trocar num só faz o
+relay recusar toda credencial que a API emitir**, com o sintoma
+**"um amigo específico nunca entra"**, indistinguível de NAT ruim.
 
-Ao rotacionar o segredo: troque nos **dois** arquivos, depois
-`systemctl restart coturn` **e** `systemctl restart dg2`. As credenciais já
-emitidas valem uma hora e vão falhar até expirarem; isso é esperado.
+Ao rotacionar: troque nos **dois**, depois `systemctl restart coturn` **e**
+redeploy o recurso no painel. As credenciais já emitidas valem uma hora e vão
+falhar até expirarem; isso é esperado.
 
 ### Orçamento
 
-Os **~128 MB** que §10 reserva para o coturn são exatamente o
-`MemoryHigh=96M`/`MemoryMax=128M` do drop-in — o que era um parágrafo de
-intenção agora é um limite de cgroup. Valem aqui as mesmas duas ressalvas de
-§10: os limites são **ignorados em silêncio sob cgroup v1** (a caixa é v2, §3),
-e o par `NODE_OPTIONS` de `dg2.service` **não** tem equivalente aqui — aquela
-armadilha é do heap do V8, e o coturn é C, que não dimensiona nada a partir da
-memória da máquina.
+O teto do relay é o `MemoryHigh=96M`/`MemoryMax=128M` do drop-in — o que era
+parágrafo de intenção é limite de cgroup. Duas ressalvas: os limites são
+**ignorados em silêncio sob cgroup v1** (a caixa é v2), e o par de teto de heap
+do V8 que o serviço `api` carrega **não** tem equivalente aqui, porque aquela
+armadilha é do V8 e o coturn é C, que não dimensiona nada a partir da memória da
+máquina.
 
-O `total-quota=1200` de `/etc/turnserver.conf` é dimensionamento tanto quanto
-anti-abuso: é o teto de alocações simultâneas da máquina, e é o número a
-revisitar **antes** do orçamento de tráfego da VPS, não depois. O
-`user-quota=12` é o teto por conta autenticada.
+O `total-quota=100` de `/etc/turnserver.conf` é dimensionamento tanto quanto
+anti-abuso: é o teto de alocações simultâneas da máquina, casado com o tamanho da
+faixa de relay do passo 5 — cem portas, cem alocações. Mudar a faixa e esquecer a
+cota deixa um teste vermelho, de propósito. O `user-quota=6` é o teto por conta
+autenticada.
+
+**A caixa não é a VPS de 2 GB que o orçamento original supunha**: são ~8 GiB
+partilhados com a produção de outro projeto. Os limites continuam obrigatórios
+pelo motivo original, que não era escassez — é impedir que um vazamento no
+signaling da fase 3 mate a API **e** o vizinho.
 
 ### TLS na 5349: declarada, não anunciada
 
-`tls-listening-port=5349` está em `/etc/turnserver.conf` e a porta está no
-passo 5, mas o coturn só completa um handshake TLS com `cert=` e `pkey=`
-apontando para um certificado válido do domínio — e este runbook **ainda não
-tem o passo que os fornece**. O certificado da caixa é renovado pelo Caddy,
-dentro do diretório de dados dele, que o usuário do coturn não lê. As saídas
-são uma cópia por gancho de renovação, com permissão de leitura para o
-`turnserver` e um `systemctl reload coturn` depois, ou um certificado próprio
-do relay; as duas exigem uma decisão de operação que ainda não foi tomada, e
-uma cópia feita à mão uma vez é a pior das três — funciona até a primeira
-renovação e depois falha sem uma linha de log do lado do jogo.
+`tls-listening-port=5349` está na config e a porta está no passo 5, mas o coturn
+só completa um handshake TLS com `cert=` e `pkey=` apontando para um certificado
+válido do domínio — e este runbook **ainda não tem o passo que os fornece**. O
+certificado é do Traefik e vive dentro do `acme.json` do Coolify, que o usuário do
+`turnserver` não lê. As saídas são uma cópia por gancho de renovação, com
+permissão de leitura para o `turnserver` e um `systemctl reload coturn` depois, ou
+um certificado próprio do relay; as duas exigem uma decisão de operação que ainda
+não foi tomada, e uma cópia feita à mão uma vez é a pior das três — funciona até a
+primeira renovação e depois falha sem uma linha de log do lado do jogo.
 
-Por isso o servidor **não anuncia** `turns:` aos navegadores
-(`apps/server/src/signaling/turn.ts`): anunciar uma URL que o relay não
-consegue atender faria o navegador tentá-la e falhar exatamente na população
-para a qual ela existiria — a rede que só deixa TLS passar. Quando o passo do
-certificado entrar aqui, `cert=`/`pkey=` entram em `ops/turnserver.conf`,
-`turns:` volta a `iceServers()`, e `tests/turn.test.ts` cobra as três URLs
-de novo, no mesmo commit.
+Por isso o servidor **não anuncia** `turns:` aos navegadores: anunciar uma URL que
+o relay não consegue atender faria o navegador tentá-la e falhar exatamente na
+população para a qual ela existiria — a rede que só deixa TLS passar. Quando o
+passo do certificado entrar aqui, `cert=`/`pkey=` entram em
+`ops/turnserver.conf`, `turns:` volta à configuração de ICE, e o teste cobra as
+três URLs de novo, no mesmo commit.
+
+---
+
+## 13. Convivência com o vizinho
+
+A caixa hospeda **produção viva de outro projeto**. A regra de ouro é de
+`docs/OPERACAO.md` e vale aqui inteira: **toda alteração no host é aditiva e
+confirmada antes.** Nada se remove, nada se reconfigura, nada se "arruma".
+
+O que o jogo pede, e por que os tetos existem:
+
+| Recurso | O que o jogo pede |
+|---|---|
+| Memória | os tetos dos dois serviços, algumas centenas de MiB de teto **rígido** |
+| CPU | um teto por serviço, não uma reserva; o build não roda aqui |
+| Disco | ~130 MB no primeiro par de imagens, poucos MB por deploy depois |
+| Portas no host | **nenhuma** pelos contêineres; só as quatro do relay nativo |
+| Volumes | dois volumes nomeados novos |
+
+**O que acontece com o vizinho se o contêiner do jogo entrar em laço de
+reinício:** nada, e é isso que os limites compram. O teto de memória é do
+**cgroup**, então o OOM-killer age **dentro do cgroup do jogo**; o teto de CPU
+limita a um núcleo, e um laço de reinício consome fração de núcleo; o roteador do
+vizinho é outro; e sem rede própria declarada não há contato.
+
+Os tetos **não existem por escassez** — existem para que um vazamento no
+signaling da fase 3 não mate nem a API nem a produção do outro projeto. Esse era
+o motivo original, e ele atravessou a containerização intacto.
+
+---
+
+## 14. Riscos herdados
+
+Coisas que podem quebrar o deploy e **não são deste projeto**. Estão em
+`docs/OPERACAO.md` com mais detalhe; ficam nomeadas aqui para que "o deploy parou
+de funcionar" tenha onde começar:
+
+- **A alcançabilidade do caminho de deploy depende de configuração de outro
+  projeto.** O painel é alcançado por túnel; uma mudança de SSH, de firewall ou de
+  porta do lado do vizinho derruba o caminho sem tocar em nada nosso.
+- **A limpeza automática de imagens é configuração do servidor**, compartilhada, e
+  não foi lida (§7). É o que pode apagar a imagem para a qual você ia reverter.
+- **Dois achados de segurança do vizinho ficam registrados e não corrigidos**: uma
+  porta do painel publicada em todas as interfaces e fora da lista de travamento,
+  e a unit de travamento inativa — de modo que um reinício do Docker sem reboot
+  apagaria as regras até o próximo boot. São dele, não do jogo.

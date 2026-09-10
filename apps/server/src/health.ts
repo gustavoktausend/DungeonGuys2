@@ -26,8 +26,11 @@ import type { Database as SqliteHandle } from 'better-sqlite3';
  *     Phase 3 adds it when there is a consumer (02-RESEARCH.md open question 5).
  *
  * `release` stays because it is the one field that makes the monitor useful
- * beyond up/down: it is the git sha ops/deploy.sh put in /etc/dg2/env, so an
- * alert can say WHICH release started failing.
+ * beyond up/down: it is the git sha of the image the box is running, handed in as
+ * an environment variable by the `api` service of ops/docker-compose.yml, so an
+ * alert can say WHICH release started failing. It is also how "did the deploy
+ * land?" is answered — a string comparison against this field, with no new
+ * infrastructure.
  */
 export interface HealthBody {
   status: 'ok' | 'degraded';

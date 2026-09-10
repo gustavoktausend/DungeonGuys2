@@ -75,8 +75,8 @@ const PROBE = "select count(*) || '|' || coalesce(sum(amount), 0) || '|' || coal
  * The second half of the probe, and the reason the first one grew a `max(rowid)`.
  *
  * THE LIVE DATABASE IS A MOVING TARGET, BY DESIGN. `litestream restore` answers
- * with whatever has already been shipped to the bucket, and replication is
- * asynchronous — that is the point of it. Comparing that against the live
+ * with whatever has already reached the replica, and replication is asynchronous
+ * — that is the point of it. Comparing that against the live
  * database with no tolerance means any write in the seconds before the drill
  * runs prints `NÃO CONFERE` and exits 1. Measured with three rows appended
  * after the copy: exactly that, a red result over a perfectly healthy backup.
@@ -109,7 +109,7 @@ const probeUpTo = (upTo) =>
  *
  * The refusal is not defensive padding: `back.maxRowid` is interpolated into
  * the SQL of probeUpTo, and it arrives from a database file the operator just
- * restored from a bucket. Validating it as an integer here is what keeps that
+ * restored from the replica. Validating it as an integer here is what keeps that
  * interpolation from being a way in. A probe that answers something unexpected
  * is a broken drill, and a broken drill has to say so rather than carry on.
  */
@@ -171,11 +171,13 @@ function run(bin, argv, label) {
  * does not touch the live database. This is the line that makes the claim true.
  *
  * Known cost, written down rather than discovered: opening a WAL database
- * read-only needs the -shm file to already exist, which it does while
- * dg2.service holds the database open. Run against a stopped service with a
+ * read-only needs the -shm file to already exist, which it does while the `api`
+ * container holds the database open. Run with that container stopped and a
  * leftover -wal, sqlite3 refuses — an honest exit 1 with a message, which is
- * the right way for it to fail. `file:${db}?mode=ro` with `-uri` is the
- * portable spelling if a box ever ships a CLI without the flag.
+ * the right way for it to fail. It is also the only state in which the staleness
+ * number means anything, so running the drill against a live service is the
+ * instruction and not a workaround (ops/README.md §11). `file:${db}?mode=ro` with
+ * `-uri` is the portable spelling if a box ever ships a CLI without the flag.
  */
 const ask = (db, query) => run('sqlite3', ['-readonly', db, query], `sqlite3 ${db}`).trim();
 

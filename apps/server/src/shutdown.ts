@@ -17,9 +17,10 @@
 // transitively — measured with `tsc --listFiles`. So the discipline here is a
 // design rule the compiler happens not to enforce, not one it does.)
 //
-// The stake is a deploy, not a crash. ops/deploy.sh restarts the unit through
-// `sudo -n systemctl` whenever the server bundle changed, and systemd stops a
-// unit with SIGTERM — whose default action in Node is to terminate at once.
+// The stake is a deploy, not a crash. Both services share one image tag, so EVERY
+// deploy recreates this container, and Docker stops a container with SIGTERM —
+// forwarded here verbatim by the Litestream that wraps this process — whose
+// default action in Node is to terminate at once.
 // Without the sequence below, EVERY deploy severs whatever was mid-response
 // (Caddy publishes those as 502s) and never calls sqlite.close(), so no
 // checkpoint is written. open.ts sets `synchronous = NORMAL` and accepts losing
@@ -61,12 +62,15 @@ export interface ShutdownDeps {
 /**
  * How long a request gets to finish after the signal arrives.
  *
- * Exported so index.ts and the test read the same number instead of two copies
- * of it. The value is bounded on both sides: long enough that an ordinary
- * response is not cut off, and far enough inside systemd's stop timeout
- * (ops/dg2.service names none, so DefaultTimeoutStopSec applies — 90s on a
- * stock Debian/Ubuntu) that the process always stops itself rather than being
- * SIGKILLed, which would be the un-checkpointed stop all over again.
+ * Exported so index.ts and the tests read the same number instead of two copies
+ * of it — and ops/docker-compose.yml's `stop_grace_period` is compared against
+ * THIS constant by import rather than by copy. The value is bounded on both
+ * sides: long enough that an ordinary response is not cut off, and far enough
+ * inside the container's stop deadline that the process always stops itself
+ * rather than being SIGKILLed, which would be the un-checkpointed stop all over
+ * again. Docker's own default deadline would be 10s, which is why the
+ * composition raises it — this drain runs first, and only then does Litestream
+ * perform its final sync.
  */
 export const SHUTDOWN_GRACE_MS = 5_000;
 

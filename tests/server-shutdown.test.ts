@@ -1,9 +1,11 @@
-// server-shutdown.test.ts — what the process does when systemd tells it to stop.
+// server-shutdown.test.ts — what the process does when it is told to stop.
 //
-// This is not a crash path. ops/deploy.sh restarts the unit through
-// `sudo -n systemctl` on every deploy whose bundle changed, and systemd's
-// default stop is SIGTERM — whose default action in Node is to terminate at
-// once. So the untended case is not the rare power cut that open.ts already
+// This is not a crash path. Both services share one image tag, so EVERY deploy
+// recreates the api container — Docker's stop is SIGTERM, forwarded to this
+// process by the Litestream that wraps it, and SIGTERM's default action in Node
+// is to terminate at once. (It used to be a systemd unit restarted by a deploy
+// script; the mechanism changed with the containerisation and the requirement
+// did not.) So the untended case is not the rare power cut that open.ts already
 // accepts with `synchronous = NORMAL`; it is the routine, deliberate stop that
 // happens EVERY time the operator ships, severing whatever was mid-response
 // (Caddy reports those as 502s) and never calling sqlite.close(), so no clean
@@ -203,12 +205,16 @@ describe('createShutdown sai mesmo se o fechamento do banco falhar', () => {
 });
 
 describe('o prazo do relógio de guarda', () => {
-  it('cabe folgado dentro da paciência do systemd', () => {
-    // ops/dg2.service sets no TimeoutStopSec, so systemd uses
-    // DefaultTimeoutStopSec (90s on a stock Debian/Ubuntu). The deadline has to
-    // be well under whatever that is, or the watchdog is decoration and the
-    // real stop is always a SIGKILL. The floor matters too: a deadline under a
-    // second would cut off the very requests the drain exists to protect.
+  it('cabe folgado dentro da paciência de quem manda parar', () => {
+    // The OUTER deadline belongs to the container runtime now: the `api` service
+    // of ops/docker-compose.yml sets stop_grace_period to 30s, and
+    // tests/ops-config.test.ts compares that number to THIS constant by importing
+    // it rather than copying it. The deadline here has to be well under whatever
+    // the outer one is, or the watchdog is decoration and the real stop is always
+    // a SIGKILL. Docker's own default would be 10s, which is why the composition
+    // overrides it — the drain runs first and only then does Litestream sync.
+    // The floor matters too: a deadline under a second would cut off the very
+    // requests the drain exists to protect.
     expect(SHUTDOWN_GRACE_MS).toBeGreaterThanOrEqual(1_000);
     expect(SHUTDOWN_GRACE_MS).toBeLessThanOrEqual(10_000);
   });

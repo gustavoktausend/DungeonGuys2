@@ -343,9 +343,10 @@ export function attachSignalling(server: UpgradableServer, deps: SignallingDeps)
       }
       // THE ONE CATCH THAT KEEPS A ROOM'S ERROR A ROOM'S ERROR. This runs
       // inside an EventEmitter listener, where an exception is an
-      // `uncaughtException`: Node exits, every room on the box dies with it,
-      // and `StartLimitBurst=5` in dg2.service can leave the unit in `failed`
-      // if the same message comes back five times. Two callees throw by
+      // `uncaughtException`: Node exits, every room on the box dies with it, and
+      // `restart: unless-stopped` brings it straight back to die again if the same
+      // message comes back — forever, because Docker has no equivalent of the
+      // systemd start limit that used to stop the cycle (T-2-LOOP). Two callees throw by
       // design — `createCode` after MAX_CODE_ATTEMPTS collisions, and the
       // injected credential minting — and any future one lands here too. The
       // sender gets a refusal, the journal gets the line, the process lives.

@@ -1,12 +1,13 @@
 // migrations.ts — a STATIC migration provider: a literal object, deliberately
 // NOT the file-reading provider Kysely ships in 'kysely/migration'.
 //
-// This server is bundled to a single dist-server/server.mjs and copied to
-// /srv/dg2/server-releases/<sha>/. A provider that loads migrations from disk
-// would have to resolve a directory path at runtime, relative to a bundle
-// whose location is reached through a symlink that ops/deploy.sh swaps — three
-// ways to get a path wrong in the one step that runs BEFORE the process
-// accepts a request (D2-07). Getting it wrong here does not degrade the
+// This server is bundled to a single dist-server/server.mjs, which ops/Dockerfile.api
+// COPYs into the image. A provider that loads migrations from disk would have to
+// resolve a directory path at runtime, relative to a bundle whose location is an
+// image layer — a path to get wrong in the one step that runs BEFORE the process
+// accepts a request (D2-07). The argument was first written against a release
+// directory reached through a symlink, which D2-24 replaced with "point at the
+// previous image"; the bundle moved, the reasoning did not. Getting it wrong here does not degrade the
 // service, it stops the service from starting. A literal object cannot be
 // misplaced, and it is bundled by definition.
 //
@@ -20,11 +21,12 @@ import type { Kysely } from 'kysely';
 import type { Migration, MigrationProvider } from 'kysely/migration';
 
 // D2-07: migrations are ALWAYS additive. No DROP and no rename inside a
-// version, ever. ops/rollback.sh moves the `current` symlink back to a previous
-// release in seconds — and that rolls the CODE back while leaving the DATABASE
-// exactly where the newer code left it. A destructive migration turns a
-// 10-second rollback into data that is simply gone. Additive-only is what makes
-// the rollback path safe to actually use.
+// version, ever. Rolling back is pointing the image tag at the previous sha and
+// redeploying (D2-24) — seconds, and no network, because the previous image is
+// already on disk. That rolls the CODE back while leaving the DATABASE exactly
+// where the newer code left it. A destructive migration turns a seconds-long
+// rollback into data that is simply gone. Additive-only is what makes the
+// rollback path safe to actually use.
 const migrations: Record<string, Migration> = {
   /**
    * The soul gold ledger, as docs/adr/0010-soul-gold-ledger-append-only.md
@@ -130,9 +132,9 @@ const migrations: Record<string, Migration> = {
    * successes and nothing else, and the rate it reports is wrong upwards
    * forever, with no symptom: every row in it is true.
    *
-   * Additive, per D2-07. `001_gold_entry` is untouched, so ops/rollback.sh
-   * moving the symlink back to a release that predates this file leaves a
-   * database with one extra table the older code never looks at.
+   * Additive, per D2-07. `001_gold_entry` is untouched, so reverting to an image
+   * that predates this file leaves a database with one extra table the older code
+   * never looks at.
    */
   '002_ice_outcome': {
     async up(db: Kysely<unknown>): Promise<void> {

@@ -50,7 +50,8 @@ function read(name: string): string {
   // TYPE IS NOT THE GUARD; LENGTH IS. `''` is a string, so a glob that resolves
   // and reads nothing passes toBeTypeOf and then SATISFIES every not.toContain
   // and not.toMatch below it. Measured on this file before the floor existed,
-  // with ops/rollback.sh stubbed to '': 44 of 46 tests stayed green, and the
+  // with ops/rollback.sh stubbed to '' (a file D2-30 has since retired, which
+  // does not touch the measurement): 44 of 46 tests stayed green, and the
   // two that survived included both assertions that carry the requirement —
   // D2-06 (nenhuma chamada de rede) and D2-07 (nunca toca no banco). They
   // passed over an empty haystack.
@@ -842,11 +843,29 @@ describe('ops/litestream.yml', () => {
   });
 });
 
-/** Every key of /etc/dg2/env. The runbook is the only inventory of them. */
+/**
+ * Every configuration key of the app. The runbook is the only inventory of them.
+ *
+ * IT USED TO BE "every key of /etc/dg2/env", AND THAT FILE NO LONGER EXISTS:
+ * D2-29 moved the app's configuration into the Coolify panel, and
+ * ops/docker-compose.yml is what declares which keys exist while the panel
+ * decides what they are worth. The list itself survived the move intact, because
+ * what it rules over is not a file — it is that a key nobody named anywhere is
+ * the one a rebuild discovers by the service failing to start.
+ *
+ * Two edits came with the containerisation. `DG2_DOMAIN` LEFT: the domain is no
+ * longer a key at all, it is the FQDN the Coolify resource assigns to the `web`
+ * service, and nothing in this repository spells it. `DG2_IMAGE_TAG` ARRIVED: it
+ * is the value that makes the rollback of D2-24 possible, so an operator who
+ * cannot find its name cannot revert.
+ *
+ * The four bucket keys LEFT TOO, revoked by D2-33 before they were ever set — and
+ * `DG2_REPLICA_PATH` took their place. The D2-15 block below asserts that the
+ * four names appear nowhere in ops/, because a name surviving in prose sends an
+ * operator looking for a credential nobody created.
+ */
 const ENV_KEYS = [
-  'DG2_DOMAIN', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE',
-  'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT',
-  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+  'DG2_IMAGE_TAG', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE', 'DG2_REPLICA_PATH',
   // Fase 3. DG2_TURN_SECRET entra nesta lista pelo motivo pelo qual a lista
   // existe: é a metade Node de um segredo que também vive em
   // /etc/turnserver.conf, e a asserção de "nenhuma chave aparece com valor
@@ -855,87 +874,146 @@ const ENV_KEYS = [
 ];
 
 describe('ops/README.md', () => {
-  it('o runbook nomeia todas as chaves de /etc/dg2/env', () => {
-    // A key that exists on the box and is named nowhere is the one a rebuild
-    // discovers by the service failing to start.
+  it('o runbook nomeia todas as chaves de configuração do app', () => {
+    // SURVIVED THE REWRITE UNCHANGED IN SUBSTANCE, because it was never about the
+    // machine: a key that exists and is named nowhere is the one a rebuild
+    // discovers by the service failing to start. Only the inventory it checks
+    // against moved, from a file on a box to a panel.
     const readme = read('README.md');
     expect(ENV_KEYS.filter((k) => !readme.includes(k))).toEqual([]);
   });
 
-  it('o runbook registra que reload não relê o EnvironmentFile (P-6)', () => {
-    expect(read('README.md')).toContain('restart caddy');
+  it('o runbook diz onde o recurso do Coolify aponta, e é um caminho deste repositório', () => {
+    // Replaces the case about `systemctl reload caddy` not re-reading an
+    // EnvironmentFile — a trap of a machine with units on it. THE EQUIVALENT TRAP
+    // OF THIS ARCHITECTURE is the compose pointer: the Coolify resource clones the
+    // REMOTE repository and reads one path out of it, so a pointer aimed at a file
+    // the clone does not have lists ZERO SERVICES. Measured on 2026-09-09, and the
+    // symptom is indistinguishable from "Coolify does not support this
+    // composition" — which is the wrong conclusion, and an expensive one.
+    const readme = read('README.md');
+    expect(readme, 'o runbook não nomeia o caminho da composição')
+      .toContain('ops/docker-compose.yml');
+    expect(readme).toContain('Docker Compose Location');
+    // And the prerequisite that made the first attempt fail: push before asking
+    // Coolify to re-read.
+    expect(readme.toLowerCase()).toMatch(/empurrar a `?main`? para o github/i);
   });
 
-  it('o runbook registra o node_modules de produção e o CLI que a restauração usa', () => {
-    // The gap 02-08 found and could not close: `server:build` leaves
-    // better-sqlite3 as a BARE SPECIFIER on purpose, because esbuild cannot
-    // bundle a native .node. Undocumented, the first `systemctl start dg2` dies
-    // with ERR_MODULE_NOT_FOUND — before the migration, before the first
-    // request, with nothing in the runbook to explain it.
+  it('o runbook diz sudo em todo comando de Docker (DM-17)', () => {
+    // Replaces the case about the production node_modules and the CLI the restore
+    // drill needs — the first of which CEASED TO EXIST with DM-12 (the prebuilds
+    // travel inside the npm tarball) and the second of which now lives in the
+    // image. What replaced both as the first thing that trips an operator is the
+    // docker group: the deploy user is not in it, by a reasonable decision of the
+    // neighbouring project that is not ours to change. Without `sudo` the very
+    // first command fails with a message that points at the daemon.
     const readme = read('README.md');
-    expect(readme).toContain('better-sqlite3');
-    expect(readme).toContain('/srv/dg2/node_modules');
-    expect(readme).toContain('ERR_MODULE_NOT_FOUND');
-    // The restore drill shells out to the sqlite3 CLI, which is not the same
-    // thing as the library above and is not installed by it.
-    expect(readme.split('\n').filter((l) => l.includes('sqlite3')).length)
+    expect(readme.split('\n').filter((l) => l.includes('sudo docker')).length,
+      'o runbook usa `sudo docker` em menos de três lugares').toBeGreaterThanOrEqual(3);
+    // And the reason, not just the prefix: a runbook that says `sudo` without
+    // saying why invites someone to "fix" it by joining the group, which is
+    // equivalent to root on a box running another project's production.
+    expect(readme).toContain('grupo `docker`');
+  });
+
+  it('o runbook fixa a retenção em 5 imagens e declara a degradação (D2-24/C-3)', () => {
+    // Replaces the case about installing the systemd units in order. The number is
+    // NOT NEW — it is the retention the retired pruning script had already decided,
+    // carried over, which is why it is continuity of operation rather than an
+    // invention. What is new, and is the part that had to be written down, is the
+    // honesty: the symlink was a STRUCTURAL guarantee and a local image is a
+    // PROBABILISTIC one, dependent on a cleanup routine this project does not
+    // control and which is SERVER configuration shared with the neighbour.
+    const readme = read('README.md');
+    expect(readme).toContain('5 imagens por serviço');
+    expect(readme, 'o runbook não declara a degradação de estrutural para probabilística')
+      .toMatch(/probabil/i);
+    expect(readme).toContain('docs/OPERACAO.md');
+  });
+
+  it('o runbook reverte apontando a tag para o sha anterior, sem rede', () => {
+    // Replaces the case about chowning to root what the deploy key may not
+    // rewrite — there is no deploy key and no release tree. The capability it
+    // guarded, though, is the one D2-06 existed for and D2-24 inherited: the
+    // rollback must work with the registry unreachable, because that is the
+    // scenario it exists for. Both halves are asserted, since a rollback
+    // documented without the no-network property is a rollback someone will
+    // "improve" into a pull.
+    const readme = read('README.md');
+    expect(readme.split('\n').filter((l) => l.includes('DG2_IMAGE_TAG')).length)
       .toBeGreaterThanOrEqual(2);
+    expect(readme).toContain('pull_policy: missing');
+    expect(readme, 'o runbook não diz que reverter não usa rede').toMatch(/não usa rede/);
   });
 
-  it('o runbook diz como instalar as units, e em que ordem', () => {
+  it('o runbook manda abrir QUATRO regras, a faixa de relay incluída (C-5)', () => {
+    // Replaces the case about rrsync. This is the most expensive defect of phase 3
+    // to diagnose, and the runbook is where its two halves are named together:
+    // declaring the range without opening it and opening it without declaring it
+    // produce THE SAME SYMPTOM — the relay authenticates, hands the browser an
+    // address, and the traffic never arrives.
     const readme = read('README.md');
-    for (const unit of ['dg2.service', 'litestream.service',
-                        'cert-check.service', 'cert-check.timer']) {
-      expect(readme, `o runbook não menciona ${unit}`).toContain(unit);
+    for (const rule of ['3478/udp', '3478/tcp', '5349/tcp', '49200']) {
+      expect(readme, `o runbook não manda abrir ${rule}`).toContain(rule);
     }
-    // litestream replicates the database dg2.service creates, so it is enabled
-    // after it; the ordered list in §10 is the only place that is written down.
-    expect(readme).toContain('systemctl enable --now dg2');
-    expect(readme).toContain('daemon-reload');
+    // The two halves named in the SAME paragraph, which is the requirement: split
+    // across sections, a reader does one and believes they are done.
+    const para = read('README.md').split(/\n\s*\n/).find((p) => p.includes('49200'));
+    expect(para, 'o parágrafo da faixa não existe').toBeTruthy();
+    expect(para!, 'o parágrafo da faixa não nomeia o sintoma das duas metades')
+      .toMatch(/min-port/);
+    expect(para!).toMatch(/mesmo sintoma/);
   });
 
-  it('o runbook manda tornar root dono do que a chave de deploy não pode reescrever', () => {
-    // CR-01, segunda metade. §4 afirma que dg2-deploy é "dono da árvore de
-    // releases e de nada mais", e o runbook nunca mandava fazer isso ser
-    // verdade. O wrapper valida o argv; sem estes passos a validação é a única
-    // camada, e a authorized_keys da própria chave fica gravável por ela.
+  it('o runbook põe o alarme de 30 dias do certificado no monitor externo (D2-16)', () => {
+    // Replaces the case about §9 having stopped scheduling the 443. The capability
+    // this one guards is the one D2-30 took away: the local certificate check died
+    // because the certificate became Traefik's, AND Let's Encrypt ended its expiry
+    // e-mail — so nobody warns for free any more. The threshold MOVED OWNER, from a
+    // unit on this box to a third-party panel, and if that service is ever swapped
+    // the threshold has to travel with it. That sentence is the assertion.
     const readme = read('README.md');
-    for (const step of [
-      'chown root:root ~dg2-deploy/.ssh',
-      'chown -R root:root /srv/dg2/bin',
-      'chown -R root:root /srv/dg2/node_modules',
-      'chmod 1775 /srv/dg2',
-    ]) {
-      expect(readme, `o runbook não manda: ${step}`).toContain(step);
-    }
-    // O sticky bit não é enfeite: sem ele, escrita em /srv/dg2 (que a troca
-    // atômica de symlink exige) permite RENOMEAR /srv/dg2/bin e desfazer o
-    // passo dos scripts de dono root.
-    expect(readme).toContain('StrictModes');
+    expect(readme, 'o runbook não registra o limiar de 30 dias').toContain('30 dias');
+    expect(readme, 'o runbook não diz que o alarme trocou de dono').toMatch(/mudou de dono/);
+    // Both legs of the one remaining monitor: availability by keyword AND
+    // certificate expiry. One without the other is half a replacement.
+    expect(readme.toLowerCase()).toContain('keyword');
   });
 
-  it('o runbook registra o rrsync como a opção mais forte, com o motivo de não usá-lo', () => {
-    // Não é "veja também": é a alternativa que este repositório recusou por um
-    // motivo datado (o caminho depende da distribuição e a caixa não existe),
-    // e registrar o motivo é o que permite reconsiderar quando ele deixar de
-    // valer, em vez de a decisão virar hábito.
+  it('o runbook escreve que o Docker tenta para sempre onde o systemd parava (P-9)', () => {
+    // THE DECLARED LOSS, AND THE CASE EXISTS SO THAT IT STAYS DECLARED. The
+    // retired unit gave up after a few starts and reached `failed`, which was the
+    // first link of the D2-16 alarm chain. Compose has no equivalent and inventing
+    // a supervisor contradicts D2-22, so a broken migration is now an INVISIBLE
+    // restart loop — and what closes the alarm chain became the healthcheck plus
+    // the external monitor (T-2-LOOP, accepted).
     const readme = read('README.md');
-    expect(readme).toContain('rrsync');
-    expect(readme).toContain('/usr/share/doc/rsync/scripts/rrsync');
+    expect(readme, 'o runbook não escreve a diferença de supervisão')
+      .toMatch(/o Docker tenta para sempre/);
+    expect(readme).toMatch(/`failed`/);
+    expect(readme, 'o runbook não nomeia o que fechou a corrente de alarme')
+      .toContain('healthcheck');
   });
 
-  it('o runbook registra que o ensaio de restauração NÃO vira timer (D2-03)', () => {
+  it('o ensaio de restauração roda num contêiner descartável, e NÃO vira timer (D2-03)', () => {
+    // The case survives in purpose and changes in environment. "Ambiente limpo" is
+    // the literal text of the phase criterion, and it stopped being a temporary
+    // directory on the same machine: it is a new container, with both volumes
+    // mounted read-only and the entrypoint overridden, because the image already
+    // carries the litestream binary, the sqlite3 CLI and the config.
     const readme = read('README.md');
-    expect(readme).toContain('node tools/ops/restore-verify.mjs');
+    expect(readme).toContain('restore-verify.mjs');
     expect(readme).toContain('D2-03');
-  });
-
-  it('§9 deixou de agendar a 443 e passou a decidi-la', () => {
-    const readme = read('README.md');
-    expect(readme, '§9 ainda diz que a 443 está no calendário')
-      .not.toContain('Agendado para a fase 3');
-    // A decisão, e a saída nomeada para o dia em que a dívida for cobrada.
-    expect(readme).toContain('layer4');
+    // The container, spelled with the three properties that make it a clean room:
+    // disposable, read-only, and not running the image's normal entrypoint.
+    expect(readme).toContain('--rm');
+    expect(readme).toContain('--entrypoint node');
+    expect(readme, 'o ensaio não monta os volumes em somente-leitura').toMatch(/:ro\b/);
+    // And the refusal that D2-03 decided: no recurring timer on a box with nobody
+    // on call. An unattended drill failing in silence is WORSE than no drill,
+    // because it was counted as one.
+    expect(readme).toMatch(/recusa o timer recorrente/);
   });
 
   it('§12 é executável por um operador que nunca viu um coturn', () => {
@@ -951,40 +1029,59 @@ describe('ops/README.md', () => {
       // copiado no lugar errado, ele é um arquivo inerte e nada avisa.
       'coturn.service.d',
       'daemon-reload',
-      // As três portas do firewall. Sem elas o relay sobe e ninguém o alcança.
-      '3478/udp',
-      '3478/tcp',
-      '5349/tcp',
       // E conferir de verdade, porque ProtectSystem=strict pode recusar o start.
       'systemctl enable --now coturn',
       'systemctl status coturn',
     ]) {
       expect(readme, `§12 não manda: ${step}`).toContain(step);
     }
+    // A versão é a do distribuidor, e isso é ESCOLHA: ele mantém as correções de
+    // segurança e a unit. Sem a frase, a próxima pessoa "atualiza" para a última
+    // do projeto e passa a manter a unit à mão.
+    expect(readme, '§12 não registra de quem é a versão instalada')
+      .toMatch(/distribuidor do Debian/);
+    expect(readme).toContain('no-cli');
   });
 
-  it('§12 escreve que o segredo mora em DOIS arquivos (T-3-11)', () => {
-    // O sintoma de trocar num só é "um amigo específico nunca entra", que é
-    // indistinguível de NAT ruim — e por isso capaz de custar uma noite. O
-    // runbook é o único lugar onde as duas metades aparecem juntas.
+  it('§12 escreve que o segredo mora em DOIS lugares (T-3-11)', () => {
+    // SURVIVED INTACT, AND O NÚMERO MÍNIMO NÃO DESCE. O sintoma de trocar num só
+    // é "um amigo específico nunca entra", que é indistinguível de NAT ruim — e
+    // por isso capaz de custar uma noite. O runbook é o único lugar onde as duas
+    // metades aparecem juntas.
+    //
+    // O que mudou é só a natureza do segundo lugar: era outro arquivo na mesma
+    // máquina, e agora é um painel web (D2-29). A dessincronização ficou MAIS
+    // fácil, não menos, porque os dois lugares deixaram de ser do mesmo tipo.
     const readme = read('README.md');
     expect(readme).toContain('static-auth-secret');
-    // Nomeada nas duas pontas: a tabela de §5 e o passo 4 de §12.
     expect(readme.split('\n').filter((l) => l.includes('DG2_TURN_SECRET')).length,
       'DG2_TURN_SECRET aparece em menos de dois lugares').toBeGreaterThanOrEqual(2);
-    // A consequência, escrita. Sem o sintoma nomeado, a seção vira inventário.
     expect(readme).toContain('um amigo específico nunca entra');
-    // E o restart, porque §6 já registra que reload não relê o EnvironmentFile.
-    expect(readme).toContain('systemctl restart dg2');
+    // E o ato que aplica a troca do lado do app. Não é mais um `restart` de unit:
+    // o contêiner só lê variável de ambiente quando é recriado, e uma chave nova
+    // que nenhum processo releu é uma chave que não existe.
+    expect(readme).toContain('systemctl restart coturn');
+    expect(readme, '§12 não diz como o lado do app relê a chave')
+      .toMatch(/redeploy o recurso/);
   });
 
-  it('§12 amarra o orçamento de memória ao drop-in que o aplica (D2-19)', () => {
-    // §10 reservava ~128 MB para o coturn em prosa, sem nada que o impusesse.
-    // Este caso é o que mantém o parágrafo e o limite de cgroup em acordo.
+  it('§12 amarra o orçamento de memória ao drop-in que o aplica, e a cota à faixa', () => {
+    // O teto de cgroup continua sendo o mesmo par. O que mudou é a COTA: o plano
+    // 02-04 baixou `total-quota` de 1200 para 100 ao declarar a faixa de relay de
+    // cem portas, e o runbook carregava o número antigo — duas afirmações sobre o
+    // mesmo limite, uma delas falsa. Este caso compara o runbook com o arquivo que
+    // manda, em vez de com um literal escrito aqui.
     const readme = read('README.md');
     expect(readme).toContain('MemoryHigh=96M');
     expect(readme).toContain('MemoryMax=128M');
-    expect(readme).toContain('total-quota=1200');
+    const quota = /^total-quota=(\d+)$/m.exec(code('turnserver.conf'));
+    expect(quota, 'ops/turnserver.conf não declara total-quota').not.toBeNull();
+    expect(readme, `o runbook não carrega o total-quota real (${quota![1]})`)
+      .toContain(`total-quota=${quota![1]}`);
+    // E o orçamento da caixa: não é a VPS de 2 GB que D2-19 supunha, é uma máquina
+    // partilhada com produção de outro projeto. O motivo do limite sobreviveu; o
+    // número de referência, não.
+    expect(readme, '§12 ainda descreve a caixa de 2 GB').toMatch(/não é a VPS de 2 GB/);
   });
 });
 
@@ -1255,7 +1352,30 @@ const PUBLIC_ARTIFACT_HOSTS = new Set(['ghcr.io', 'github.com']);
  * Token exactness, as with the reserved ranges: the exact path is excused, a
  * neighbouring path is not.
  */
-const CONTAINER_INTERNAL = new Set(['/var/lib/dg2/dg2.db', 'api:8080']);
+const CONTAINER_INTERNAL = new Set([
+  '/var/lib/dg2/dg2.db',
+  'api:8080',
+  // The replica directory, and it is a literal for a REASON THAT IS THE WHOLE
+  // POINT OF D2-33 rather than for convenience: the must-have is that the replica
+  // lives on a PERSISTENT VOLUME, and a value only the panel knows is a value no
+  // test can compare against a volume mount. The silent failure this buys a guard
+  // against — a replica in a container layer, erased by the first redeploy with no
+  // error — is worth one more exact token.
+  '/var/lib/dg2-replica/dg2',
+]);
+
+/**
+ * The four bucket keys D2-33 revoked, swept for across the whole subsystem by the
+ * block below.
+ *
+ * Named rather than inlined because the list has to be the SAME four in both
+ * places it is checked — here and in ops/litestream.yml's own block — and the
+ * list is the kind of thing that gets three of four entries on a rewrite.
+ */
+const REVOKED_BUCKET_KEYS = [
+  'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
+];
 
 /**
  * The ONLY IP literals allowed into ops/: the loopback, the bind address the
@@ -1422,7 +1542,7 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
     expect(bad).toEqual([]);
   });
 
-  it('nenhuma chave de /etc/dg2/env aparece com valor literal', () => {
+  it('nenhuma chave de configuração do app aparece com valor literal', () => {
     // The generalisation of the credential assertion below to all eight keys,
     // and to the two syntaxes that carry them. A key may be NAMED anywhere;
     // what it may never be is ASSIGNED.
@@ -1463,40 +1583,38 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
     expect(bad).toEqual([]);
   });
 
-  it('nenhuma credencial aparece com valor', () => {
-    // A key may be NAMED anywhere; what it may never be is assigned. An empty
-    // right-hand side or an interpolation is fine — a literal is the leak.
-    const bad: string[] = [];
-    for (const [path, src] of scanned()) {
-      for (const line of src.split('\n')) {
-        const m = /AWS_SECRET_ACCESS_KEY=(.*)$/.exec(line);
-        if (!m) continue;
-        const value = m[1].trim();
-        if (value !== '' && !/^\$\{[^}]*\}$/.test(value)) bad.push(`${path}: ${line.trim()}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('toda linha que nomeia uma credencial traz o ${...} junto', () => {
-    // The stricter, syntax-blind form of the assertion above, and the reason
-    // ops/README.md §5 spells the interpolated form inside the table instead of
-    // merely naming the key. It makes
+  it('nenhuma variável de bucket é nomeada em lugar nenhum do subsistema (D2-33)', () => {
+    // THIS REPLACED TWO ASSERTIONS THAT WENT VACUOUS, AND THE REPLACEMENT IS
+    // STRICTLY STRONGER. They required that a line naming a bucket credential also
+    // carry a `${...}`, so that
     //
     //   grep -rn 'AWS_SECRET_ACCESS_KEY' ops/ | grep -v '\${'
     //
-    // a leak detector that needs no judgement to read: ANY output is a finding.
-    // The `=` regex above cannot see a YAML mapping, a JSON value or a here-doc,
-    // and a credential does not care which syntax leaked it.
+    // was a leak detector needing no judgement to read. D2-33 revoked the bucket
+    // before any of it was ever set: no bucket exists, no provider credential
+    // exists, and the Litestream replica is a path on this box. With the keys gone
+    // from ops/, both assertions passed over an empty haystack — which is exactly
+    // the WR-14 shape this file exists to refuse.
+    //
+    // So the rule became an ABSENCE instead of a syntax requirement: the four names
+    // appear NOWHERE. That is the must-have of D2-33 turned into a command, and the
+    // reason it is worth a case of its own is the failure it prevents — a revoked
+    // variable surviving in a table or a comment sends an operator hunting for a
+    // credential nobody ever created, and then creating one.
+    //
+    // NOT comment-stripped: a name in a comment misleads exactly as well.
+    //
+    // docs/OPERACAO.md is deliberately NOT covered here. It NAMES the four, in the
+    // paragraph explaining that they were revoked — which is the right place for
+    // that sentence, and it keeps its own stricter assertion that none of them is
+    // ever followed by a value.
     const bad: string[] = [];
     for (const [path, src] of scanned()) {
-      for (const line of src.split('\n')) {
-        for (const key of ['AWS_SECRET_ACCESS_KEY', 'AWS_ACCESS_KEY_ID']) {
-          if (line.includes(key) && !line.includes('${')) bad.push(`${path}: ${line.trim()}`);
-        }
+      for (const key of REVOKED_BUCKET_KEYS) {
+        if (src.includes(key)) bad.push(`${path}: ${key}`);
       }
     }
-    expect(bad).toEqual([]);
+    expect(bad, 'uma variável de bucket sobreviveu a D2-33').toEqual([]);
   });
 });
 

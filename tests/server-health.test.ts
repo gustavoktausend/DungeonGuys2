@@ -19,7 +19,7 @@ import { openDb } from '../apps/server/src/db/open';
 import { provider } from '../apps/server/src/db/migrations';
 import { createApp } from '../apps/server/src/app';
 
-/** A git-sha-shaped release, as ops/deploy.sh would put in DG2_RELEASE. */
+/** A git-sha-shaped release, as the image tag puts in DG2_RELEASE. */
 const RELEASE = 'a1b2c3d';
 
 /**

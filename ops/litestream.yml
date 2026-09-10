@@ -32,12 +32,12 @@
 # against losing the box — same disk, both copies. Registered choice, written in
 # ops/README.md §11 rather than discovered.
 #
-# WHERE THE VALUE OF THE REFERENCE BELOW COMES FROM. It used to be /etc/dg2/env,
-# root-owned and 0600, read by systemd before the process dropped privilege.
-# There is no such file and no such unit: the app's configuration now lives in the
-# Coolify panel as the resource's environment variables (D2-29), and
-# ops/docker-compose.yml is what declares WHICH keys exist while the panel decides
-# what they are worth. Nothing in this file is a secret, and that is a property to
+# WHERE THE VALUE OF THE REFERENCE BELOW COMES FROM. It used to be a root-owned
+# env file on the host, 0600, read by systemd before the process dropped
+# privilege. There is no such file and no such unit: the app's configuration lives
+# in the Coolify panel as the resource's environment variables (D2-29), and
+# ops/docker-compose.yml declares WHICH keys exist while the panel decides what
+# they are worth. Nothing in this file is a secret, and that is a property to
 # preserve — a literal here would be a value in public git history, which no later
 # commit can undo (D2-15, T-2-SECRET).
 dbs:
