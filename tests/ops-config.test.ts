@@ -14,6 +14,10 @@
 //   D2-07 rollback touches no database, or reverting code reverts data
 //   D2-15 no secret and no address ever enters the repository
 import { describe, it, expect } from 'vitest';
+// devDependency only — the published game keeps `dependencies: {}` (CLAUDE.md
+// invariant). It is here because a regex cannot tell "valid YAML" from "prose
+// that looks like YAML", and that difference took production down once.
+import { parse } from 'yaml';
 // The one import from apps/ in this file, and it carries the phase's only
 // number that has to agree across a process boundary: the container's stop
 // deadline — `stop_grace_period` in ops/docker-compose.yml — must sit ABOVE the
@@ -400,9 +404,25 @@ function composeVolumes(): string[] {
  * format`, which names nothing.
  */
 const TAG_EXPR =
-  '${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}';
+  '${DG2_IMAGE_TAG:?defina a tag no painel com o sha de commit de 40 hex que o job image publicou}';
 
 describe('ops/docker-compose.yml e as duas imagens', () => {
+  it('é YAML válido e o parser encontra os dois serviços', () => {
+    // THE ASSERTION WHOSE ABSENCE COST A PRODUCTION OUTAGE ON 2026-09-10. Every
+    // other check in this block reads the composition with a REGEX, and a regex
+    // is happy with a file no YAML parser will accept: the required-variable
+    // message gained a `: ` inside an unquoted plain scalar, which is a mapping
+    // indicator, and all 65 assertions stayed green while Coolify reported
+    // `no service selected` and both containers stayed down.
+    //
+    // Parsing is the only check that cannot be fooled by well-formed prose. It
+    // runs FIRST in this block on purpose: when the file stops being YAML, this
+    // is the failure worth reading, and the regex assertions below become noise.
+    const doc = parse(code('docker-compose.yml')) as { services?: Record<string, unknown> };
+    expect(doc, 'a composição não é YAML válido').toBeTypeOf('object');
+    expect(Object.keys(doc.services ?? {}).sort(), 'os dois serviços').toEqual(['api', 'web']);
+  });
+
   it('não declara o par de relay, porque Compose não sabe dizer "ausente"', () => {
     // MEASURED IN A REAL CONTAINER, not read off the spec. `- KEY=${VAR}` with
     // VAR undefined renders `KEY: ""` and the container receives the key PRESENT

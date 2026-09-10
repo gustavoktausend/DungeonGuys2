@@ -93,7 +93,7 @@ services:
   # The service that holds the hostname. It serves static files and forwards;
   # it opens no database and mounts no volume.
   web:
-    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
+    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG:?defina a tag no painel com o sha de commit de 40 hex que o job image publicou}
     # The line that makes the rollback of D2-24 use no network: Docker only
     # fetches from the registry what is not already on disk. New tag, it pulls;
     # previous tag, no network at all — which is the scenario the rollback exists
@@ -114,7 +114,7 @@ services:
     cpus: 0.5
 
   api:
-    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
+    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG:?defina a tag no painel com o sha de commit de 40 hex que o job image publicou}
     pull_policy: missing
     restart: unless-stopped
     # DM-13 and C-4. The Node process drains for up to SHUTDOWN_GRACE_MS and ONLY
@@ -150,7 +150,7 @@ services:
       # and the health route reports one release while the container runs another,
       # turning the deploy check into a check of nothing. A test compares the
       # three occurrences to each other rather than to a literal of its own.
-      - DG2_RELEASE=${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
+      - DG2_RELEASE=${DG2_IMAGE_TAG:?defina a tag no painel com o sha de commit de 40 hex que o job image publicou}
       - DG2_ORIGIN=${DG2_ORIGIN}
       # Where Litestream writes the replica. Inside the second volume above, and
       # a test asserts that containment rather than trusting this line.
