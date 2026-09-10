@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 02-04 concluído — A1 provada, primeiro certificado válido, as quatro regras de UFW abertas
-last_updated: "2026-09-10T14:33:29.478Z"
+stopped_at: 02-13 concluído — DG2_BIND com padrão em loopback (DM-9) e o Caddyfile de contêiner com trusted_proxies (DM-10), prova por remoção registrada
+last_updated: "2026-09-10T15:13:54.495Z"
 last_activity: 2026-09-10
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 40
-  completed_plans: 35
+  completed_plans: 36
   percent: 11
 ---
 
@@ -27,11 +27,17 @@ mundo, com o jogo respondendo na hora para cada um.
 ## Current Position
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
-Plan: 2 of 15
+Plan: 14 of 15
 Status: Ready to execute
 Last activity: 2026-09-10
 
-Progress: [█████████░] 88%
+> **A fase 02 roda por WAVE, não por número de plano**, e o contador de plano do
+> GSD não sabe disso: `state advance-plan` incrementa de um em um. Concluídos:
+> 02-01 a 02-11 e **02-13** (wave 9). Faltam **02-14** (wave 10), **02-15**
+> (wave 11) e **02-12**, que é o de portão humano contra a caixa. O número acima
+> aponta o próximo a executar, corrigido à mão depois do 02-13.
+
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -46,13 +52,14 @@ Progress: [█████████░] 88%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 14 | - | - |
-| 02 | 11 | - | - |
+| 02 | 12 | - | - |
 
 **Por plano, quando medido:**
 
 | Plano | Duração | Tarefas | Arquivos |
 |-------|---------|---------|----------|
 | 02-04 | ~120 min (com portão humano no meio) | 3 | 5 |
+| 02-13 | ~25 min | 2 (3 commits: RED/GREEN + Task 2) | 6 modificados, 1 criado |
 
 **Recent Trend:**
 
@@ -96,6 +103,10 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
 - [2026-09-10] 02-04: o disparo do deploy é clique no painel pelo túnel (clique-painel); o critério 4 fecha como procedimento documentado e reversível, não como um comando (D2-32). tools/ops/deploy.mjs não nasce e nenhum token de API do Coolify é criado
 - [2026-09-10] A1 PROVADA contra a caixa: o Coolify aceita composição de dois serviços vinda do repositório, fez pull e não build, e o Traefik emitiu o primeiro certificado do Let's Encrypt (expira 2026-12-08). O plano 02-14 mantém a forma planejada
 - [2026-09-10] D2-24 fica NÃO-VERIFICADA: a limpeza automática de imagens do Coolify não foi lida, por decisão, então 'a imagem anterior já está no disco' é suposição até o 02-12 exercitar a reversão
+- [2026-09-10] 02-13: `DG2_BIND` é configuração com padrão em loopback; o valor `0.0.0.0` existe só no compose do 02-14, e a segurança dele depende da asserção estrutural "nenhum serviço declara `ports:`" (T-2-BIND). Sem validação de formato, de propósito e asserido — o legítimo é o que `listen(2)` aceita
+- [2026-09-10] 02-13: o `ops/Caddyfile` não declara domínio e não termina TLS — a 443 é do Traefik do Coolify. Endereço do site `http://:8080`, upstream pelo nome de serviço `api` do compose, raiz do estático `/srv/www` **dentro da imagem** (o 02-14 copia o `dist/` para lá)
+- [2026-09-10] 02-13: `trusted_proxies static private_ranges` fecha a metade que faltava de DM-10 — provado por remoção: apagar a linha deixa **exatamente 1** teste vermelho e os outros 935 casos intactos
+- [2026-09-10] 02-13: `/etc/dg2/env` sobrevive em `apps/server/src/env.ts` (5×, incluindo as quatro mensagens de erro), `health.ts` e dois testes — **adiado por decisão** (DEF-02-01): a mensagem é contrato de `ops/README.md` §1, que o 02-14 reescreve, e corrigir metade recria a contradição que o 02-13 existe para remover
 
 ### Pending Todos
 
@@ -271,9 +282,9 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-10T14:33:29.463Z
-Stopped at: 02-04 concluído — A1 provada, primeiro certificado válido, as quatro regras de UFW abertas
-Resume file: .planning/phases/02-migra-o-para-a-vps/02-13-PLAN.md
+Last session: 2026-09-10T15:13:54.482Z
+Stopped at: 02-13 concluído — DG2_BIND com padrão em loopback (DM-9) e o Caddyfile de contêiner com trusted_proxies (DM-10), prova por remoção registrada
+Resume file: None
 
 Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` está **concluído**
 (`004a8bd`, `0608fee`, `ec56b2f`; `02-04-SUMMARY.md` com Self-Check PASSED). Portões depois dele:
@@ -284,11 +295,14 @@ Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` e
 - **A1 provada.** O Coolify aceita composição de **dois serviços** vinda do repositório público,
   descobre os dois e atribui o domínio ao `web`; fez **`pull` e não `build`** (C-7). O `02-14`
   **mantém a forma planejada** — a alternativa "Docker Compose Empty" não é necessária.
+
 - **O primeiro certificado válido existe** (Let's Encrypt, pelo Traefik do Coolify), 200 por HTTPS
   e 302 de HTTP. O 503 do catchall morreu. **INFRA-01 fechado.** O certificado **expira em
   2026-12-08**, e o alarme de 30 dias ainda não existe (é do `02-12`).
+
 - **As quatro regras de UFW do coturn estão abertas, em v4 e v6**, com a faixa `49200:49299/udp`
   casada com `ops/turnserver.conf`. A dependência de infraestrutura do `03-11` **caiu**.
+
 - **A forma do disparo é `clique-painel`** e o critério 4 tem leitura escrita: *procedimento
   documentado e reversível, não um comando* (D2-32). `tools/ops/deploy.mjs` **não existe**, e por
   isso os globs de `ops-config` terminam o `02-14` com **nove** entradas, não dez.
@@ -300,6 +314,7 @@ Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` e
   `s3` para `file` e declara **dois** volumes; o `02-12` prova que a réplica **sobrevive a um
   redeploy**. A garantia off-site cai por escolha registrada, e a T9 do infraKring não é fechada
   por esta fase. D2-23 foi reafirmada no mesmo portão: o integrador constrói e publica no GHCR.
+
 - **A limpeza automática de imagens não foi lida**, por decisão. **D2-24 fica NÃO-VERIFICADA** — a
   reversão por imagem local é suposição até o `02-12` exercitá-la.
 

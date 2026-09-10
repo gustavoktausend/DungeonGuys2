@@ -162,7 +162,7 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 02-13-PLAN.md — O delta de código que a containerização exige: `DG2_BIND` com padrão em loopback (DM-9) e o `Caddyfile` de contêiner com `auto_https off`, `admin off` e `trusted_proxies` (DM-10)
+- [x] 02-13-PLAN.md — O delta de código que a containerização exige: `DG2_BIND` com padrão em loopback (DM-9) e o `Caddyfile` de contêiner com `auto_https off`, `admin off` e `trusted_proxies` (DM-10)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
@@ -528,7 +528,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 11/15 | In Progress|  |
+| 2. Migração para a VPS | 12/15 | In Progress|  |
 | 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |

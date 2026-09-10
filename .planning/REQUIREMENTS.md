@@ -201,9 +201,9 @@ Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 | FORM-11 | Phase 1 | Complete |
 | FORM-12 | Phase 1 | Partial (clausula testavel completa; topologia e tabela de input na Phase 3) |
 | INFRA-01 | Phase 2 | Complete |
-| INFRA-02 | Phase 2 | Pending |
-| INFRA-03 | Phase 2 | Pending |
-| INFRA-04 | Phase 2 | Partial (02-04: a reversao por imagem local e o caminho de replica existem em decisao; falta o 02-12 -- ensaio de restauracao, supervisao do conteiner real e a prova de que a replica sobrevive a um redeploy) |
+| INFRA-02 | Phase 2 | Partial (02-13: a politica de cache e a raiz do estatico estao corretas para a imagem do conteiner; "instalavel e funcional offline servido da VPS" exige navegador contra a caixa -- 02-12) |
+| INFRA-03 | Phase 2 | Partial (02-13: o `/api/*` continua atravessando o Caddy sem cache e com `no-store` no 503; a asserção sobre o service worker e a prova em navegador sao do 02-12) |
+| INFRA-04 | Phase 2 | Partial (02-04: a reversao por imagem local e o caminho de replica existem em decisao; 02-13: `DG2_BIND` e o Caddyfile de conteiner tornam o par de servicos alcancavel entre si, que e pre-requisito do deploy funcionar; falta o 02-12 -- ensaio de restauracao, supervisao do conteiner real e a prova de que a replica sobrevive a um redeploy) |
 | SALA-01 | Phase 3 | Pending |
 | SALA-02 | Phase 3 | Pending |
 | SALA-03 | Phase 3 | Pending |
