@@ -1332,11 +1332,17 @@ const OPERACAO_SECOES = [
   'Limpeza automática de imagens do servidor',
   'Primeiro certificado e prova de A1',
   'Firewall do coturn',
-  // Plan 02-12.
+  // Plan 02-12, against the live box.
+  'Primeira promoção real',
   'Ensaio de restauração',
   'Monitor externo',
-  // Stays open past the end of the phase, on purpose (D2-11).
-  'O que esta fase deliberadamente não cobre',
+  // Renamed by plan 02-12. It used to be only about what the phase never meant
+  // to cover (D2-11); it now also carries what the phase MEANT to cover and did
+  // not, with an owner and a return condition for each. The two kinds are told
+  // apart INSIDE the section, because a verifier that cannot distinguish a
+  // registered decision from an unfinished job either fails the phase over a
+  // decision or passes it over a gap.
+  'O que continua aberto ao fim do plano 02-12',
 ];
 
 describe('docs/OPERACAO.md', () => {
@@ -1346,6 +1352,48 @@ describe('docs/OPERACAO.md', () => {
       const hits = doc.split('\n').filter((l) => l.startsWith(`## ${secao}`));
       expect(hits.length, `docs/OPERACAO.md não tem exatamente uma seção "## ${secao}"`).toBe(1);
     }
+  });
+
+  it('o registro está PREENCHIDO, não apenas esqueletado (plano 02-12)', () => {
+    // THE DIFFERENCE THIS CASE EXISTS FOR. Plan 02-04 opened the sections and
+    // asserted they EXISTED; that was right then and is vacuous now, because a
+    // heading with a placeholder under it satisfies it. What follows demands the
+    // numbers that only a run against the box could produce — a duration, three
+    // cache values, a named assumption — so the document cannot slide back into
+    // being a list of intentions without turning this red.
+    const doc = readDoc();
+    const exige: Array<[string, RegExp]> = [
+      ['a duração do ensaio de restauração', /\b\d+(?:[.,]\d+)?\s*(?:ms|s)\b/],
+      ['o cache imutável dos ativos com hash', /max-age=31536000, immutable/],
+      ['o cache revalidado dos nomes estáveis', /max-age=0, must-revalidate/],
+      ['o cache do índice', /\bno-cache\b/],
+      ['a suposição A10, nomeada', /\bA10\b/],
+      ['o sha que foi promovido', /\b[0-9a-f]{40}\b/],
+      ['a data de expiração do certificado', /\b2026-12-08\b|Dec\s+8[^\n]*2026/],
+    ];
+    const faltando = exige.filter(([, re]) => !re.test(doc)).map(([q]) => q);
+    expect(faltando, 'docs/OPERACAO.md não carrega').toEqual([]);
+  });
+
+  it('o que ficou por fazer tem DONO, e não some por parecer feito', () => {
+    // The half of the record that is easiest to lose, and the most expensive to
+    // lose. Three success criteria of phase 02 did not close, and a document that
+    // reads as a victory lap is how they stop being anybody's job. This asserts
+    // the shape that keeps them findable: the section names the deadline the
+    // certificate imposes on the monitor, and says out loud that the phase is
+    // incomplete.
+    //
+    // It deliberately does NOT assert the absence of the word "pendente". Plan
+    // 02-12 planned for that assertion, and it would be wrong here: the monitor
+    // really is pending, and a green suite bought by deleting the marker is the
+    // exact failure this whole document exists to prevent.
+    const doc = readDoc();
+    expect(doc, 'não nomeia o prazo de 30 dias do certificado').toMatch(/30 dias/);
+    expect(doc, 'não nomeia a data em que o alarme do certificado deveria soar')
+      .toMatch(/2026-11-08/);
+    expect(doc, 'não diz que a fase fecha incompleta').toMatch(/INCOMPLETA/);
+    expect(doc, 'não separa decisão registrada de pendência')
+      .toMatch(/NÃO são pendências/);
   });
 
   it('aponta para PARIDADE e reconcilia o critério 4 do roadmap por escrito', () => {
@@ -1396,9 +1444,19 @@ describe('docs/OPERACAO.md', () => {
     // uses `:` for apposition, and `LITESTREAM_BUCKET: o bucket da réplica` is
     // a sentence and not a leak. What a pasted panel row or an env dump carries
     // is the `=` form, and that is the shape this assertion is for.
+    //
+    // CONTAINER-INTERNAL VALUES ARE EXCUSED HERE BY THE SAME EXACT-TOKEN RULE THE
+    // ops/ BLOCK ALREADY APPLIES, and for the same reason: they are assignments,
+    // which is what this assertion rules on, and they are not addresses, which is
+    // what D2-15 forbids. What made the excusal necessary here too is that the
+    // record now PASTES the rehearsal command, and that command must carry
+    // `-e DG2_REPLICA_PATH=…` or it does not run — measured on the box, where its
+    // absence was the first failure of the procedure. A record that cannot show
+    // the command that works is a record of a procedure nobody can repeat.
     const doc = readDoc();
     const bad: string[] = [];
     for (const line of doc.split('\n')) {
+      if ([...CONTAINER_INTERNAL].some((t) => line.includes(t))) continue;
       const clean = stripInterpolations(line)
         .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
       for (const key of ENV_KEYS) {

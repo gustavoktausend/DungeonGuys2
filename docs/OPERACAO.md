@@ -264,33 +264,281 @@ reabrir às cegas só as três portas base — que é o que o `user_setup` dele 
 ajuste continua pendente. As regras são inertes enquanto o coturn não estiver instalado, que é
 precisamente por que abri-las agora foi barato.
 
+## Primeira promoção real — 2026-09-10
+
+**Executada.** O jogo passou a servir do domínio próprio às 19:34 UTC, commit
+`9cba5c9b06e406c6ab04d5b46f290f0463d5b623`. Toda saída abaixo é colada; onde ela carregava o
+domínio, ele está trocado por `<DOMINIO>` e a troca está anotada aqui em vez de a linha sumir.
+
+### Quatro tentativas, três falhas, e as três causas
+
+O registro só vale se disser o que deu errado. A composição de prova do 02-04 foi removida pelo
+primeiro deploy e nada a substituiu, então o domínio ficou em **503 entre 18:36 e 19:34**.
+
+| # | hora UTC | commit | erro | causa |
+|---|---|---|---|---|
+| 14 | 18:36 | `e9079df` | `invalid reference format` | `DG2_IMAGE_TAG` vazia no painel. A forma `${VAR}` simples rende `image: '...:'`, e o daemon responde sem nomear nada |
+| 15 | 19:10 | `849c1d2` | `invalid reference format` | tentativa de dar um padrão à tag, com `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}` |
+| 16 | 19:27 | `9c40f1c` | `no service selected` | `: ` na mensagem da variável obrigatória quebrou o YAML |
+| 17 | 19:34 | `9cba5c9` | — | **finished** |
+
+**A causa do 15 é a que vale registrar, porque a ideia parece boa e se anula sozinha.** Todo
+`${VAR}` da composição vira campo no painel (`D2-29`). Referenciar `${SOURCE_COMMIT}` faz o
+Coolify **criar** uma variável vazia com esse nome — e o job de deploy dele injeta o commit de
+verdade **só quando a aplicação não tem variável assim**. A referência cria a linha; a linha
+suprime a injeção; a injeção era o objetivo inteiro. Lido na fonte do Coolify na caixa e
+confirmado no banco dele. **Não tente de novo:** a tag é digitada à mão, e a alavanca de `D2-24`
+é justamente essa digitação.
+
+A causa do 16 foi de método, e mais barata de contar do que de repetir: a forma `:?` foi medida
+num arquivo isolado onde o valor estava **entre aspas**, e aplicada sem aspas no arquivo real.
+Dois-pontos seguido de espaço, num escalar YAML sem aspas, é indicador de mapeamento:
+
+```
+yaml: line 96, column 83: mapping values are not allowed in this context
+```
+
+**E os 65 testes passaram.** Todo o bloco da composição a lia por regex, e regex aceita um arquivo
+que nenhum parser de YAML aceita. Corrigido: `yaml` entrou como devDependency e o primeiro caso do
+bloco parseia a composição e exige encontrar `api` e `web`.
+
+### Os pacotes do registro, puxados da caixa sem credencial
+
+Confirmado antes do deploy que **não existe** `~/.docker/config.json` do usuário de deploy nem
+`/root/.docker/config.json`. Com isso, da caixa:
+
+```
+dg2-web  Digest: sha256:97e503dd92bed819e8a2f3b066aa2284b88670c4ef1ddf9cdfdea8a11395007e    2s
+dg2-api  Digest: sha256:e103d809c416a6d13650314992f222d6d8baa3ddfa87f0a85a94c4996fa3669a   21s
+```
+
+A visibilidade pública também foi verificada de fora, com token anônimo do registro: manifesto
+HTTP 200 para os dois pacotes, sem nenhuma credencial.
+
+### O deploy: `pull` e nunca `build`
+
+```
+time="2026-09-10T19:35:04Z" level=warning msg="No services to build"
+Image ghcr.io/gustavoktausend/dg2-web:9cba5c9b06e406c6ab04d5b46f290f0463d5b623 Pulling
+Image ghcr.io/gustavoktausend/dg2-api:9cba5c9b06e406c6ab04d5b46f290f0463d5b623 Pulling
+Volume oagwo5ol1daqeyzcogxo84hs_dg2-data     Created
+Volume oagwo5ol1daqeyzcogxo84hs_dg2-replica  Created
+Container api-… Created → Container web-… Created → api-… Started → web-… Started
+```
+
+`C-7` fecha: nenhum build foi injetado. Os **dois volumes persistentes** nasceram, que é a
+asserção nova de `D2-33` — a réplica não caiu numa camada de contêiner. A ordem respeitou o
+`depends_on`.
+
+**Quais serviços o `up -d` recriou: os dois — mas esta medição NÃO confirma a previsão do plano
+02-14.** Este deploy partiu do zero, com os contêineres da composição de prova já removidos, então
+recriar ambos era inevitável. A previsão de que *todo* deploy recria os dois, inclusive um que só
+mexeu no cliente, só se testa num deploy subsequente que mude apenas a tag — e esse deploy é o da
+reversão, que está na lista de pendências abaixo. **Item de discrição ainda em aberto.**
+
+### O deploy pegou (o passo que prova que os bytes certos estão servindo)
+
+```
+$ curl -sS https://<DOMINIO>/api/health
+{"status":"ok","db":true,"release":"9cba5c9b06e406c6ab04d5b46f290f0463d5b623"}
+```
+
+Byte a byte o sha publicado. E `"db":true` é a prova da migração: a sonda de `apps/server/src/health.ts`
+**conta linhas em `kysely_migration`**, então um `true` na primeira requisição externa diz que a
+migração rodou antes de a primeira requisição ser aceita. É estrutural, não uma linha de log.
+
+**O boot registrou o estado de relay ausente, que é suportado e não um erro:**
+
+```
+{"event":"turn-disabled","detail":"DG2_TURN_SECRET ausente — ICE será emitido só com STUN, sem relay"}
+```
+
+Esse estado só é alcançável porque a composição **não declara** o par de relay. Declarado com
+interpolação, o Compose entrega a chave presente-e-vazia, e `optional()` recusa em branco de
+propósito — o servidor não subiria em configuração nenhuma. A composição carrega a medição.
+
+### O certificado
+
+```
+issuer=C=US, O=Let's Encrypt, CN=YR2
+subject=CN=<DOMINIO>
+notBefore=Sep  9 22:40:52 2026 GMT
+notAfter =Dec  8 22:40:51 2026 GMT
+```
+
+Emitido pelo ACME do Traefik do vizinho; a raiz responde 200 por HTTPS e o redirecionamento de
+HTTP devolve 302 para HTTPS. **É o mesmo certificado da composição de prova do 02-04** — a
+promoção não arrancou um novo, e não precisava: o hostname não mudou.
+
+### Os três `Cache-Control` contra o domínio real — a suposição A10, CONFIRMADA
+
+O Traefik do vizinho **não reescreve** a política de cache. Medido de fora, contra o domínio:
+
+| Recurso | `Cache-Control` observado |
+|---|---|
+| ativo com hash de conteúdo (`/assets/index-*.js` e `.css`) | `public, max-age=31536000, immutable` |
+| nome estável (`/icons/icon-192.png`) | `public, max-age=0, must-revalidate` |
+| índice (`/`) | `no-cache` |
+| `/manifest.json` | `no-cache` |
+
+**`A10` deixa de ser suposição.** Se o Traefik reescrevesse qualquer um dos três, `INFRA-02` e
+`INFRA-03` passariam a depender de uma correção que ninguém planejou.
+
+Os quatro cabeçalhos de segurança também atravessam intactos, e chegam **inclusive no 503** —
+`Content-Security-Policy`, `Strict-Transport-Security`, `Referrer-Policy` e
+`X-Content-Type-Options`, com `Via: 1.1 Caddy` provando que o nosso Caddy está na cadeia.
+
+### 404 honesto
+
+```
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Content-Length: 13
+
+404 Not Found
+```
+
+O corpo **não** é o índice, que é o que `DM-5` exige: um 404 que devolvesse o índice com 200 faria
+o service worker cachear uma página errada.
+
+### 503 legível por máquina, com o servidor parado
+
+Contêiner do `api` parado por ~40 s e subido de volta:
+
+```
+GET /                     -> 200      o estático continua no ar
+GET /assets/index-*.js    -> 200
+GET /api/health           -> 503      {"status":"unavailable"}   Content-Type: application/json
+```
+
+É o corpo que o monitor externo vai consumir por keyword. O `api` voltou em 8 s, `healthy`, com o
+`release` correto.
+
+### O vizinho, antes e depois
+
+`D-VPS-02` exige conferir. Linha de base tirada antes da primeira tentativa, releitura após o
+deploy 17 e após o teste de 503:
+
+| Item | Antes | Depois |
+|---|---|---|
+| Apps do infraKring | `Up 2 months` | `Up 2 months` — uptime não quebrou |
+| Stack do Coolify (6 contêineres) | todos `healthy` | todos `healthy` |
+| Load average | 0,73 / 0,75 / 0,58 | 0,65 / 0,68 / 0,51 |
+| RAM disponível | 5732 MB | 5683 MB (−49 MB) |
+| Disco usado | 9,2 G de 99 G | 9,9 G de 99 G (+0,7 G, as duas imagens) |
+
+Os limites da composição (96 MB no `web`, 320 MB no `api`) explicam a diferença de memória com
+folga. Nada do vizinho foi tocado, parado ou reconfigurado.
+
+### Imagens em disco, contra a retenção de 5
+
+```
+ghcr.io/gustavoktausend/dg2-api:9cba5c9…   532MB
+ghcr.io/gustavoktausend/dg2-web:9cba5c9…   89.1MB
+ghcr.io/gustavoktausend/dg2-api:e9079df…   532MB
+ghcr.io/gustavoktausend/dg2-web:e9079df…   89.1MB
+```
+
+**Duas tags por serviço**, que é o mínimo que a reversão de `D2-24` exige. Contra a retenção de 5
+fixada no runbook há folga, e a limpeza automática do servidor não removeu nada no intervalo
+observado. A imagem anterior está em disco — o que ainda **não** foi provado é que ela sobe com o
+registro inalcançável (ver pendências).
+
 ## Ensaio de restauração (D2-03)
 
-_(pendente — plano 02-12)_
+**Executado em 2026-09-10.** Contêiner descartável da imagem em produção, os **dois** volumes
+montados em somente-leitura, entrypoint sobrescrito para o Node:
 
-A entrada precisa ter: a **data** do ensaio, a **duração até restaurar**, e **o que faltou**.
-Backup que nunca foi restaurado não é backup, e é por isso que esta seção existe antes de ter
-conteúdo.
+```
+$ sudo docker run --rm \
+    -e DG2_REPLICA_PATH=/var/lib/dg2-replica/dg2 \
+    -v oagwo5ol1daqeyzcogxo84hs_dg2-data:/var/lib/dg2:ro \
+    -v oagwo5ol1daqeyzcogxo84hs_dg2-replica:/var/lib/dg2-replica:ro \
+    --entrypoint node ghcr.io/gustavoktausend/dg2-api:9cba5c9… \
+    /srv/tools/ops/restore-verify.mjs
 
-**O que `D2-33` mudou aqui, e o que ele não mudou.** A réplica passou a ser um caminho da própria
-caixa em vez de um bucket, então o ensaio roda **na caixa**, em diretório descartável, sobre a
-réplica `file`. O texto literal do critério 4 — "o backup do banco foi **restaurado** num ambiente
-limpo e o resultado da restauração está anotado" — **continua fechando**: o ambiente limpo é um
-contêiner novo com o volume montado somente para leitura, e `tools/ops/restore-verify.mjs` não
-muda uma linha (mesma consulta, mesmo `-readonly`, mesma janela). O que **não** fecha é a garantia
-off-site, e isso está escrito em § Variáveis do app no painel do Coolify, onde a decisão mora.
+restauração ok: gold_entry 0|0 confere com o vivo até rowid 0, 0 linha(s) de defasagem, em 0.1s
+```
 
-O 02-12 tem uma asserção a mais por causa de `D2-33`: **provar que a réplica sobreviveu a um
-redeploy**. Se o caminho da réplica cair numa camada de contêiner em vez de num volume
-persistente, o ensaio passa hoje e o backup desaparece no próximo deploy, sem avisar.
+**Duração:** 713 ms de parede, dos quais 0,1 s de restauração propriamente dita. **Código de
+saída:** 0. **Resíduo:** nenhum — `docker ps -a` não lista o contêiner descartável depois.
+
+### O que faltou, escrito porque a regra desta página manda
+
+**A comparação é vácua hoje, e contá-la como prova de dados seria mentira.** O ledger tem **zero
+linhas**, então a linha verde diz que 0 confere com 0. O que este ensaio provou foi o
+**mecanismo** — que a réplica existe no volume certo, que o litestream restaura a partir dela,
+que a imagem traz as três ferramentas de que o script precisa, e que o ambiente limpo é
+alcançável. O que ele **não** provou é que dados reais sobrevivem à volta, porque não há dados
+reais. Refazer o ensaio depois da primeira partida com escrita no ledger é o que converte isso em
+prova, e fica na lista de pendências abaixo.
+
+### O defeito que o ensaio encontrou, e que existia no runbook
+
+A **primeira** execução falhou:
+
+```
+tools/ops/restore-verify.mjs:/: litestream restore falhou:
+Error: file replica path required
+```
+
+O comando documentado em `ops/README.md` §11 **não passava `DG2_REPLICA_PATH`**. A composição
+entrega essa variável ao serviço `api`, mas um `docker run` avulso não herda nada dela, e o
+litestream resolvia o destino para vazio. A mensagem fala de **configuração** e não de backup, o
+que manda o leitor investigar o lugar errado. Corrigido no runbook, com uma asserção que compara o
+comando ao valor que a composição declara — provada por remoção.
+
+É exatamente o tipo de coisa que `D2-03` existe para pegar: um procedimento de restauração que
+ninguém rodou é um procedimento que não funciona, e ninguém descobre até a noite em que importa.
+
+### Prova de recusa
+
+Um ensaio que só sabe passar não prova nada. Com o caminho da réplica apontado para um diretório
+inexistente:
+
+```
+tools/ops/restore-verify.mjs:/: litestream restore falhou:
+Error: no matching backup files available
+código de saída: 1
+```
+
+Duas linhas — a forma `arquivo:ponteiro: mensagem` do contrato de `tools/README.md` §3, mais a
+causa do litestream — e **nenhum stack trace**. A falha nomeia o que faltou.
+
+### O que `D2-33` mudou aqui, e o que ele não mudou
+
+A réplica passou a ser um caminho da própria caixa em vez de um bucket, então o ensaio roda **na
+caixa**, sobre a réplica `file`. O texto literal do critério 4 — "o backup do banco foi
+**restaurado** num ambiente limpo e o resultado da restauração está anotado" — **fecha**: o
+ambiente limpo é um contêiner novo com os volumes montados somente para leitura. O que **não**
+fecha é a garantia off-site, e isso está escrito em § Variáveis do app no painel do Coolify, onde
+a decisão mora.
+
+**A réplica sobreviveu ao redeploy**, que é a asserção extra de `D2-33`: os volumes
+`…_dg2-data` e `…_dg2-replica` aparecem como `Created` no log do deploy 17 e continuam listados
+depois, e o ensaio leu a réplica de dentro do segundo. Se o caminho tivesse caído numa camada de
+contêiner, o ensaio passaria hoje e o backup desapareceria no próximo deploy, sem avisar.
 
 ## Monitor externo (D2-16/D2-21)
 
 _(pendente — plano 02-12)_
 
+**Adiado por escolha do operador em 2026-09-10, e continua pendente de propósito.** A palavra
+acima não é resíduo de esqueleto: o monitor **não existe**, e apagar o marcador para deixar o
+documento bonito seria exatamente o que a regra do topo desta página proíbe. Dono, prazo e
+consequência estão em § O que continua aberto ao fim do plano 02-12, item 2. **A fase 02 fecha
+INCOMPLETA por causa deste item e de mais dois.**
+
 A entrada precisa ter: o **serviço escolhido**, a **rota monitorada**, a **keyword configurada**,
 o **alerta de expiração de certificado com 30 dias** e a **data e hora da primeira checagem
-verde**.
+verde** — e a da primeira **vermelha**, porque um monitor que nunca acusou é um monitor que
+ninguém sabe se funciona.
+
+**A rota e a keyword já estão medidas e prontas para colar no painel do serviço escolhido**, o que
+reduz esse item a um cadastro: a rota é `/api/health`, ela devolve `{"status":"ok",…}` com o
+serviço no ar e `{"status":"unavailable"}` com ele parado, e as duas respostas foram observadas
+contra o domínio real em 2026-09-10 (ver § Primeira promoção real). A keyword a casar é o par de
+`status` igual a `ok`.
 
 **O primeiro prazo real já existe: o certificado emitido em 2026-09-09 expira em 2026-12-08.** Com
 o limiar de 30 dias, o alarme deve soar por volta de **2026-11-08**. Se o monitor externo não
@@ -304,15 +552,49 @@ trocar de serviço de monitoramento um dia — **o limiar de 30 dias vai junto**
 desaparece sem fazer barulho. O Let's Encrypt encerrou o aviso de expiração por e-mail em
 junho de 2025; ninguém mais avisa de graça.
 
-## O que esta fase deliberadamente não cobre
+## O que continua aberto ao fim do plano 02-12 — com dono e condição de volta
 
-_(aberta ao fim da fase — D2-11)_
+Esta seção existe para que o verificador da fase **não trate decisão registrada como pendência, e
+não trate pendência como decisão**. Os itens abaixo são de naturezas diferentes, e a diferença
+está dita em cada um.
 
-**PWA em aparelho físico iOS/Safari continua sem cobertura.** A verificação de instalação,
-atualização e offline é só Playwright no CI (`D2-11`), e o Playwright **só suporta service worker
-em Chromium** — então Firefox e WebKit também ficam de fora, não apenas o aparelho físico.
+### Adiados por escolha do operador em 2026-09-10, e a fase 02 fecha INCOMPLETA por causa deles
 
-Consequência para quem verifica a fase: a caixa correspondente em `docs/PARIDADE.md` permanece
-**aberta** ao fim desta fase, e o **critério 2** do roadmap deve ser lido com essa ressalva. Não é
-um item esquecido — é uma lacuna nomeada, com o motivo escrito, que nenhum trabalho desta fase
-fecha.
+O jogo está no ar, jogável, com a política HTTP verificada contra o domínio real. O que ficou de
+fora foi adiado deliberadamente, e **cada um destes é um critério de sucesso da fase 02** — nenhum
+deve ser lido como feito.
+
+| # | Item | Critério que não fecha | Dono e condição de volta |
+|---|---|---|---|
+| 1 | **Reversão com o registro inalcançável** | critério 4, metade "reversível" | O operador, quando quiser exercer `D2-24`. Custa ~10 min: uma linha temporária de resolução de nomes na caixa, duas trocas de tag no painel, e a remoção verificada. **A imagem anterior JÁ está em disco** (duas tags por serviço), então só falta o exercício |
+| 2 | **Monitor externo** | critério 4, metade "alguém avisa" | O operador, e **o prazo é 2026-11-08** (30 dias antes de o certificado expirar). Precisa de cadastro num serviço de terceiro que faça as duas coisas: keyword na rota de saúde e alerta de expiração de certificado |
+| 3 | **CSP observado no navegador, PWA limpo offline, PWA atualizado** | critério 2, e a advertência do `ops/Caddyfile` | O operador, num navegador. O CSP continua **derivado da fonte e não observado** — a advertência que o `ops/Caddyfile` carrega desde o plano 02-03 **permanece de pé** |
+| 4 | **Ensaio de restauração sobre dados reais** | nenhum — o critério 4 já fecha | Quem rodar a primeira partida que escreva no ledger. O ensaio de hoje comparou 0 com 0; refazê-lo depois é o que o torna prova de dados |
+| 5 | **"Todo deploy recria os dois serviços"** | nenhum — é item de discrição | Sai de graça no primeiro deploy que mude só a tag, que é o item 1 acima |
+
+**O que a ausência do item 2 significa concretamente:** entre agora e o dia em que alguém
+configurar o monitor, **nada avisa** se o jogo cair. Não é só o certificado — a corrente de alarme
+contra o crash-loop também depende dele, porque o Docker tenta reiniciar para sempre onde o
+systemd chegava a `failed` e parava (perda declarada de `P-9`, `T-2-LOOP`). O `healthcheck` da
+composição detecta, mas não conta a ninguém.
+
+### Decisões registradas — NÃO são pendências
+
+Estas aparecem como lacunas para quem lê rápido, e não são. Cada uma foi decidida, com o motivo
+escrito no lugar onde a decisão mora.
+
+- **PWA em aparelho físico iOS/Safari** permanece **aberto** em `docs/PARIDADE.md` por `D2-11`. O
+  Playwright só suporta service worker em **Chromium**, então Firefox e WebKit também ficam de
+  fora — não é só o aparelho físico. Lacuna nomeada, não esquecida.
+- **`D2-08` fica suspensa nesta fase** por `D2-32`: o disparo do deploy é manual, e o critério 4
+  fecha como procedimento documentado e reversível, não como um comando. A condição de volta está
+  nomeada — automatizar o disparo volta à mesa quando houver motivo, e o motivo hoje não existe.
+- **Garantia off-site do backup** caiu com `D2-33`: a réplica vive no mesmo disco do banco. Escolha
+  registrada, com o custo escrito, e a tarefa **T9 do infraKring** deixa de ser fechada por esta
+  fase.
+- **A tag da imagem é digitada à mão**, e dar-lhe um padrão é impossível nesta plataforma — a
+  medição está em § Primeira promoção real e no cabeçalho de `ops/docker-compose.yml`. Não é
+  ergonomia por fazer; é uma porta fechada.
+- **Riscos herdados do vizinho** (a 8080 publicada, o serviço de lockdown inativo) continuam **não
+  corrigidos por decisão** de `D-VPS-02`, e estão em § Riscos herdados como causa possível de
+  incidente.
