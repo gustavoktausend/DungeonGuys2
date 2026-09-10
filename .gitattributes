@@ -8,17 +8,21 @@
 #
 # That is not cosmetic for the paths below:
 #
-#   POSIX shell. A `\` at the end of a line escapes the NEXT character; with
-#   CRLF that character is the CR, so the newline survives as a command
-#   separator and the continuation is severed. `dash -n` refuses all five
-#   scripts of ops/ on a checkout of this repository, including files nobody
-#   has ever edited. `sh` under Git for Windows is bash, which tolerates the CR
-#   in silence — so the local check is exactly the one that does not show it,
-#   and the VPS runs /bin/sh, which on Debian and Ubuntu IS dash.
+#   Dockerfile. A `\` at the end of a line continues the instruction, and with
+#   CRLF the escaped character is the CR — so the continuation is severed and
+#   `RUN apt-get update \` runs alone. `ops/Dockerfile.api` is built entirely
+#   out of continued RUN lines, and the build breaks on a line that looks
+#   perfectly correct in any editor.
 #
-#   systemd. A unit value keeps a trailing CR: `ExecStart=/usr/bin/node ...\r`
-#   carries the CR into the argument, and the failure is an executable that
-#   "does not exist" under a name that looks right in every log.
+#   The shell and systemd cases that originally wrote this file are gone with
+#   D2-30: the five scripts of ops/ and the four units were retired when the
+#   deployment became two containers, and what executes them now is Docker.
+#   THE RULE DID NOT GO WITH THEM, and that is the point of keeping this
+#   paragraph rather than deleting it — `dash -n` refused those scripts on a
+#   checkout of this repository, including files nobody had ever edited, and
+#   `sh` under Git for Windows is bash, which tolerates the CR in silence. The
+#   local check was exactly the one that could not show it. The next `sh` or
+#   unit this subsystem gains is already covered.
 #
 # `text eol=lf` normalises to LF in the index (which is where it already is)
 # and, crucially, checks OUT as LF whatever core.autocrlf says. It is the one

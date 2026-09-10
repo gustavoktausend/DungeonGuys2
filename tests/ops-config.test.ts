@@ -15,8 +15,10 @@
 //   D2-15 no secret and no address ever enters the repository
 import { describe, it, expect } from 'vitest';
 // The one import from apps/ in this file, and it carries the phase's only
-// number that has to agree across the shell/unit boundary: systemd's stop
-// deadline in ops/dg2.service must sit ABOVE the process's own watchdog.
+// number that has to agree across a process boundary: the container's stop
+// deadline — `stop_grace_period` in ops/docker-compose.yml — must sit ABOVE the
+// process's own watchdog. It used to be systemd's TimeoutStopSec in a unit that
+// D2-30 retired; the number moved, the requirement did not.
 // Importing beats copying because a copy is what drifts. It costs nothing:
 // shutdown.ts holds no Node global by design, so it compiles inside this
 // program exactly as it compiles inside apps/server's.
@@ -58,8 +60,10 @@ function read(name: string): string {
   // This file — the one guarding infrastructure that has never executed — was
   // the one that skipped the lesson.
   //
-  // The floor is far below the smallest real file (ops/cert-check.timer, 962
-  // bytes) on purpose: it must catch emptiness and never police size.
+  // The floor is far below the smallest real file (ops/Dockerfile.web, 2.3 kB)
+  // on purpose: it must catch emptiness and never police size. The previous
+  // holder of that title left with D2-30, and the floor did not move with it —
+  // it answers to emptiness, not to whatever happens to be smallest.
   expect((src as string).length, `ops/${name} veio vazio`).toBeGreaterThan(200);
   return src as string;
 }
@@ -120,7 +124,8 @@ function code(name: string): string {
   // guard while being nothing but prose would still hand them an empty
   // haystack. Every ops/ file here is majority comment by design, so this is
   // the number the vacuity would actually hide behind. Smallest real value is
-  // ops/cert-check.timer, at 167 bytes once stripped.
+  // ops/Dockerfile.web, at 88 bytes once stripped — it is three directives under
+  // a long header, which is what every file of ops/ looks like by design.
   expect(stripped.trim().length, `ops/${name} é só comentário`).toBeGreaterThan(50);
   return stripped;
 }
@@ -537,6 +542,16 @@ describe('ops/docker-compose.yml e as duas imagens', () => {
     expect(argv.indexOf('-exec')).toBeGreaterThan(0);
     expect(argv[argv.indexOf('-exec') + 1], 'o -exec não envolve o node')
       .toMatch(/^node\s/);
+    // Heir of "lê a configuração instalada, sem valor embutido". The old unit
+    // read a file an operator had copied onto the box by hand and an
+    // EnvironmentFile systemd expanded; there is neither. The config enters the
+    // IMAGE by COPY, so the reviewable copy and the running copy are the same
+    // file — and the path the entrypoint reads is compared to the path the image
+    // writes, rather than both being trusted to say the same thing.
+    const config = argv[argv.indexOf('-config') + 1];
+    expect(argv, 'o ENTRYPOINT não passa -config').toContain('-config');
+    expect(img, `nada copia ops/litestream.yml para ${config}`)
+      .toContain(`COPY ops/litestream.yml ${config}`);
   });
 
   it('o Dockerfile.web copia o dist/ para a raiz que o Caddyfile serve', () => {
@@ -569,359 +584,35 @@ describe('ops/docker-compose.yml e as duas imagens', () => {
 });
 
 /**
- * Every shell script of ops/: the four a deploy touches, in the order it
- * touches them, plus the one the certificate timer runs. The list is exact and
- * the test below compares it to the glob, so adding a script without deciding
- * where it belongs in this file is a red test rather than an omission.
+ * The shell scripts of ops/: NONE, and the empty list is the assertion.
+ *
+ * D2-30 retired `deploy.sh`, `rollback.sh`, `deploy-forced.sh`,
+ * `prune-releases.sh` and `cert-check.sh` — 18 cases of this file died with
+ * them, in the same commit, because a window in which the suite is red for a
+ * reason that is not a defect teaches everyone to ignore a red suite.
+ *
+ * THE LIST WAS INVERTED RATHER THAN DELETED, and that is the part worth reading.
+ * "ops/ contains no shell script" is a property D2-30 wants PRESERVED: what
+ * executes now is Docker, reading ops/docker-compose.yml and the two
+ * Dockerfiles. Kept as an assertion, it stops a deploy script from being
+ * reintroduced out of habit — which is exactly how a repository ends up with two
+ * deploy paths, one of which is the one nobody remembered to update.
  */
-const SCRIPTS = [
-  'deploy-forced.sh', 'deploy.sh', 'rollback.sh', 'prune-releases.sh',
-  'cert-check.sh',
-];
+const SCRIPTS: string[] = [];
 
 describe('scripts de ops/', () => {
-  it('o glob encontrou exatamente os scripts esperados', () => {
+  it('ops/ não tem nenhum script de shell, e a ausência é a propriedade (D2-30)', () => {
     const found = Object.keys(OPS).filter((p) => p.endsWith('.sh')).sort();
-    expect(found).toEqual(SCRIPTS.map((n) => `../ops/${n}`).sort());
-  });
-
-  it('todo script abre com set -eu', () => {
-    const bad: string[] = [];
-    for (const name of SCRIPTS) {
-      // The shebang is a `#` line, so it is gone with the comments; the first
-      // line that survives has to be the one that makes an unset variable or a
-      // failed command stop the script instead of continuing into a half-done
-      // deploy.
-      const first = code(name).split('\n').find((line) => line.trim() !== '');
-      if (first?.trim() !== 'set -eu') bad.push(`${name}: ${first ?? '<vazio>'}`);
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('a troca de symlink é atômica: mv -T, nunca ln -sfn direto no alvo vivo', () => {
-    const bad: string[] = [];
-    for (const name of ['deploy.sh', 'rollback.sh']) {
-      const src = code(name);
-      if (!src.includes('mv -T')) bad.push(`${name}: sem mv -T`);
-      // `ln -sfn` over an existing symlink unlinks and recreates it, so every
-      // line that creates one must be writing to a temporary name — the `mv -T`
-      // that follows is what makes the publish atomic.
-      for (const line of src.split('\n')) {
-        if (line.includes('ln -sfn') && !line.includes('.tmp')) bad.push(`${name}: ${line.trim()}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('deploy.sh não deixa um release partido quando o restart falha', () => {
-    // Under `set -e` a failing `systemctl restart` aborted the script on the
-    // spot. Measured under dash with a fake sudo failing on `restart`: exit 1
-    // and ZERO bytes of output — no prune, no success line, and nothing in the
-    // `script:pointer: message` format the file's own header promises. After
-    // the fix the same run prints `deploy.sh:systemctl restart dg2: ...` and
-    // exits 1.
-    //
-    // The state was the worse half: `current` on the new client,
-    // `current-server` on the new server bundle, and the unit down — so the
-    // next boot brings the broken bundle back up.
-    const src = code('deploy.sh');
-    const capture = src.indexOf('OLD_SERVER_REL=$(readlink -f "$CURRENT_SERVER")');
-    const swap = src.indexOf('swap_symlink "$CURRENT_SERVER" "$SERVER_REL"');
-    expect(capture, 'deploy.sh não guarda o alvo anterior de current-server').toBeGreaterThan(-1);
-    expect(swap, 'deploy.sh não troca o symlink do servidor').toBeGreaterThan(-1);
-    // Order is the assertion, not presence: captured AFTER the swap, the
-    // variable would already hold the new release and the revert would be a
-    // no-op wearing the right name.
-    expect(capture, 'a captura tem de vir antes da troca').toBeLessThan(swap);
-    expect(src).toContain('if ! $SYSTEMCTL restart dg2; then');
-    expect(src).toContain('swap_symlink "$CURRENT_SERVER" "$OLD_SERVER_REL"');
-    // Two arms, and both have to exist: with a previous release to revert to,
-    // and without one (the first deploy), each with its own message.
-    expect(src.split('\n').filter((l) => l.includes("fail 'systemctl restart dg2'")))
-      .toHaveLength(2);
-  });
-
-  it('a decisão de restart não sai de um pipeline sem pipefail', () => {
-    // `NEW_HASH=$(sha256sum X | cut -d' ' -f1)` reports CUT's status, not
-    // sha256sum's, and `set -eu` carries no pipefail. Measured under dash: with
-    // sha256sum failing, the script survives, NEW_HASH is '', and because ''
-    // equals the empty OLD_HASH the conditional takes the "do not restart"
-    // branch and the deploy reports success. The safe/unsafe split of the whole
-    // deploy, decided on an empty string.
-    //
-    // `set -o pipefail` is NOT the fix and is not asserted here: it reached
-    // dash only in 0.5.12, and on an older dash the line does not degrade — it
-    // kills the shell, so every script here would die at line one.
-    const bad: string[] = [];
-    for (const name of ['deploy.sh', 'rollback.sh']) {
-      const src = code(name);
-      for (const line of src.split('\n')) {
-        if (/sha256sum.*\|/.test(line)) bad.push(`${name}: ${line.trim()}`);
-      }
-      // And the replacement has to be the whole shape: the substitution guarded
-      // by a `fail`, then the pure-shell cut. Either half alone is the bug.
-      // `[^|]*` is what carries the assertion: between `sha256sum` and the
-      // `|| fail` there may be no single `|` at all, so this one regex rejects
-      // the pipeline AND requires the guard.
-      if (!/sha256sum[^|]*\|\| fail /.test(src)) bad.push(`${name}: sha256sum sem || fail`);
-      if (!src.includes('%% *}')) bad.push(`${name}: sem o corte por expansão de parâmetro`);
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('rollback.sh sem argumento anda a partir da posição do vivo, não do topo', () => {
-    // "The newest release that is NOT the live one" is right exactly once.
-    // Roll back from N and it lands on N-1; roll back again — which is what an
-    // operator does when N-1 is also bad — and the newest non-live release is
-    // N, the one just abandoned. Measured under dash over five releases, the
-    // old form walked E, D, E, D and could never reach C.
-    //
-    // The fix is a flag that records the live entry going past, plus a break on
-    // the first entry after it. Both halves are asserted, because either one
-    // alone reverts to the old behaviour.
-    const src = code('rollback.sh');
-    expect(src).toContain('PASSED_LIVE=yes');
-    expect(src).toMatch(/if \[ -n "\$PASSED_LIVE" \]; then\s*\n\s*SHA=\$base\s*\n\s*break/);
-    // And the fallback must be reachable ONLY when the live release was never
-    // seen in the list at all. Extending it to "the live release is the oldest
-    // one" would hand back the release just abandoned — the oscillation again,
-    // wearing the fallback's clothes.
-    expect(src).toContain('[ -z "$SHA" ] && [ -z "$PASSED_LIVE" ]');
-  });
-
-  it('rollback.sh não faz nenhuma chamada de rede (D2-06)', () => {
-    // Not comment-stripped on purpose: the requirement is that these words do
-    // not appear in the file AT ALL. A revert is needed exactly when the
-    // infrastructure that would serve a download is what failed.
-    const bad: string[] = [];
-    for (const word of ['curl', 'wget', 'git ', 'npm ']) {
-      if (read('rollback.sh').includes(word)) bad.push(word);
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('rollback.sh nunca toca no banco (D2-07)', () => {
-    expect(read('rollback.sh')).not.toContain('var/lib/dg2');
-  });
-
-  it('prune-releases.sh resolve o symlink vivo e retém 5', () => {
-    const src = code('prune-releases.sh');
-    expect(src).toContain('readlink');
-    expect(src).toMatch(/^KEEP=5$/m);
-  });
-
-  it('nenhum script monta uma lista de caminhos parseando ls', () => {
-    // `for dir in $(ls -1dt "$root"/*/)` is the shape, and in
-    // prune-releases.sh that loop ends in `rm -rf`. Measured under dash against
-    // the real script, with a directory named `a keep-me` in the release root
-    // and the process's working directory somewhere else — which is what an
-    // SSH forced command leaves behind: the split second word was
-    // canonicalised against the WORKING DIRECTORY, `rm -rf` deleted a
-    // directory outside the release tree entirely, and the run pruned 6
-    // releases where the retention policy says 2.
-    //
-    // The justification that used to sit next to it — "release names are 40 hex
-    // characters by construction" — was true of the names the CI writes and of
-    // nothing else: both release roots are writable by dg2-deploy, and a manual
-    // mkdir or a half-finished `rsync --partial` is enough.
-    const bad: string[] = [];
-    for (const name of SCRIPTS) {
-      for (const line of code(name).split('\n')) {
-        if (/\$\(\s*ls\b/.test(line)) bad.push(`${name}: ${line.trim()}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('todo nome de release é validado antes de virar caminho', () => {
-    // The two scripts that enumerate a release root do it through the same
-    // validation, duplicated rather than shared for the reason swap_symlink()
-    // already records. Both halves are asserted: the character class alone
-    // accepts a 3-character name, and the length alone accepts `../../etc`.
-    const bad: string[] = [];
-    for (const name of ['rollback.sh', 'prune-releases.sh']) {
-      const src = code(name);
-      if (!/\*\[!0-9a-f\]\*/.test(src)) bad.push(`${name}: sem a classe [!0-9a-f]`);
-      if (!src.includes('[ ${#base} -eq 40 ]')) bad.push(`${name}: sem o comprimento 40`);
-      if (!src.includes('stat -c')) bad.push(`${name}: não ordena por mtime com stat`);
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('prune-releases.sh apaga pelo caminho que ele mesmo monta', () => {
-    // `rm -rf "$path"` on the canonicalised target and `rm -rf "$root/$base"`
-    // differ exactly when the entry is a symlink — and there the first follows
-    // the link out of the release tree, which is the only place this script is
-    // allowed to touch.
-    const src = code('prune-releases.sh');
-    const removals = src.split('\n').filter((l) => l.includes('rm -rf'));
-    expect(removals.length).toBe(1);
-    expect(removals[0]).toContain('"$root/$base"');
-  });
-
-  it('deploy-forced.sh só aceita rsync --server e um sha de 40 hexadecimais', () => {
-    const src = code('deploy-forced.sh');
-    expect(src).toContain('SSH_ORIGINAL_COMMAND');
-    expect(src).toContain('rsync --server ');
-    expect(src).toContain('^[0-9a-f]{40}$');
-  });
-
-  // ── CR-01: a chave de deploy confinada à árvore de releases ────────────
-  // The branch that carries the transfer used to be a PREFIX match followed by
-  // `exec $CMD`, and the client generates the whole argv. Measured against the
-  // real script under dash, that accepted a destination of
-  // `/home/dg2-deploy/.ssh/` (which removes the command= and turns the key
-  // into a shell), accepted `--sender` (arbitrary reads), accepted
-  // `--partial-dir` pointing outside the tree, and expanded `*` against the
-  // deploy user's home. Each assertion below pins one of those four shut.
-  it('deploy-forced.sh desliga o globbing ANTES de dividir o argv', () => {
-    // Order is the assertion, not presence. `set -f` after the split would be
-    // decoration: splitting and globbing are one expansion step, and the
-    // damage is already done by then. Measured: with the `set -f` line
-    // deleted, `rsync --server -x . *` reached the validator as `CCC`, the
-    // last entry of the working directory; with it, as the literal `*`.
-    const lines = code('deploy-forced.sh').split('\n').map((l) => l.trim());
-    const guard = lines.indexOf('set -f');
-    const split = lines.indexOf('set -- $CMD');
-    expect(guard, 'deploy-forced.sh não desliga o globbing').toBeGreaterThan(-1);
-    expect(split, 'deploy-forced.sh não divide o argv com set --').toBeGreaterThan(-1);
-    expect(guard, 'set -f tem de vir antes de set -- $CMD').toBeLessThan(split);
-  });
-
-  it('deploy-forced.sh recusa os modos de leitura, de daemon e de shell do rsync', () => {
-    const src = code('deploy-forced.sh');
-    // --sender is rsync's read direction; --daemon opens a service; -e/--rsh
-    // chain another connection out of this one. None appears in a deploy.
-    for (const flag of ['--sender', '--daemon', '--rsh', '-e']) {
-      expect(src, `deploy-forced.sh não recusa ${flag}`).toContain(flag);
-    }
-    // And each refusal has to be a `fail`, not a mention: the words above also
-    // appear in a comment explaining them, which is exactly the vacuity this
-    // file's `code()` filter exists for.
-    expect(src.split('\n').filter((l) => l.includes('fail ')).length).toBeGreaterThanOrEqual(6);
-  });
-
-  it('deploy-forced.sh valida o destino contra as duas árvores de release', () => {
-    const src = code('deploy-forced.sh');
-    // The same 40-hex rule deploy.sh and rollback.sh apply to their own
-    // argument, applied to the one string this script did not check at all.
-    expect(src).toContain('^/srv/dg2/(releases|server-releases)/[0-9a-f]{40}/?$');
-  });
-
-  it('nenhum script de ops/ faz exec de uma variável sem aspas', () => {
-    // `exec $CMD` IS the shape of CR-01: word splitting AND pathname expansion
-    // over a string the other end wrote. `exec "$@"` and `exec "$DEPLOY"` are
-    // the forms that survive.
-    const bad: string[] = [];
-    for (const name of SCRIPTS) {
-      for (const line of code(name).split('\n')) {
-        if (/\bexec\s+\$[A-Za-z_{]/.test(line)) bad.push(`${name}: ${line.trim()}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('nenhum script desliga a verificação de host do SSH', () => {
-    const bad: string[] = [];
-    for (const [path, src] of Object.entries(OPS)) {
-      if (/StrictHostKeyChecking\s*=\s*no\b/.test(src)) bad.push(path);
-    }
-    expect(bad).toEqual([]);
-  });
-});
-
-describe('ops/dg2.service', () => {
-  it('desiste depois de 5 partidas em 60s, para a unit chegar a failed (P-9)', () => {
-    // The single most load-bearing pair of lines in the phase. Without it a
-    // broken migration restarts forever, the unit never reaches `failed`, and
-    // every downstream link of the D2-16 alarm chain — no listener, Caddy 503,
-    // external monitor — is never reached. This assertion is here so that
-    // deleting the limit is a red test and not a silent regression six months
-    // from now.
-    const unit = code('dg2.service');
-    expect(unit).toContain('StartLimitIntervalSec=60');
-    expect(unit).toContain('StartLimitBurst=5');
-    expect(unit).toContain('Restart=always');
-  });
-
-  it('limita a memória do cgroup E o heap do V8, nunca só um dos dois (P-10)', () => {
-    // The pair is the assertion. V8 sizes its default old space from the
-    // machine's memory, so a cgroup cap with no heap cap converts a slow leak
-    // into an OOM-kill instead of into garbage collection — and the heap cap
-    // has to stay BELOW the cgroup ceiling for that to work, which is why the
-    // two numbers are compared rather than merely present.
-    const unit = code('dg2.service');
-    const heap = /--max-old-space-size=(\d+)/.exec(unit);
-    const hard = /^MemoryMax=(\d+)M$/m.exec(unit);
-    const soft = /^MemoryHigh=(\d+)M$/m.exec(unit);
-    expect(heap, 'sem --max-old-space-size').not.toBeNull();
-    expect(hard, 'sem MemoryMax').not.toBeNull();
-    expect(soft, 'sem MemoryHigh').not.toBeNull();
-    const [heapMib, hardMib, softMib] =
-      [heap![1], hard![1], soft![1]].map(Number);
-    expect(heapMib).toBeLessThan(softMib);
-    expect(softMib).toBeLessThan(hardMib);
-  });
-
-  it('roda como dg2 num sandbox, nunca como root', () => {
-    const unit = code('dg2.service');
-    expect(unit).toContain('User=dg2');
-    expect(unit).not.toContain('User=root');
-    for (const directive of [
-      'NoNewPrivileges=true', 'ProtectSystem=strict', 'ProtectHome=true',
-      'PrivateTmp=true', 'PrivateDevices=true', 'ProtectKernelTunables=true',
-      'ProtectKernelModules=true', 'ProtectControlGroups=true',
-      'RestrictSUIDSGID=true', 'RestrictNamespaces=true', 'LockPersonality=true',
-      'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX',
-    ]) {
-      expect(unit, `faltou ${directive}`).toContain(directive);
-    }
-  });
-
-  it('usa StateDirectory em vez de uma exceção de escrita escrita à mão', () => {
-    // One directive that creates, chowns and grants write, and survives a wiped
-    // /var — instead of a mkdir in a deploy script plus a manual exception that
-    // can disagree with it.
-    const unit = code('dg2.service');
-    expect(unit).toContain('StateDirectory=dg2');
-    expect(unit).toContain('StateDirectoryMode=0700');
-    expect(unit).not.toContain('ReadWritePaths');
-  });
-
-  it('arranca pelo symlink que o rollback move, não por um release fixo', () => {
-    // If ExecStart pointed at /srv/dg2/server-releases/<sha>/, rolling the
-    // symlink back would revert the client and keep serving the old server.
-    const unit = code('dg2.service');
-    expect(unit).toContain('ExecStart=/usr/bin/node /srv/dg2/current-server/server.mjs');
-    expect(unit).toContain('WorkingDirectory=/srv/dg2/current-server');
-    expect(unit).not.toMatch(/ExecStart=.*server-releases/);
-  });
-
-  it('não publica a API fora do loopback', () => {
-    // The bind address lives in apps/server/src/index.ts, but a stray
-    // DG2_UPSTREAM or NODE_OPTIONS here could still widen it. Cheap to assert.
-    expect(read('dg2.service')).not.toContain('0.0.0.0');
-  });
-
-  it('dá ao desligamento gracioso mais tempo que o watchdog do processo (WR-07)', () => {
-    // The other half of the graceful shutdown. apps/server/src/shutdown.ts
-    // stops accepting, drains the in-flight requests, closes sqlite and only
-    // then exits — and arms a watchdog so that one slow client cannot postpone
-    // a deploy forever. systemd owns the OUTER deadline: without
-    // TimeoutStopSec the unit inherits DefaultTimeoutStopSec, which is 90s on
-    // Debian and Ubuntu.
-    //
-    // The two numbers are COMPARED and not merely both present, which is the
-    // whole reason SHUTDOWN_GRACE_MS is imported instead of copied. If
-    // systemd's deadline ever landed at or below the process's own, SIGKILL
-    // would arrive first and the drain would be dead code: the deploy would go
-    // on severing responses and skipping sqlite.close(), with every assertion
-    // in tests/server-shutdown.test.ts still green, because that file tests
-    // the sequence and not the clock it runs against.
-    const unit = code('dg2.service');
-    const m = /^TimeoutStopSec=(\d+)$/m.exec(unit);
-    expect(m, 'sem TimeoutStopSec — a unit herda os 90s do padrão').not.toBeNull();
-    expect(Number(m![1]) * 1000).toBeGreaterThan(SHUTDOWN_GRACE_MS);
+    expect(found, 'um script de shell voltou para ops/')
+      .toEqual(SCRIPTS.map((n) => `../ops/${n}`).sort());
+    // And no systemd unit either: the four the box would have installed are gone
+    // with the same decision, and the supervisor is Docker. Asserted next to the
+    // scripts because both absences answer the same question — "who executes
+    // this?" — and the answer moved for both at once.
+    const units = Object.keys(OPS).filter(
+      (p) => p.endsWith('.service') || p.endsWith('.timer'),
+    );
+    expect(units, 'uma unit do systemd voltou para ops/').toEqual([]);
   });
 });
 
@@ -1072,8 +763,10 @@ describe('ops/coturn-dropin.conf', () => {
       // Os ~128 M que ops/README.md §10 reservava só em prosa (D2-19).
       'MemoryHigh=96M',
       'MemoryMax=128M',
-      // O mesmo endurecimento de dg2.service, para um processo que termina UDP
-      // escolhido por atacante (T-3-28).
+      // O mesmo endurecimento que a unit do servidor carregava antes de D2-30
+      // aposentá-la, aqui para um processo que termina UDP escolhido por
+      // atacante (T-3-28). O coturn continua nativo no host (D2-26), então o
+      // sandbox dele continua sendo do systemd e não de um contêiner.
       'NoNewPrivileges=true',
       'ProtectSystem=strict',
       'ProtectHome=true',
@@ -1146,131 +839,6 @@ describe('ops/litestream.yml', () => {
                        'LITESTREAM_BUCKET', 'LITESTREAM_ENDPOINT']) {
       expect(yml, `${key} sobreviveu a D2-33 em ops/litestream.yml`).not.toContain(key);
     }
-  });
-});
-
-describe('ops/litestream.service', () => {
-  it('é irmã de dg2.service e não filha — o backup sobrevive ao Node cair', () => {
-    const unit = code('litestream.service');
-    expect(unit).toContain('After=dg2.service');
-    expect(unit).toContain('Wants=dg2.service');
-    // Requires= would stop the backup whenever the API stops, which is the
-    // opposite of what a backup is for.
-    expect(unit).not.toContain('Requires=dg2.service');
-    // BindsTo= would do the same thing by another name.
-    expect(unit).not.toContain('BindsTo=');
-  });
-
-  it('tem teto de memória e o mesmo sandbox, com a escrita declarada à mão', () => {
-    const unit = code('litestream.service');
-    expect(unit.split('\n').filter((l) => l.includes('MemoryMax'))).toHaveLength(1);
-    expect(unit).toContain('User=dg2');
-    expect(unit).not.toContain('User=root');
-    expect(unit).toContain('NoNewPrivileges=true');
-    expect(unit).toContain('ProtectSystem=strict');
-    // No StateDirectory here — dg2.service owns the directory — so litestream
-    // needs the write exception spelled out. It keeps its own shadow WAL next
-    // to the database, so read-only is not enough.
-    expect(unit).toContain('ReadWritePaths=/var/lib/dg2');
-  });
-
-  it('lê a configuração instalada e o env, sem valor embutido', () => {
-    const unit = code('litestream.service');
-    expect(unit).toContain('EnvironmentFile=/etc/dg2/env');
-    expect(unit).toContain('-config /etc/litestream.yml');
-  });
-});
-
-describe('cert-check — a perna local de D2-16', () => {
-  it('confere o certificado servido na 443, não o arquivo em disco', () => {
-    // The distinction IS the feature. The classic failure of automatic renewal
-    // is a fresh file on disk and a stale certificate on the wire, and a check
-    // that opened the file would report green through all of it (T-2-TLS).
-    const src = code('cert-check.sh');
-    expect(src).toContain('openssl s_client');
-    expect(src).toContain(':443');
-    expect(src).toContain('checkend');
-    expect(src).toContain('DAYS=30');
-    // The domain never appears in the repository; it arrives from the
-    // EnvironmentFile, and the script refuses to run without it.
-    expect(src).toContain('DG2_DOMAIN');
-    expect(src).toMatch(/:\s*"\$\{DG2_DOMAIN:\?/);
-  });
-
-  it('não tenta notificar ninguém por conta própria — o alarme é o exit code', () => {
-    // NOT comment-stripped, and that is the point: the whole file, prose
-    // included, must be free of these. This assertion exists because "improving"
-    // the script by making it notify is the obvious next thought for anyone
-    // reading it, and doing that would duplicate — badly, from inside the box
-    // that may be the thing that is down — the external monitor of D2-21.
-    const src = read('cert-check.sh');
-    for (const word of ['mail', 'curl', 'wget', 'webhook', 'slack']) {
-      expect(src.toLowerCase(), `cert-check.sh menciona ${word}`).not.toContain(word);
-    }
-  });
-
-  it('o serviço é oneshot sem Restart, para a unit poder FICAR failed', () => {
-    // Restart= would retry a certificate that is not going to renew itself in
-    // two seconds and, worse, would clear the failed state that is the signal.
-    const unit = code('cert-check.service');
-    expect(unit).toContain('Type=oneshot');
-    expect(unit).toContain('ExecStart=/srv/dg2/bin/cert-check.sh');
-    expect(unit).toContain('EnvironmentFile=/etc/dg2/env');
-    expect(unit).not.toMatch(/^Restart=/m);
-  });
-
-  it('o handshake é limitado dos dois lados, para a unit poder CHEGAR a failed', () => {
-    // `Type=oneshot` with no `TimeoutStartSec=` is the P-9 shape again: systemd
-    // DISABLES the start timeout for oneshot, and `openssl s_client` has no
-    // timeout of its own. Against a host that opens the connection and never
-    // finishes the handshake, the unit sits in `activating` indefinitely — it
-    // never reaches `failed`, `list-units --failed` shows nothing, and systemd
-    // will not start a second instance while the first runs, so the daily timer
-    // stops firing without a word.
-    //
-    // Measured with a fake openssl that connects and then sleeps: the old
-    // script had to be killed from outside the harness; the new one exits 1
-    // after TIMEOUT seconds with a message that names the hang.
-    const unit = code('cert-check.service');
-    const src = code('cert-check.sh');
-    const outer = /^TimeoutStartSec=(\d+)$/m.exec(unit);
-    const inner = /^TIMEOUT=(\d+)$/m.exec(src);
-    expect(outer, 'cert-check.service sem TimeoutStartSec').not.toBeNull();
-    expect(inner, 'cert-check.sh sem TIMEOUT').not.toBeNull();
-    expect(src).toContain('timeout "$TIMEOUT" openssl s_client');
-    // 124 is what `timeout` exits when it had to kill, and it earns its own
-    // message: "opened and hung" and "never opened" send the reader to two
-    // different places.
-    expect(src).toContain('[ "$STATUS" -eq 124 ]');
-    // The pair is the assertion, as with MemoryHigh/MemoryMax above: the inner
-    // bound has to fire FIRST, or the unit is killed by systemd before the
-    // script can say why.
-    expect(Number(inner![1])).toBeLessThan(Number(outer![1]));
-  });
-
-  it('separa "não consigo ler isso" de "expira em breve"', () => {
-    // `openssl x509 -checkend` exits 1 for BOTH "expires inside the window" and
-    // "I could not parse the input". Measured with a fake openssl returning
-    // non-certificate text: the old script reported "o certificado servido
-    // expira em menos de 30 dias" — the wrong answer, in the one window where
-    // the remaining time is the entire point. The parse is proved first, on its
-    // own, so the two failures carry different messages.
-    const x509 = code('cert-check.sh').split('\n').filter((l) => l.includes('openssl x509'));
-    expect(x509).toHaveLength(2);
-    expect(x509[0], 'a primeira passada não pode checar validade').not.toContain('checkend');
-    expect(x509[1], 'a segunda passada é a do prazo').toContain('checkend');
-  });
-
-  it('o timer roda todo dia e recupera o dia perdido num reboot', () => {
-    const unit = code('cert-check.timer');
-    expect(unit).toContain('OnCalendar=daily');
-    expect(unit).toContain('RandomizedDelaySec=1h');
-    // Without Persistent, a box that happens to be down at the scheduled hour
-    // silently skips the day — and unattended weeks are what this covers.
-    expect(unit).toContain('Persistent=true');
-    // The TIMER is what gets enabled; the service is pulled by it.
-    expect(unit).toContain('WantedBy=timers.target');
-    expect(code('cert-check.service')).not.toContain('WantedBy=');
   });
 });
 
@@ -1761,8 +1329,34 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
    */
   function scanned(): [string, string][] {
     const entries = Object.entries({ ...OPS, ...TOOLS_OPS }) as [string, string][];
+    // THE FLOOR CAME DOWN FROM 13 TO 9 IN THE SAME COMMIT THE COUNT FELL, which
+    // is the only way a floor like this stays honest. D2-30 retired nine files
+    // and the containerisation added three, so here is the arithmetic, written
+    // down because the next person to touch ops/ needs to know where the number
+    // came from instead of guessing at it:
+    //
+    //   ops/        8  Caddyfile, README.md, coturn-dropin.conf, litestream.yml,
+    //                  turnserver.conf, docker-compose.yml, Dockerfile.api,
+    //                  Dockerfile.web
+    //   tools/ops/  1  restore-verify.mjs
+    //   ------------------------------------------------------------------
+    //   total       9
+    //
+    // There is no slack, deliberately. 9 IS the real count, so deleting any one
+    // file of this subsystem turns this block red WITH THE FLOOR'S OWN MESSAGE
+    // rather than green over a shorter list — which is the whole property, and
+    // it was proved by removal rather than by reading. Adding a file needs no
+    // edit here; removing one does, and removal is the direction that matters.
+    //
+    // The other half of the count is the per-file length guard below, and it is
+    // the one that caught WR-14: a glob that resolves and reads '' satisfies
+    // every `not.toContain` beneath it.
+    //
+    // `tools/ops/deploy.mjs` is NOT in the count: plan 02-04 resolved its Task 1
+    // as `clique-painel`, so the deploy trigger is an operator in a panel and
+    // that script was never created.
     expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
-      .toBeGreaterThanOrEqual(13);
+      .toBeGreaterThanOrEqual(9);
     for (const [path, src] of entries) {
       expect(src, `${path} não é string`).toBeTypeOf('string');
       expect(src.length, `${path} veio vazio`).toBeGreaterThan(200);
@@ -1842,10 +1436,12 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
         //   ${VAR}          shell and YAML
         //   {$VAR:default}  Caddy — the form that legitimately carries the
         //                   loopback default the IP assertion above rules on
-        //   $VAR            bare shell, as in cert-check.sh's "$DG2_DOMAIN:443",
-        //                   where the `:443` after the name is a port and not
-        //                   a value. Erased LAST, so it cannot eat the `$` of
-        //                   the two brace forms.
+        //   $VAR            bare shell. D2-30 retired the five scripts that
+        //                   spelled it, so ops/ has at most one site left and
+        //                   soon none. The erasure STAYS: it is the order-
+        //                   sensitive third step, which must run LAST so it
+        //                   cannot eat the `$` of the two brace forms, and this
+        //                   subsystem is one `sh` away from spelling it again.
         //
         // `DG2_DOMAIN=$OUTRA` therefore reads as an empty right-hand side,
         // which is correct: assigning from another variable is not a literal.
@@ -1929,9 +1525,11 @@ describe('os arquivos que a caixa executa nascem com LF', () => {
     const entries = Object.entries({ ...OPS, ...TOOLS_OPS }) as [string, string][];
     // The same anti-vacuity floor the D2-15 block uses, and for the same
     // reason: `bad` being empty is satisfied in full by having looked at
-    // nothing.
+    // nothing. The arithmetic behind the 9 is written out once, in the
+    // `scanned()` helper of that block; it came down from 13 in the same commit
+    // that deleted the nine files of D2-30.
     expect(entries.length, 'os globs de ops/ e tools/ops/ vieram vazios')
-      .toBeGreaterThanOrEqual(13);
+      .toBeGreaterThanOrEqual(9);
     const bad: string[] = [];
     for (const [path, src] of entries) {
       expect(src.length, `${path} veio vazio`).toBeGreaterThan(200);
