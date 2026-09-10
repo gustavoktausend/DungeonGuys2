@@ -49,7 +49,7 @@ que a síntese classificou assim moram nesta categoria.
 
 ### Hospedagem (INFRA)
 
-- [ ] **INFRA-01**: O jogo single-player roda na VPS sob domínio único com TLS, e o
+- [x] **INFRA-01**: O jogo single-player roda na VPS sob domínio único com TLS, e o
       GitHub Pages deixa de ser alvo de deploy — **[decidido]** o espelho morre
 - [ ] **INFRA-02**: O PWA continua instalável e funcional offline servido da VPS
 - [ ] **INFRA-03**: O service worker deixa `/api/` passar sem cachear, só guarda respostas
@@ -200,10 +200,10 @@ Preenchido na criação do roadmap (2026-08-29). Ver `.planning/ROADMAP.md`.
 | FORM-10 | Phase 1 | Complete |
 | FORM-11 | Phase 1 | Complete |
 | FORM-12 | Phase 1 | Partial (clausula testavel completa; topologia e tabela de input na Phase 3) |
-| INFRA-01 | Phase 2 | Pending |
+| INFRA-01 | Phase 2 | Complete |
 | INFRA-02 | Phase 2 | Pending |
 | INFRA-03 | Phase 2 | Pending |
-| INFRA-04 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Partial (02-04: a reversao por imagem local e o caminho de replica existem em decisao; falta o 02-12 -- ensaio de restauracao, supervisao do conteiner real e a prova de que a replica sobrevive a um redeploy) |
 | SALA-01 | Phase 3 | Pending |
 | SALA-02 | Phase 3 | Pending |
 | SALA-03 | Phase 3 | Pending |

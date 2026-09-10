@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 replanned under containerization — 5 plans written, checker passed with 0 blockers
-last_updated: "2026-09-09T21:21:51.790Z"
-last_activity: 2026-09-09 -- Phase 02 execution started
+stopped_at: 02-04 concluído — A1 provada, primeiro certificado válido, as quatro regras de UFW abertas
+last_updated: "2026-09-10T14:33:29.478Z"
+last_activity: 2026-09-10
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 40
-  completed_plans: 34
+  completed_plans: 35
   percent: 11
 ---
 
@@ -27,11 +27,11 @@ mundo, com o jogo respondendo na hora para cada um.
 ## Current Position
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
-Plan: 1 of 15
-Status: Executing Phase 02
-Last activity: 2026-09-09 -- Phase 02 execution started
+Plan: 2 of 15
+Status: Ready to execute
+Last activity: 2026-09-10
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -46,6 +46,13 @@ Progress: [█████████░] 91%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 14 | - | - |
+| 02 | 11 | - | - |
+
+**Por plano, quando medido:**
+
+| Plano | Duração | Tarefas | Arquivos |
+|-------|---------|---------|----------|
+| 02-04 | ~120 min (com portão humano no meio) | 3 | 5 |
 
 **Recent Trend:**
 
@@ -86,6 +93,10 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
   `tests/ops-config.test.ts` terminam o 02-14 com **nove entradas exatas**, não dez: é o caso
   sem o script, que o piso `>= 9` do plano 02-14 já previu de propósito.
 
+- [2026-09-10] 02-04: o disparo do deploy é clique no painel pelo túnel (clique-painel); o critério 4 fecha como procedimento documentado e reversível, não como um comando (D2-32). tools/ops/deploy.mjs não nasce e nenhum token de API do Coolify é criado
+- [2026-09-10] A1 PROVADA contra a caixa: o Coolify aceita composição de dois serviços vinda do repositório, fez pull e não build, e o Traefik emitiu o primeiro certificado do Let's Encrypt (expira 2026-12-08). O plano 02-14 mantém a forma planejada
+- [2026-09-10] D2-24 fica NÃO-VERIFICADA: a limpeza automática de imagens do Coolify não foi lida, por decisão, então 'a imagem anterior já está no disco' é suposição até o 02-12 exercitar a reversão
+
 ### Pending Todos
 
 Nenhum ainda.
@@ -113,9 +124,11 @@ sem teste nenhum (fase 1, junto com `sim/math.ts`).
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Infra/VPS | 02-04 (REESCRITO 2026-09-09 sob D2-32) -- criar o recurso do jogo no Coolify pelo tunel apontando para ops/probe/docker-compose.yml, atribuir o FQDN ao servico `web`, LER (sem alterar) a limpeza automatica de imagens, criar bucket S3 privado + chave limitada a ele, e abrir as 4 regras de UFW do coturn. **Nao ha mais chave de deploy, nem os 4 secrets de SSH, nem DEPLOY_ENABLED** -- D2-32 os apagou | Aguardando usuario | 2026-08-31 (reescrito 2026-09-09) |
-| Infra/VPS | 02-12 -- executar deploy, rollback e restore contra a maquina real | Bloqueado por 02-04 | 2026-08-31 |
-| Infra/VPS | 03-11 -- subir o coturn na VPS, exercitar o relay entre duas redes residenciais e medir o desfecho ICE; fecha o critério 3 (SALA-04). Portão de ação humana da Task 1 apresentado em 2026-09-08; resposta: "a caixa ainda não existe". Falta: KVM 2 em São Paulo, 02-04 e 02-12 executados, decisão ssh-do-Claude vs execução manual, segundo jogador em outra rede | Bloqueado por 02-04 | 2026-09-08 |
+| Infra/VPS | 02-04 -- A1 provada, primeiro certificado valido do Let's Encrypt, as 4 regras de UFW do coturn abertas em v4 e v6 | **RESOLVIDO 2026-09-10** (`ec56b2f`) | 2026-08-31 |
+| Infra/VPS | 02-04 -- LER (sem alterar) a limpeza automatica de imagens do servidor | **Fora de escopo por decisao** -- nao lida; D2-24 fica NAO-VERIFICADA ate o 02-12 exercitar a reversao | 2026-09-10 |
+| Infra/VPS | 02-04 -- bucket S3 privado + chave limitada a ele, e as 4 variaveis de bucket | **Fora de escopo por D2-33** -- nao ha bucket; a replica do Litestream vai para caminho da propria caixa. A garantia off-site cai, e a T9 do infraKring nao e fechada por esta fase | 2026-09-10 |
+| Infra/VPS | 02-12 -- executar deploy, reversao por imagem, ensaio de restauracao sobre a replica `file` e provar que a replica sobrevive a um redeploy | **Desbloqueado** (02-04 concluido) | 2026-08-31 |
+| Infra/VPS | 03-11 -- subir o coturn na VPS, exercitar o relay entre duas redes residenciais e medir o desfecho ICE; fecha o critério 3 (SALA-04). **A dependencia de infraestrutura CAIU**: as 4 regras de UFW estao abertas (ver `docs/OPERACAO.md` § Firewall do coturn). Falta: o ajuste do proprio `03-11-PLAN.md` (ele ainda manda reabrir as cegas so as 3 portas base, sem a faixa de relay), decisão ssh-do-Claude vs execução manual, e segundo jogador em outra rede | Parcialmente desbloqueado | 2026-09-08 |
 
 ## Nota para o planejamento da fase 3
 
@@ -258,38 +271,60 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-09
-Stopped at: Phase 2 replanned under containerization — 5 plans written, checker passed with 0 blockers
-Resume file: .planning/phases/02-migra-o-para-a-vps/02-04-PLAN.md
+Last session: 2026-09-10T14:33:29.463Z
+Stopped at: 02-04 concluído — A1 provada, primeiro certificado válido, as quatro regras de UFW abertas
+Resume file: .planning/phases/02-migra-o-para-a-vps/02-13-PLAN.md
 
-Next: **`/gsd-execute-phase 2`** — os cinco planos estão escritos, commitados e verificados. O
-plan-checker passou com **zero bloqueadores** e seis observações, todas tratadas ou registradas
-(2026-09-09). **D2-32 fixou que nada no Coolify se altera e o deploy desta fase é disparado à mão
-pelo túnel**, o que revoga D2-31, suspende D2-08 e apaga todos os segredos de deploy.
+Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` está **concluído**
+(`004a8bd`, `0608fee`, `ec56b2f`; `02-04-SUMMARY.md` com Self-Check PASSED). Portões depois dele:
+**926 testes em 60 arquivos, lint 0**.
 
-Os cinco planos, em ordem fixa (waves 8 a 12, `depends_on` em cadeia):
+**O que o 02-04 transformou em fato, e que os planos seguintes podem assumir:**
 
-1. **`02-04`** (wave 8, reescrito, **`autonomous: false`**) — a caixa, os segredos, `docs/OPERACAO.md`,
-   as quatro regras de UFW do coturn, e a forma do disparo manual. Prova a suposição A1 com um
-   andaime descartável (`ops/probe/docker-compose.yml`, fora do glob dos testes, apagado pelo
-   02-14) que de quebra **arranca o primeiro certificado do Traefik**. Aqui se escolhe entre clique
-   no painel pelo túnel e um script local que faz o `curl` para a porta encaminhada — os dois
-   alteram nada na caixa, e o segundo preserva a letra do critério 4 ("o deploy é um comando").
+- **A1 provada.** O Coolify aceita composição de **dois serviços** vinda do repositório público,
+  descobre os dois e atribui o domínio ao `web`; fez **`pull` e não `build`** (C-7). O `02-14`
+  **mantém a forma planejada** — a alternativa "Docker Compose Empty" não é necessária.
+- **O primeiro certificado válido existe** (Let's Encrypt, pelo Traefik do Coolify), 200 por HTTPS
+  e 302 de HTTP. O 503 do catchall morreu. **INFRA-01 fechado.** O certificado **expira em
+  2026-12-08**, e o alarme de 30 dias ainda não existe (é do `02-12`).
+- **As quatro regras de UFW do coturn estão abertas, em v4 e v6**, com a faixa `49200:49299/udp`
+  casada com `ops/turnserver.conf`. A dependência de infraestrutura do `03-11` **caiu**.
+- **A forma do disparo é `clique-painel`** e o critério 4 tem leitura escrita: *procedimento
+  documentado e reversível, não um comando* (D2-32). `tools/ops/deploy.mjs` **não existe**, e por
+  isso os globs de `ops-config` terminam o `02-14` com **nove** entradas, não dez.
 
-2. **`02-13`** (wave 9) — delta de código: o bind de DM-9, os cinco comentários órfãos que citam
+**Duas mudanças de escopo tomadas no portão humano, que os planos seguintes precisam absorver:**
+
+- **D2-33 — não há bucket** (`97e55c7`). A réplica do Litestream vai para **caminho da própria
+  caixa**, em **volume persistente**. O `02-14` muda a seção de destino de `ops/litestream.yml` de
+  `s3` para `file` e declara **dois** volumes; o `02-12` prova que a réplica **sobrevive a um
+  redeploy**. A garantia off-site cai por escolha registrada, e a T9 do infraKring não é fechada
+  por esta fase. D2-23 foi reafirmada no mesmo portão: o integrador constrói e publica no GHCR.
+- **A limpeza automática de imagens não foi lida**, por decisão. **D2-24 fica NÃO-VERIFICADA** — a
+  reversão por imagem local é suposição até o `02-12` exercitá-la.
+
+**Os quatro planos que restam**, em ordem fixa (waves 9 a 12, `depends_on` em cadeia):
+
+1. **`02-13`** (wave 9) — delta de código: o bind de DM-9, os cinco comentários órfãos que citam
    `dg2.service`/`ops/deploy.sh`, o `Caddyfile` sem TLS/ACME, `trusted_proxies` (DM-10),
    `auto_https off`, o upstream do contêiner.
 
-3. **`02-14`** (wave 10) — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34
+2. **`02-14`** (wave 10) — `ops/` containerizado (Dockerfiles, compose, README reescrito) **e os 34
    testes de `tests/ops-config.test.ts` no mesmo commit**, com o piso anti-vacuidade descendo a 9.
+   **Apaga `ops/probe/docker-compose.yml`** no mesmo commit — o andaime já fez o trabalho dele.
+   Absorve D2-33: destino `file` no `ops/litestream.yml` e os dois volumes persistentes.
 
-4. **`02-15`** (wave 11, **novo — não reescreve o `02-11`, que já foi executado**) — o `ci.yml` de
+3. **`02-15`** (wave 11, **novo — não reescreve o `02-11`, que já foi executado**) — o `ci.yml` de
    publicação de imagem, com `docker build`/`push` em passos `run:` para não quebrar o portão
    T-2-SC, mais a exceção nomeada de `packages: write` em `tests/workflows.test.ts` (DM-8).
    `DEPLOY_ENABLED` morre aqui.
 
-5. **`02-12`** (wave 12, reescrito, **`autonomous: false`**) — a caixa de verdade: primeiro
-   certificado pelo Traefik, deploy, reversão por imagem, restauração verificada e o vigia externo.
+4. **`02-12`** (wave 12, reescrito, **`autonomous: false`**) — a caixa de verdade: deploy do jogo,
+   reversão por imagem (que é onde D2-24 deixa de ser suposição), ensaio de restauração sobre a
+   réplica `file`, **a prova de que a réplica sobrevive a um redeploy**, e o vigia externo com o
+   alarme de 30 dias. O primeiro certificado **já** foi arrancado pelo `02-04`; o que resta aqui é
+   o resto. Registra também a localização do campo de domínio no painel, lacuna deixada em branco
+   de propósito pelo `02-04`.
 
 **Escopo que vazou para a fase 3 — `03-11-PLAN.md` precisa de ajuste ANTES de executar.** O `02-04`
 Task 3 abre as **quatro** regras de UFW (`3478/udp`, `3478/tcp`, `5349/tcp` e a faixa de relay

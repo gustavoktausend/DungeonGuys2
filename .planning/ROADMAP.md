@@ -158,7 +158,7 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 
 **Wave 8** *(blocked on Wave 6 completion — replanejada em 2026-09-09 sob containerização)*
 
-- [ ] 02-04-PLAN.md — A caixa, os segredos e a forma do disparo manual: o recurso do Coolify provando a suposição A1, o primeiro certificado do Traefik, o bucket, a faixa de relay declarada e aberta, e `docs/OPERACAO.md` aberto
+- [x] 02-04-PLAN.md — A caixa e a forma do disparo manual: o recurso do Coolify provando a suposição A1, o primeiro certificado do Traefik, a faixa de relay declarada e aberta, e `docs/OPERACAO.md` aberto. **O bucket saiu de escopo por D2-33** (a réplica do Litestream vai para caminho da própria caixa), e a limpeza de imagens não foi lida por decisão
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
@@ -528,7 +528,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 10/12 | In Progress|  |
+| 2. Migração para a VPS | 11/15 | In Progress|  |
 | 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
