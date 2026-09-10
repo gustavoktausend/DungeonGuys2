@@ -61,10 +61,16 @@
 #   none of the four security headers — no HSTS, no nosniff, no Referrer-Policy,
 #   no CSP (DM-11). If that block goes, nobody sends them. HSTS still works from
 #   behind the proxy because a browser honours it over ITS connection, which is
-#   HTTPS with Traefik; the plaintext inner hop does not interfere. The one gap:
-#   the error route at the bottom does not inherit those headers, and its body is
-#   a fixed generic JSON string, so nothing there is sniffable. Noted so the gap
-#   stays a decision.
+#   HTTPS with Traefik; the plaintext inner hop does not interfere. AND THE ONE
+#   GAP THIS PARAGRAPH USED TO CLAIM IS NOT THERE. It said the error route at the
+#   bottom does not inherit those headers. Measured against the image built from
+#   this file on 2026-09-10 (plan 02-15, Task 2): with the `api` container
+#   stopped, the 503 that `handle_errors` returns carries all four of them.
+#   `header` is a SITE-level directive and wraps the response writer before the
+#   error chain runs, so the error body is covered like every other. The body is
+#   still a fixed generic JSON string, so nothing there was sniffable either way;
+#   what the measurement buys is that nobody adds a redundant `header` block
+#   inside handle_errors to close a hole that was never open.
 #
 #   The three cache matchers, including the `not` that makes @assets and @stable
 #   mutually exclusive by construction instead of by the order the lines happen
