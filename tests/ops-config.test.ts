@@ -126,20 +126,85 @@ function code(name: string): string {
 }
 
 describe('ops/Caddyfile', () => {
-  it('roteia /api, /ws e o estático a partir do symlink de release', () => {
+  it('roteia /api, /ws e o estático a partir da raiz dentro da imagem', () => {
     const cfg = code('Caddyfile');
     expect(cfg).toContain('handle /api/*');
     expect(cfg).toContain('reverse_proxy');
     expect(cfg).toContain('handle /ws');
-    // The same path ops/deploy.sh swaps: if the two ever disagree, the box
-    // serves an empty directory and every request is a 404.
-    expect(cfg).toContain('root * /srv/dg2/current');
+    // The path ops/Dockerfile.web copies dist/ into: if the two ever disagree,
+    // the container serves an empty directory and every request is a 404. It
+    // used to be a release symlink that a deploy script swapped under a running
+    // Caddy — D2-24 replaced that with "point at the previous image", so the
+    // bytes now live INSIDE the image and changing version is changing
+    // container.
+    expect(cfg).toContain('root * /srv/www');
+    // The old root has to be GONE rather than merely outvoted: a Caddyfile
+    // carrying both would serve whichever one Caddy resolved first, and the
+    // stale one is the one that still exists on the box being migrated from.
+    expect(cfg).not.toContain('/srv/dg2/current');
   });
 
-  it('usa {$VAR} no endereço do site, nunca {env.VAR} (P-6)', () => {
+  it('usa {$VAR} no upstream, e o endereço do site não carrega domínio (P-6)', () => {
     const cfg = code('Caddyfile');
-    expect(cfg).toContain('{$DG2_DOMAIN}');
-    expect(cfg).not.toContain('{env.DG2_DOMAIN}');
+    // P-6 used to be about the SITE ADDRESS carrying the domain. The site
+    // address carries no placeholder at all now — the Traefik router of Coolify
+    // owns the name — so the trap moved to the one placeholder left in the file,
+    // and the rule did not move with it: {$VAR} is substituted before the parse
+    // and {env.VAR} is resolved too late.
+    expect(cfg).toContain('{$DG2_UPSTREAM');
+    expect(cfg).not.toContain('{env.DG2_UPSTREAM}');
+    // Scheme AND port. A port-only address would still let Caddy choose HTTPS
+    // for itself, which is the other way to arrive at the ACME attempt that
+    // `auto_https off` exists to prevent.
+    expect(cfg, 'o endereço do site não é esquema + porta').toMatch(/^http:\/\/:\d+ \{/m);
+    // read() and not code(): a domain leaked in a comment is leaked all the
+    // same, so this one sweeps the whole file (D2-15).
+    expect(read('Caddyfile'), 'o Caddyfile voltou a nomear o domínio')
+      .not.toContain('DG2_DOMAIN');
+  });
+
+  it('o bloco global desliga o ACME, porque o certificado é do Traefik (T-2-ACME)', () => {
+    const cfg = code('Caddyfile');
+    expect(cfg).toContain('auto_https off');
+    // Left on, Caddy would request a certificate for a name it does not control
+    // and would take 80 and 443 of its own namespace to do it; what a browser
+    // gets is a redirect loop. It is an outage this container inflicts on
+    // itself on the first deploy, with nothing external to blame.
+    //
+    // The global block must also be the FIRST block: Caddy refuses one that
+    // follows a site block, so getting this wrong is a parse failure at boot
+    // rather than a silently ignored option.
+    expect(cfg.trim().startsWith('{')).toBe(true);
+  });
+
+  it('a API de administração do Caddy fica desligada (T-2-ADMIN)', () => {
+    // It listens on a fixed local port by default and accepts arbitrary
+    // configuration reloads from anything that reaches it. Nothing in this
+    // deployment uses it, so it is surface with no consumer.
+    expect(code('Caddyfile')).toContain('admin off');
+  });
+
+  it('o Caddy confia no X-Forwarded-For que o Traefik entrega (DM-10)', () => {
+    // THE ONE ASSERTION IN THIS FILE WHOSE DEFECT WOULD ONLY SHOW UP IN A PHASE
+    // THAT HAS NOT RUN YET, which is exactly why it is here and not there.
+    //
+    // Without this line Caddy discards an incoming X-Forwarded-For from an
+    // untrusted source — by default and on purpose, because a client can forge
+    // one — and replaces it with the address it saw itself, which behind a proxy
+    // is the proxy's. apps/server/src/signaling/limiter.ts then counts the whole
+    // internet in one bucket, and the two outcomes are "nobody is limited" or
+    // "everybody is", the second being indistinguishable from the outside from
+    // the server being down.
+    //
+    // WHAT IT BUYS: the client's real address survives both hops, so the rate
+    // limiter of phase 3 means something. Traefik already does the other half —
+    // it too refuses a forwarded address from a peer outside its trusted list —
+    // and without both halves the defence does not exist (T-2-XFF).
+    const cfg = code('Caddyfile');
+    expect(cfg).toContain('trusted_proxies static private_ranges');
+    // Inside `servers`, which is the only block where Caddy reads it. The same
+    // words in the wrong place are a no-op that looks like a fix.
+    expect(cfg).toMatch(/servers\s*\{[^}]*trusted_proxies static private_ranges/);
   });
 
   it('não usa a diretiva route, cuja ordem seria carga funcional (P-5)', () => {
@@ -208,7 +273,7 @@ describe('ops/Caddyfile', () => {
     expect(cfg).toContain('{"status":"unavailable"}');
   });
 
-  it('a disputa da 443 virou decisão escrita, não um item de calendário', () => {
+  it('a disputa da 443 virou decisão escrita, e a 443 deixou de ser do Caddy', () => {
     // read() e não code(): a decisão VIVE num comentário, e esta é justamente a
     // asserção que code() tornaria vazia — o texto que ela persegue nunca
     // esteve fora de um comentário.
@@ -217,12 +282,25 @@ describe('ops/Caddyfile', () => {
     // "ninguém sabe se isso ainda vale", que é pior que não ter nota nenhuma.
     expect(cfg, 'o Caddyfile ainda adia a decisão da 443')
       .not.toContain('SCHEDULED FOR PHASE 3');
-    // O que entrou: a saída nomeada, para que a dívida seja reconsiderável em
-    // vez de redescoberta. `layer4` é o app do Caddy que rotearia por ALPN/SNI.
+    // O DONO TROCOU, e é a parte nova desta asserção. A 443 é do Traefik do
+    // Coolify, que termina o TLS e é compartilhado com a produção de outro
+    // projeto na mesma caixa. Escrito no arquivo, isso é o que impede a próxima
+    // pessoa de "devolver" a 443 ao Caddy e derrubar o vizinho junto.
+    expect(cfg, 'o Caddyfile não diz a quem pertence a 443')
+      .toMatch(/443 IS NOT CADDY'S/);
+    expect(cfg).toMatch(/Traefik/);
+    // O que já estava e continua: a saída nomeada, para que a dívida seja
+    // reconsiderável em vez de redescoberta. `layer4` é o app do Caddy que
+    // rotearia por ALPN/SNI.
     expect(cfg).toContain('layer4');
-    // E a advertência que o plano 03-04 paga com o grace de 60 s: um reload
-    // fecha as WebSockets ativas enquanto os DataChannels P2P sobrevivem.
-    expect(cfg).toMatch(/reload/i);
+    // E a advertência que o plano 03-04 paga com o grace de 60 s, também com o
+    // dono trocado: quem fecha as WebSockets ativas deixou de ser um reload e
+    // passou a ser a recriação do contêiner. As duas metades andam juntas —
+    // remover uma traz de volta "todo mundo caiu ao mesmo tempo e eu não fiz
+    // nada".
+    expect(cfg).toMatch(/recreation of the container/);
+    expect(cfg).toContain('60 s');
+    expect(cfg).toContain('03-04');
   });
 
   it('o CSP já cobre o wss:// do signaling sem precisar mudar', () => {
@@ -1299,9 +1377,14 @@ const NOT_A_TLD = new Set([
 ]);
 
 /**
- * The ONLY IP literals allowed into ops/: the loopback that
- * `{$DG2_UPSTREAM:127.0.0.1:8080}` carries, and the endpoints of the reserved
- * ranges ops/turnserver.conf forbids the relay to address.
+ * The ONLY IP literals allowed into ops/: the loopback, the bind address the
+ * composition hands the server, and the endpoints of the reserved ranges
+ * ops/turnserver.conf forbids the relay to address.
+ *
+ * No file in ops/ spells the loopback any more — the Caddyfile's upstream
+ * default became a compose service name when the deployment became two
+ * containers — and the token stays excused anyway, because `127.0.0.1` says as
+ * little about where this box lives as the ranges below it do.
  *
  * Excusing them does not open a hole in D2-15. That rule forbids "segredo,
  * domínio, host ou IP" because those say WHERE THIS BOX LIVES; 10.0.0.0/8 says

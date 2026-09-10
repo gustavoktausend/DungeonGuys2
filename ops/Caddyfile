@@ -1,62 +1,161 @@
-# ops/Caddyfile — the entire public surface of the box.
+# ops/Caddyfile — the HTTP policy of the `web` container. Nothing here is TLS.
 #
-# {$VAR} is substituted BEFORE the Caddyfile is parsed, and that is the only
-# form that works in a site address: the docs are explicit that placeholders
-# cannot be used in addresses, only Caddyfile-style environment variables. The
-# runtime form ({env.VAR}) is resolved too late, so a site written that way
-# comes up bound to a literal string instead of a domain, and ACME then fails
-# on a name nobody owns (P-6).
+# This file used to open with "the entire public surface of the box". It is not
+# that any more, because the box acquired a router of its own. The chain is:
 #
-# The values live in /etc/dg2/env, read through a `systemctl edit caddy`
-# drop-in carrying EnvironmentFile=/etc/dg2/env. Nothing in this file names the
-# domain: the repository is not supposed to say where the machine lives (D2-15).
+#   client → Traefik (terminates TLS, owns 443) → this Caddy → the `api`
+#   container → the Node process
 #
-# THE HALF THAT BITES: `systemctl reload caddy` does NOT re-read
-# EnvironmentFile — a reload runs inside the environment of the process that is
-# already up, so it re-reads the config and keeps the OLD variable values.
-# Changing the domain requires `systemctl restart caddy`. The Caddy docs push
-# reload to avoid downtime; both statements are true at once, and
-# ops/README.md repeats the warning for whoever only reads the runbook.
+# and everything below governs the third hop only. Caddy is still here for the
+# reason D2-25 gives: this file is not about certificates. It carries a content
+# policy derived file by file from what the client actually loads, three classes
+# of cache, a deliberate refusal to answer a nonexistent route with the index,
+# and a machine-readable 503 that the external monitor consumes. Rewriting that
+# in application code would have been the most expensive item of the migration,
+# and the least necessary.
 #
-# No default value is given on purpose. An unset variable substitutes to an
-# empty site address, which Caddy refuses at parse time: a loud failure at boot
-# beats a box quietly serving the game under the wrong name.
+# NO DOMAIN APPEARS IN THIS FILE, and that is stronger than before rather than
+# looser. The site address below is a scheme and a port; the name this deployment
+# answers to is assigned in the panel that generates the Traefik router, so the
+# repository cannot leak it even by accident (D2-15). Those router labels are NOT
+# hand-written here for a second reason: the generator rewrites them from the
+# assigned name, and a hand-written set would fight it on the first domain change.
 #
-# PORT 443 IS CADDY'S, AND THAT IS NOW A DECISION RATHER THAN A CALENDAR ENTRY.
-# The collision this header used to warn about — TURN over TLS also wants
-# 443/tcp — was resolved by giving the relay 3478 (UDP and TCP) and 5349 (TLS)
-# instead. See ops/turnserver.conf and ops/README.md §12. Those two ports cross
-# essentially every home NAT and firewall, which is the population this game
-# has: friends on Brazilian residential access.
+# {$VAR} is still substituted BEFORE the file is parsed, and the runtime form
+# ({env.VAR}) is still resolved too late to be usable in a site address (P-6).
+# The site address no longer carries a placeholder at all, so that trap has no
+# target there — but the rule still governs {$DG2_UPSTREAM} below, which is the
+# one placeholder left in the file, and it keeps the {$VAR} form for it.
+#
+# PORT 443 IS NOT CADDY'S ON THIS BOX — it belongs to the Traefik of Coolify,
+# shared with another project's production, and this container publishes nothing
+# on the host at all. The collision this header used to warn about, TURN over TLS
+# wanting 443/tcp, was resolved by giving the relay 3478 (UDP and TCP) and 5349
+# (TLS) instead; see ops/turnserver.conf and the relay section of ops/README.md.
+# Those two ports cross essentially every home NAT and firewall, which is the
+# population this game has: friends on Brazilian residential access.
 #
 # TURN over TLS on 443 would only buy the corporate firewall that opens nothing
-# else, and it is REGISTERED DEBT, NOT BUILT. The two ways out, named here so
-# the next reader inherits the options instead of the problem: Caddy's `layer4`
-# app routing by ALPN/SNI in front of both services, or a second IP on the VPS.
-# Neither is worth its operational weight before somebody is actually locked
-# out by a firewall we can name.
+# else, and it is REGISTERED DEBT, NOT BUILT. The two ways out, named here so the
+# next reader inherits the options instead of the problem: Caddy's `layer4` app
+# routing by ALPN/SNI in front of both services, or a second IP on the VPS.
+# Neither is worth its operational weight before somebody is actually locked out
+# by a firewall we can name — and under the router above, the first one would now
+# have to be arranged alongside Traefik rather than instead of Caddy.
 #
-# RELOAD CLOSES ACTIVE WEBSOCKETS. `systemctl reload caddy` — for a header, for
-# a cache rule, for anything — terminates every stream through /ws, while the
-# P2P DataChannels that never touch Caddy keep running. The game goes on and
-# the signalling server sees everyone leave at once. That is why plan 03-04
-# puts a 60 s grace on room deletion instead of deleting on disconnect: the
-# mitigation is the second half of this warning, and removing one without the
-# other brings back "everybody dropped at the same time and I did nothing".
-{$DG2_DOMAIN} {
+# A VERSION CHANGE CLOSES ACTIVE WEBSOCKETS, AND THE OWNER OF THAT CHANGED. It
+# used to be `systemctl reload caddy`; it is now the recreation of the container,
+# because shipping a version means a new container and not a re-read of this
+# file. Every stream through /ws dies with the old container, while the P2P
+# DataChannels that never touch Caddy keep running — so the game goes on and the
+# signalling server sees everyone leave at once. That is why plan 03-04 puts a
+# 60 s grace on room deletion instead of deleting on disconnect: the mitigation
+# is the second half of this warning, and removing one without the other brings
+# back "everybody dropped at the same time and I did nothing".
+#
+# WHAT CONTAINERISATION DID NOT TOUCH, listed because the absence of a diff is
+# the result and not an oversight. None of it is about where the process runs:
+#
+#   The whole `header` block. It got MORE important, not less: measured against
+#   the neighbouring app on this box on 2026-09-09, the Traefik of Coolify sends
+#   none of the four security headers — no HSTS, no nosniff, no Referrer-Policy,
+#   no CSP (DM-11). If that block goes, nobody sends them. HSTS still works from
+#   behind the proxy because a browser honours it over ITS connection, which is
+#   HTTPS with Traefik; the plaintext inner hop does not interfere. The one gap:
+#   the error route at the bottom does not inherit those headers, and its body is
+#   a fixed generic JSON string, so nothing there is sniffable. Noted so the gap
+#   stays a decision.
+#
+#   The three cache matchers, including the `not` that makes @assets and @stable
+#   mutually exclusive by construction instead of by the order the lines happen
+#   to sit in.
+#
+#   The absence of `try_files {path} /index.html`, which is a decision and not an
+#   omission (DM-5). This game has no client-side routing, so a URL that does not
+#   exist is a mistake and not a route. Answering it with 200 and HTML would hand
+#   the service worker a wrong page to persist in a store that ignores
+#   Cache-Control, and the hand-written relative hrefs of index.html would then
+#   resolve against the wrong directory. A 404 is the honest answer.
+#
+#   The `handle_errors` route and its JSON body. With the `api` container down or
+#   restarting, the static game keeps serving; what that route adds is a
+#   machine-readable signal, so the external monitor of D2-16 can tell "web up,
+#   api down" from "box down" — a plain-text "Bad Gateway" looks the same as a
+#   timeout to a keyword matcher. There is no HTML maintenance page by decision:
+#   the game is static and stays online with the API gone, so a full-page
+#   takeover would hide a working game behind a broken one.
+
+# --------------------------------- GLOBAL BLOCK -------------------------------
+{
+    # The certificate is Traefik's (D2-25). Left on, Caddy would try ACME for a
+    # name it does not control and would take 80 and 443 of its own namespace to
+    # do it; what a browser would get is a redirect loop. That is a self-inflicted
+    # outage on the first deploy, which is why this is the first line of the file
+    # (T-2-ACME).
+    auto_https off
+
+    # Caddy's administration endpoint listens on localhost:2019 by default and
+    # accepts arbitrary configuration reloads from whatever reaches it. Nothing in
+    # this deployment uses it, so turning it off is one surface fewer inside the
+    # container (T-2-ADMIN).
+    admin off
+
+    servers {
+        # WITHOUT THE LINE BELOW, THE RATE LIMITER OF PHASE 3 BECOMES ONE BUCKET
+        # FOR THE WHOLE INTERNET.
+        #
+        # Caddy ignores an incoming X-Forwarded-For from an untrusted source — by
+        # default and on purpose, because a client can forge one — and REPLACES it
+        # with the address it saw itself. Behind a proxy, the address it saw is
+        # the proxy's, so every request on earth would reach the Node process
+        # wearing one source, and the two outcomes are "nobody is limited" or
+        # "everybody is", the second being indistinguishable from the outside from
+        # the server being down (DM-10).
+        #
+        # The real chain is client → Traefik → Caddy → Node, and Traefik already
+        # did the honest half: it too refuses a forwarded address from a peer
+        # outside its own trusted list, and substitutes the real TCP peer. So what
+        # arrives here is correct, and all that was missing was Caddy being
+        # willing to believe it. WITHOUT BOTH HALVES THE DEFENCE DOES NOT EXIST,
+        # and this was the missing one.
+        #
+        # The static form of the private ranges is safe here precisely because
+        # nothing is published on the host: the only origin that can speak to this
+        # port at all is the isolated bridge network Coolify created, and a client
+        # on the internet never talks to this Caddy directly. Widening it further
+        # would restore forgeability.
+        #
+        # The consumer is apps/server/src/signaling/limiter.ts, whose clientIp()
+        # reads the header this line preserves, and whose own comment warns that a
+        # loose setting here would make the value forgeable again. This is the
+        # tight form of it (T-2-XFF).
+        trusted_proxies static private_ranges
+    }
+}
+
+# ------------------------------- THE SITE ADDRESS -----------------------------
+# A scheme and a port, where a domain placeholder used to be. The explicit
+# `http://` is what guarantees plain HTTP: a port-only address would still let
+# Caddy choose HTTPS on its own, and this hop is inside the compose network where
+# there is nothing to terminate.
+#
+# The port is 8080, and the `api` container ALSO listens on 8080. That is not a
+# conflict, and neither is the 8080 the neighbour's Traefik holds on the host: a
+# container's ports live in that container's own network namespace, and nothing
+# here is published into the host's. It is the first thing a reader will take for
+# a bug, so it is written down rather than discovered.
+http://:8080 {
     encode zstd gzip
 
     # SECURITY HEADERS. Caddy sends NONE of these by default — automatic TLS
-    # and HSTS are different things, and only the first one is automatic.
+    # and HSTS are different things, and only the first one is automatic. And
+    # the proxy in front sends none of them either, which the header of this
+    # file records as measured rather than assumed (DM-11).
     #
     # At SITE level rather than inside the static `handle`, so that the
     # reverse-proxied /api and /ws answers carry them too. `header` is its own
     # directive with its own place in Caddy's order, so this does not disturb
     # the mutually-exclusive `handle` group below (P-5 stands).
-    #
-    # NOT covered: the `handle_errors` block at the bottom runs in the error
-    # route and does not inherit these. Its body is a fixed generic JSON string,
-    # so nothing there is sniffable; noted so the gap is a decision.
     header {
         # The webroot serves /assets/CREDITS.md and
         # /assets/100_Anims_Order_List.txt right next to the game. nosniff is
@@ -106,28 +205,40 @@
     # correctness. Rewriting any of them as `route` would make file order
     # load-bearing, and the static block would start swallowing the API the
     # first time somebody moved a paragraph (P-5).
+    #
+    # THE UPSTREAM IS A SERVICE NAME, resolved by Docker's internal DNS, where it
+    # used to be a loopback address. The default written into the placeholder is
+    # the name the composition of plan 02-14 gives the Node service, so this file
+    # is correct even if nobody set the variable in the panel — and wrong in one
+    # loud way, a name that does not resolve, rather than in the quiet way a
+    # loopback default would be wrong here.
     handle /api/* {
-        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
+        reverse_proxy {$DG2_UPSTREAM:api:8080}
     }
 
     # IN USE by the phase 3 signalling server. It was written a phase early,
     # with no consumer, so the shape would be visible in review — and the bet
-    # paid: the block did not change when the server arrived. Caddy upgrades a
+    # paid: the block did not change when the server arrived, and it did not
+    # change when the deployment became two containers either. Caddy upgrades a
     # WebSocket through reverse_proxy without an extra module, and the CSP above
     # already covers it, because connect-src 'self' includes wss:// on the same
     # origin.
     #
-    # What DOES change is the operational rule: reloading Caddy closes every
-    # socket here. The header of this file explains why that is survivable and
-    # what pays for it.
+    # What DOES change is the operational rule, and only in who owns it:
+    # recreating this container closes every socket here. The header of this file
+    # explains why that is survivable and what pays for it.
     handle /ws {
-        reverse_proxy {$DG2_UPSTREAM:127.0.0.1:8080}
+        reverse_proxy {$DG2_UPSTREAM:api:8080}
     }
 
     handle {
-        # This is the release symlink that ops/deploy.sh swaps atomically. Caddy
-        # resolves it per request, so a swap is picked up with no reload.
-        root * /srv/dg2/current
+        # INSIDE THE IMAGE, where a release symlink used to be. The bytes the
+        # web image carries are the `dist/` that passed the cross-engine gate,
+        # copied in at build time, so changing version is changing container —
+        # and the atomicity that `rename(2)` used to buy is now the atomicity of
+        # bringing the composition up. Nothing swaps underneath a running Caddy
+        # any more, which also means nothing has to be resolved per request.
+        root * /srv/www
 
         # Vite emits content-hashed names under /assets: the name changes
         # whenever the bytes change, so pinning them forever is safe, and it is
@@ -168,23 +279,14 @@
         @shell path / /index.html /sw.js /manifest.json
         header @shell Cache-Control "no-cache"
 
-        # Deliberately NO `try_files {path} /index.html`. This game has no
-        # client-side routing, so a URL that does not exist is a mistake and not
-        # a route. Answering it with 200 and HTML would hand the service worker
-        # a wrong page to persist in a store that ignores Cache-Control, and the
-        # hand-written relative hrefs of index.html would then resolve against
-        # the wrong directory (DM-5). A 404 is the honest answer.
+        # A 404 stays a 404 here, and that absence is a decision with a reason
+        # too long for this line: the header of this file carries it (DM-5).
         file_server
     }
 
-    # With dg2.service down the static game keeps serving; what was missing was
-    # a machine-readable signal. The external monitor of D2-16 uses this to tell
-    # "Caddy up, Node down" from "box down" — a plain-text "Bad Gateway" looks
-    # the same as a timeout to a keyword matcher.
-    #
-    # There is no HTML maintenance page in this phase, by decision: the game is
-    # static and stays online with the API gone, so a full-page takeover would
-    # hide a working game behind a broken one.
+    # The machine-readable signal the external monitor matches on. The reasoning,
+    # including why there is no HTML maintenance page, is in the header of this
+    # file.
     handle_errors {
         # The body is generic on purpose: no stack trace, no filesystem path and
         # no upstream name reaches the client (T-2-LEAKERR).
