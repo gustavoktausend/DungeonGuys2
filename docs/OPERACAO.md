@@ -86,7 +86,7 @@ Os **nomes**, sem valores. O compose do repositório diz **quais** chaves existe
 
 | Variável | O que é |
 |---|---|
-| `DG2_IMAGE_TAG` | a tag da imagem — sha de commit de 40 hexadecimais, nunca uma tag móvel (`C-6`) |
+| `DG2_IMAGE_TAG` | a tag da imagem — sha de commit de 40 hexadecimais, nunca uma tag móvel (`C-6`). Vazia ou ausente, a composição cai para `SOURCE_COMMIT`, o sha que o Coolify está implantando; preenchê-la é o gesto de reverter |
 | `DG2_DB` | caminho do arquivo do banco dentro do volume persistente |
 | `DG2_PORT` | a porta interna do servidor, dentro do contêiner |
 | `DG2_BIND` | o bind interno. Vale `0.0.0.0` no compose e **não** é um buraco: porta de contêiner sem publicação não atravessa o UFW nem o NAT (`DM-9`) |
@@ -145,7 +145,9 @@ deploy existe: nem `DEPLOY_SSH_KEY`, nem `DEPLOY_HOST`, nem `DEPLOY_USER`, nem
 1. **Empurrar a `main` para o GitHub.** Não é higiene, é pré-requisito: ver a pegadinha 1 abaixo.
 2. Confirmar que o integrador publicou a imagem da tag desejada.
 3. Abrir o túnel SSH até o painel do Coolify.
-4. No recurso do jogo, ajustar `DG2_IMAGE_TAG` para o sha desejado e disparar o deploy.
+4. Disparar o deploy. Para promover a ponta da `main`, **não se toca em `DG2_IMAGE_TAG`**: vazia
+   ou ausente, a composição usa `SOURCE_COMMIT`, que é o mesmo sha com que o job `image`
+   tagueou as duas imagens. Ajustar a variável à mão é o gesto de **reverter**, não o de promover.
 5. Conferir que o campo `release` de `/api/health` passou a ser **byte a byte** aquele sha. É a
    diferença entre "o deploy foi disparado" e "a versão nova está no ar".
 

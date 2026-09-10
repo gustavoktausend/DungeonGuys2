@@ -385,6 +385,15 @@ function composeVolumes(): string[] {
  * before the commit that deletes the units, is that no window exists in which a
  * property of this deployment is unguarded.
  */
+/**
+ * The tag expression both services carry, spelled once here because it appears
+ * three times in the composition and every assertion about it has to mean the
+ * same thing. `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}`: the panel override that D2-24
+ * pulls to revert, defaulting to the full commit sha Coolify writes for the
+ * deploy in progress. Both halves are shas; neither is a movable name (C-6).
+ */
+const TAG_EXPR = '${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}';
+
 describe('ops/docker-compose.yml e as duas imagens', () => {
   it('não declara o par de relay, porque Compose não sabe dizer "ausente"', () => {
     // MEASURED IN A REAL CONTAINER, not read off the spec. `- KEY=${VAR}` with
@@ -474,14 +483,38 @@ describe('ops/docker-compose.yml e as duas imagens', () => {
     // Heir of "arranca pelo symlink que o rollback move". A moving tag destroys
     // the rollback of D2-24 outright: there is no "previous image" when the
     // previous NAME points at the new content (T-2-ROLLBACK).
+    //
+    // The expression gained a default — the commit Coolify is deploying — so the
+    // ordinary deploy needs no hand-typed tag. BOTH SIDES OF IT ARE STILL A SHA:
+    // DG2_IMAGE_TAG is the panel override that D2-24 pulls to revert, and
+    // SOURCE_COMMIT is written by Coolify as the full 40-hex commit. Neither is a
+    // name a publisher can move, which is the whole content of C-6.
     const bad: string[] = [];
     for (const [name, body] of composeServices()) {
       const m = /^\s*image:\s*(\S+)\s*$/m.exec(body);
       expect(m, `o serviço ${name} não declara imagem`).not.toBeNull();
-      if (!m![1]!.endsWith(':${DG2_IMAGE_TAG}')) bad.push(`${name}: ${m![1]}`);
+      if (!m![1]!.endsWith(`:${TAG_EXPR}`)) bad.push(`${name}: ${m![1]}`);
     }
     expect(bad, 'imagem fora da tag de sha').toEqual([]);
     expect(code('docker-compose.yml')).not.toMatch(/:(latest|main)\b/);
+  });
+
+  it('a tag da imagem e DG2_RELEASE são a MESMA expressão, caractere a caractere', () => {
+    // What makes step 5 of the deploy check mean anything: the health route is
+    // compared byte for byte against the sha that was published, and it can only
+    // carry the truth if the string that names the release is the string that
+    // names the image. Two copies that must agree are one edit away from not
+    // agreeing, and the symptom is the quietest kind — a deploy check that passes
+    // while reporting a release nobody is running.
+    //
+    // Compared to EACH OTHER and not to a literal spelled in this test: a literal
+    // here would be a third copy, and the third copy is the one nobody updates.
+    const api = composeServices().get('api')!;
+    const release = /^\s*-\s*DG2_RELEASE=(\S+)\s*$/m.exec(api);
+    expect(release, 'o serviço api não declara DG2_RELEASE').not.toBeNull();
+    const image = /^\s*image:\s*\S+?:(\$\{.+)$/m.exec(api);
+    expect(image, 'o serviço api não declara imagem com interpolação').not.toBeNull();
+    expect(release![1], 'DG2_RELEASE divergiu da tag da imagem').toBe(image![1]);
   });
 
   it('todo serviço busca no registro só o que não estiver em disco (D2-24)', () => {
@@ -887,6 +920,32 @@ describe('ops/litestream.yml', () => {
  * four names appear nowhere in ops/, because a name surviving in prose sends an
  * operator looking for a credential nobody created.
  */
+/**
+ * Removes `${...}` interpolations, INNERMOST FIRST, so that a nested default
+ * collapses instead of leaving debris behind.
+ *
+ * The single-pass `\$\{[^}]*\}` this replaced could not see nesting: against
+ * `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}` its `[^}]*` stopped at the FIRST `}` and
+ * left a stray `}` on the line, so `- DG2_RELEASE=${...:-${...}}` cleaned down to
+ * `- DG2_RELEASE=}` and the anti-leak assertions below read that brace as a
+ * literal value. A false positive on a leak check is not harmless: it is the
+ * kind that gets an assertion loosened until it stops catching real leaks.
+ *
+ * Looping on `[^{}]*` — a body containing NEITHER brace — makes each pass strip
+ * only complete innermost groups, and repeating drains the nest from the inside
+ * out. Unbalanced braces simply survive, which is the safe direction: they stay
+ * visible to the caller's regex instead of silently eating the rest of the line.
+ */
+function stripInterpolations(line: string): string {
+  let out = line;
+  let prev: string;
+  do {
+    prev = out;
+    out = out.replace(/\$\{[^{}]*\}/g, '');
+  } while (out !== prev);
+  return out;
+}
+
 const ENV_KEYS = [
   'DG2_IMAGE_TAG', 'DG2_UPSTREAM', 'DG2_DB', 'DG2_RELEASE', 'DG2_REPLICA_PATH',
   // Fase 3. DG2_TURN_SECRET entra nesta lista pelo motivo pelo qual a lista
@@ -1287,8 +1346,7 @@ describe('docs/OPERACAO.md', () => {
     const doc = readDoc();
     const bad: string[] = [];
     for (const line of doc.split('\n')) {
-      const clean = line
-        .replace(/\$\{[^}]*\}/g, '')
+      const clean = stripInterpolations(line)
         .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
       for (const key of ENV_KEYS) {
         if (new RegExp(`${key}\\s*=\\s*\\S`).test(clean)) bad.push(line.trim());
@@ -1596,8 +1654,7 @@ describe('nenhum arquivo de ops/ ou tools/ops/ carrega endereço ou segredo (D2-
         //
         // `DG2_DOMAIN=$OUTRA` therefore reads as an empty right-hand side,
         // which is correct: assigning from another variable is not a literal.
-        const clean = line
-          .replace(/\$\{[^}]*\}/g, '')
+        const clean = stripInterpolations(line)
           .replace(/\{\$[^}]*\}/g, '')
           .replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
         // Container-internal values are excused here and NOWHERE ELSE in this
