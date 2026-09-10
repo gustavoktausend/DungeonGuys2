@@ -83,14 +83,35 @@ WORKDIR /srv
 # retention of 5 images per service (D2-24) cheap enough to keep on a disk shared
 # with another project's production (DM-16).
 #
-# NO COMPILER, AND NONE IS NEEDED: better-sqlite3 13.0.3 ships its prebuilt
-# binaries inside the npm tarball, linux-x64 included (DM-12). No python3, no
-# make, no g++ — and the manual node_modules step the old runbook documented for
-# the box CEASES TO EXIST, which is the single largest line the containerisation
+# NO COMPILER, AND NONE IS NEEDED — BUT IT TAKES `--ignore-scripts` TO MEAN IT,
+# AND THAT FLAG IS A MEASUREMENT RATHER THAN A PRECAUTION (plan 02-15, Task 2).
+#
+# DM-12's fact holds exactly as written: better-sqlite3 13.0.3 ships prebuilt
+# binaries inside the npm tarball, linux-x64 among them, and its own
+# lib/binding.js prefers `prebuilds/<platform>-<arch>.node` over `build/Release`
+# at load time. What the fact did not say is that the package ALSO ships a
+# binding.gyp and declares no install script of its own — and for precisely that
+# shape npm synthesises one, `install: node-gyp rebuild`. So the prebuilt binary
+# was never reached: without this flag the build dies inside node-gyp's CONFIGURE
+# step, before binding.gyp's own prebuild detection can run, with "Could not find
+# any Python installation to use". Measured on this machine on 2026-09-10, which
+# is the whole reason Task 2 of plan 02-15 exists — the alternative was finding
+# it in the first real CI run, or worse, against the box.
+#
+# The other way out was installing python3, make and g++: that would compile
+# SQLite from source on every dependency change, on an image kept five deep per
+# service (D2-24), to produce a binary the tarball already contains. The flag is
+# safe for THIS install set and that is checked rather than assumed — every
+# other production dependency of @dg2/server is pure JavaScript (hono,
+# @hono/node-server, kysely, ws, zod), so there is no install script here worth
+# running. Adding a native dependency later means coming back to this line.
+#
+# The manual node_modules step the old runbook documented for the box still
+# CEASES TO EXIST, which remains the single largest line the containerisation
 # removes from operations.
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
-RUN npm ci --omit=dev --workspace @dg2/server
+RUN npm ci --omit=dev --ignore-scripts --workspace @dg2/server
 
 COPY dist-server/server.mjs /srv/server.mjs
 COPY ops/litestream.yml /etc/litestream.yml

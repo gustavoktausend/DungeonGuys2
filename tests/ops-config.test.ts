@@ -1316,6 +1316,14 @@ const NOT_A_TLD = new Set([
   // The release tarball ops/Dockerfile.api downloads, whose name ends in
   // `.tar.gz`. Only the last label is tested, so `gz` is the one that matters.
   'gz',
+  // `binding.gyp`, named in the comment of ops/Dockerfile.api that plan 02-15
+  // wrote after MEASURING why `--ignore-scripts` is required: npm synthesises
+  // `install: node-gyp rebuild` for any package that ships one of these and
+  // declares no install script, which is how better-sqlite3's prebuilt binary
+  // was being bypassed. The name has to be in the file for that reasoning to be
+  // checkable, and it is an extension rather than a TLD — the same argument
+  // that put 'conf' and 'service' on this list.
+  'gyp',
 ]);
 
 /**
