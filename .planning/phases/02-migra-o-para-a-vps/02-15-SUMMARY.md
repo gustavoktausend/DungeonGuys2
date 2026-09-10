@@ -50,7 +50,7 @@ patterns-established:
   - "Prova por remoção como entrega do plano, não como promessa: três mutações no `ci.yml` (segunda escrita, tag móvel, passo com `ssh`), cada uma verificada vermelha e revertida, com a árvore limpa ao fim"
   - "Quando a medição local depende do host, o artefato do host vira nota do SUMMARY: o Git Bash reescreve `/srv/server.mjs` para `C:/Program Files/Git/srv/server.mjs`, e a nota é o que impede a próxima pessoa de diagnosticar a imagem por um defeito do terminal"
 
-requirements-completed: [INFRA-01, INFRA-04]
+requirements-completed: [INFRA-01]  # INFRA-04 continua Partial: o ensaio de restauracao EXECUTADO e do 02-12
 
 # Metrics
 duration: 100min
@@ -489,6 +489,14 @@ Na primeira execução, `tests/lint-coverage.test.ts` deu timeout de 5 s com o c
 seguida, 913/913 em 3,45 s. É característica conhecida do portão, não defeito.
 
 ## O que fica para depois
+
+- **INFRA-04 NAO fecha aqui, e o checkbox foi desmarcado de volta.** O plano lista
+  `requirements: [INFRA-01, INFRA-04]` e `requirements mark-complete` marcou os dois — mas a
+  propria linha de rastreabilidade de INFRA-04 diz `Partial ... falta o 02-12: ensaio de
+  restauracao EXECUTADO`, e o texto do requisito exige "verificado restaurando, nao so gerando".
+  Um checkbox marcado ao lado de um "Partial" e uma contradicao dentro do mesmo arquivo, entao a
+  marca voltou e a contribuicao real do 02-15 entrou na linha de rastreabilidade. INFRA-01 ja
+  estava completo desde o 02-04.
 
 - **A visibilidade dos dois pacotes** (`dg2-web` e `dg2-api`) precisa ser trocada para pública no
   GitHub **depois da primeira execução do job `image` na `main`** — um pacote do GHCR nasce

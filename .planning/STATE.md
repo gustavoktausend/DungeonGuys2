@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: 02-15-PLAN.md Task 2 interrompida por queda de energia
-last_updated: "2026-09-10T16:36:15.000Z"
+status: **02-15 CONCLUÍDO (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa**
+stopped_at: 02-15 concluído (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa
+last_updated: "2026-09-10T17:00:35.473Z"
 last_activity: 2026-09-10
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 40
-  completed_plans: 37
+  completed_plans: 38
   percent: 11
 ---
 
@@ -27,15 +27,16 @@ mundo, com o jogo respondendo na hora para cada um.
 ## Current Position
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
-Plan: 15 of 15
-Status: **02-15 EM EXECUÇÃO — Task 1 concluída, Task 2 interrompida no meio**
+Plan: 12 of 15
+Status: **02-15 CONCLUÍDO (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa**
 Last activity: 2026-09-10
 
 > **A fase 02 roda por WAVE, não por número de plano**, e o contador de plano do
 > GSD não sabe disso: `state advance-plan` incrementa de um em um. Concluídos:
-> 02-01 a 02-11, **02-13** (wave 9) e **02-14** (wave 10). Em execução: **02-15**
-> (wave 11). Falta **02-12**, que é o de portão humano contra a caixa. O número
-> acima aponta o plano em curso, corrigido à mão depois do 02-14.
+> 02-01 a 02-11, **02-13** (wave 9), **02-14** (wave 10) e **02-15** (wave 11).
+> Falta **um só**: o **02-12** (wave 12, `autonomous: false`), que é o de portão
+> humano contra a caixa. O número acima aponta o plano em curso, corrigido à mão
+> depois do 02-15 — e por isso ele DESCE de 15 para 12.
 >
 > **Um ponteiro quebrado, inerte e com dono:** o recurso do Coolify aponta para
 > `ops/probe/docker-compose.yml`, que o 02-14 apagou. Sob D2-32 nada dispara
@@ -43,13 +44,13 @@ Last activity: 2026-09-10
 > `user_setup` do **02-12** já carrega a tarefa de repontá-lo para
 > `ops/docker-compose.yml`.
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
+- Total plans completed: 38
 - Average duration: —
 - Total execution time: 0.0 hours
 
@@ -58,7 +59,8 @@ Progress: [█████████░] 93%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 14 | - | - |
-| 02 | 12 | - | - |
+| 02 | 14 | - | - |
+| 03 | 10 | - | - |
 
 **Por plano, quando medido:**
 
@@ -67,6 +69,7 @@ Progress: [█████████░] 93%
 | 02-04 | ~120 min (com portão humano no meio) | 3 | 5 |
 | 02-13 | ~25 min | 2 (3 commits: RED/GREEN + Task 2) | 6 modificados, 1 criado |
 | 02-14 | ~29 min | 3 | 3 criados, 12 modificados, 10 apagados |
+| 02-15 | ~100 min (com a queda de energia no meio) | 2 | 6 modificados, 1 criado |
 
 **Recent Trend:**
 
@@ -74,6 +77,7 @@ Progress: [█████████░] 93%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 02 P15 | 100min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -119,6 +123,13 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
 - [2026-09-10] 02-14: **perda declarada de P-9** — o systemd chegava a `failed` e parava, o Docker tenta para sempre. Sem equivalente a `StartLimitBurst` no Compose, a corrente de alarme passa a ser o `healthcheck` da composição mais o monitor externo de D2-21, e o monitor deixou de ser conforto (T-2-LOOP, aceita)
 - [2026-09-10] 02-14: o piso anti-vacuidade de `ops/`+`tools/ops/` desceu de 13 para **9**, **igual** à contagem real e sem folga — de modo que apagar qualquer arquivo do subsistema fica vermelho pelo piso. **Provado por remoção** (9 casos vermelhos, com a mensagem do piso), restaurado de cópia fora da árvore e reconferido por `cmp` e grep
 - [2026-09-10] 02-14: **DEF-02-01 continua adiado, mas deixou de ser órfão** — dono nomeado (a primeira wave da fase 3 que tocar `apps/server/src/env.ts`) e texto substituto JÁ DECIDIDO em `deferred-items.md`, porque era o runbook que faltava. **DEF-02-02 fechado**: `git grep 'DG2_DOMAIN' -- ops/ apps/` não imprime nada
+- [2026-09-10] 02-15: DEPLOY_ENABLED morre no plano da imagem e não no 02-12 — o job `image` só usa o GITHUB_TOKEN, então não pode falhar por falta de segredo, e um `if:` insatisfazível seria um job PULADO para sempre
+- [2026-09-10] 02-15: nenhuma ação de Docker entra no CI — `login`/`build`/`push` em passos `run:` mantêm o portão T-2-SC intacto, com `packages: write` como única escrita, nomeada e confinada à fatia do job `image`
+- [2026-09-10] 02-15: `--ignore-scripts` no `npm ci` da imagem da API é MEDIÇÃO — sem ele o node-gyp morre no CONFIGURE e o prebuild do better-sqlite3 nunca é alcançado
+- [2026-09-10] 02-15: `--external:ws` no `server:build` — o `ws` é CJS e o shim de `require` do esbuild em saída ESM lança em tempo de execução
+- [2026-09-10] 02-15: DM-9 deixou de ser argumento — o Caddy de um contêiner alcançou o Node do outro nesta máquina, e as SEIS medições passaram (saúde 200, quatro cabeçalhos, três classes de cache, 404 honesto, 503 em JSON, ledger migrado)
+- [2026-09-10] 02-15: a retenção de D2-24 deixou de ser estimativa — ~1,41 MB por release na api e ~0,5 MB na web sobre bases compartilhadas; cinco de cada custam ~628 MB de disco, não 5×620 MB
+- [2026-09-10] 02-15: o 503 do `handle_errors` CARREGA os quatro cabeçalhos de segurança — o comentário de `ops/Caddyfile` que declarava a lacuna foi corrigido pela medição
 
 ### Pending Todos
 
@@ -294,8 +305,8 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-10T16:36:15.000Z (sessão de recuperação)
-Stopped at: **`02-15-PLAN.md` Task 2, interrompida por queda de energia às ~13:29 -0300**
+Last session: 2026-09-10T17:00:35.460Z
+Stopped at: 02-15 concluído (wave 11) — falta só o 02-12, wave 12, portão humano contra a caixa
 Resume file: None
 
 ## ⚡ Queda de energia em 2026-09-10 — o que ela fez e o que foi restaurado
@@ -316,35 +327,43 @@ quebrada em `…/scratchpad/git-backup/`. **Nenhum commit foi perdido.**
 `origin/main` está em `0608fee`, **dezesseis commits atrás** do local. Enquanto a fase 2 não fechar,
 um `git push` depois de cada wave é o seguro barato contra a próxima queda.
 
-### Onde o `02-15` parou, exatamente
+### O que o `02-15` fechou (wave 11, concluído em 2026-09-10T16:56Z)
 
 - **Task 1 — CONCLUÍDA** (`fcea7de`): o job `deploy` virou job `image`, sem ação de terceiro, com
-  a exceção nomeada de `packages: write` em `tests/workflows.test.ts`.
+  a exceção nomeada de `packages: write` em `tests/workflows.test.ts` — 14 casos, **nenhum**
+  mencionando `deploy`. **Provado por remoção:** uma segunda escrita, uma tag móvel e um passo
+  com `ssh` deixam o portão vermelho, cada um deles, e a árvore ficou limpa ao fim.
 
-- **Task 2 — INTERROMPIDA NO MEIO.** Ela não escreve arquivo do repositório: **executa** e cola o
-  resultado no SUMMARY. O que já rendeu fato são os dois desvios achados construindo as imagens,
-  ambos corrigidos e commitados:
-  - `a3cf520` — o bundle do servidor não subia: `ws` é CJS e o shim de `require` lança (`package.json`).
-  - `fe0d804` — a imagem da API não construía: o prebuild só é alcançado com `--ignore-scripts`
-    (`ops/Dockerfile.api` + 8 asserções novas em `tests/ops-config.test.ts`).
+- **Task 2 — CONCLUÍDA.** As duas imagens foram reconstruídas com os comandos exatos do job
+  contra o HEAD pós-recuperação e subiram juntas em rede de ponte descartável, com o entrypoint
+  do servidor sobrescrito para o Node (sem Litestream: não há bucket nesta máquina). **As seis
+  medições passaram** e estão coladas no `02-15-SUMMARY.md`: saúde 200 com
+  `{"status":"ok","db":true,"release":"dev"}` **através do Caddy** — DM-9 deixou de ser argumento
+  e virou medida —, os quatro cabeçalhos de segurança, as três classes de cache (com
+  `/assets/copRobo.png` caindo em `@stable` e `index-<hash>.js` em `@assets`, que é o `not` do
+  matcher funcionando), 404 de 13 bytes que não é o índice (DM-5), 503 com
+  `{"status":"unavailable"}` com a api parada, e o `gold_entry` migrado dentro do contêiner — que
+  é o que demonstra o prebuild do `better-sqlite3` carregando sob `--ignore-scripts`.
+  Contêineres e rede removidos; as duas imagens ficam em disco, por decisão.
 
-- **O que falta na Task 2:** construir as duas imagens com as tags locais, subir o par em rede de
-  ponte descartável (entrypoint do servidor sobrescrito para o Node — sem Litestream, não há
-  bucket nesta máquina), fazer **as seis medições** (saúde 200 através do Caddy com o campo de
-  release; os quatro cabeçalhos de segurança; as três classes de cache; 404 honesto; 503 em JSON
-  com o servidor parado; banco criado e migrado dentro do contêiner), remover contêineres e rede,
-  e escrever o `02-15-SUMMARY.md`.
+- **Três desvios commitados:** `a3cf520` (`--external:ws` no `server:build`), `fe0d804`
+  (`--ignore-scripts` no `npm ci` da imagem + 8 asserções) e `a130df3` (o comentário do
+  `ops/Caddyfile` que declarava uma lacuna de cabeçalhos no 503, desmentido pela medição).
 
-- **Pré-condição que a queda derrubou: o Docker Desktop está desligado.** `docker info` não
-  responde (`npipe:////./pipe/dockerDesktopLinuxEngine`). A Task 2 não começa sem ele, e o próprio
-  plano manda parar e reportar se ele não subir em cinco minutos — não registrar a tarefa como
-  feita com a fumaça pulada.
+- **Números que saíram da estimativa:** `dg2-web` **89,1 MB** e `dg2-api` **531 MB**; o delta por
+  release é ~0,5 MB e ~1,41 MB, então **cinco de cada custam ~628 MB** de disco enquanto o
+  `package-lock.json` não se mover. `--no-cache` custa 1 s e 38 s nesta máquina, então os
+  `timeout-minutes: 15` do job são folgados por uma ordem de grandeza.
 
-- **Artefatos de build ainda em disco** de 13:26: `dist/` e `dist-server/server.mjs`. O `verify`
-  da tarefa (`npm run build && npm run server:build && npm test`) reconstrói de todo modo.
+- **Tarefa de painel que nasce daqui:** depois da PRIMEIRA execução do job `image` na `main`, os
+  pacotes `dg2-web` e `dg2-api` precisam virar **públicos** no GHCR — um pacote nasce privado, e
+  o Coolify só puxa sem credencial se for público.
 
-Next: **`/gsd-execute-phase 2`** — retomando o **`02-15` na Task 2** (wave 11), com o Docker
-Desktop ligado antes. Depois dele, só o **`02-12`** (wave 12, `autonomous: false`, portão humano
+- **Armadilha do host, registrada para não custar diagnóstico duas vezes:** o Git Bash reescreve
+  `/srv/server.mjs` para `C:/Program Files/Git/srv/server.mjs` em argumento de `docker run`.
+  `MSYS_NO_PATHCONV=1` resolve; o runner Linux não tem o problema.
+
+Next: **`/gsd-execute-phase 2`** — só o **`02-12`** (wave 12, `autonomous: false`, portão humano
 contra a caixa) fecha a fase.
 
 ---

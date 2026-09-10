@@ -170,7 +170,7 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 02-15-PLAN.md — O `ci.yml` de publicação de imagem sem ação de terceiro, o delta de `tests/workflows.test.ts` (DM-8), e os comandos do job exercitados localmente. **Substitui o job `deploy` que o 02-11 construiu**
+- [x] 02-15-PLAN.md — O `ci.yml` de publicação de imagem sem ação de terceiro, o delta de `tests/workflows.test.ts` (DM-8), e os comandos do job exercitados localmente. **Substitui o job `deploy` que o 02-11 construiu**
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
@@ -528,7 +528,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 13/15 | In Progress|  |
+| 2. Migração para a VPS | 14/15 | In Progress|  |
 | 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
