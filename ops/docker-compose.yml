@@ -31,29 +31,35 @@
 # This file says WHICH keys exist; the panel says what they are worth. The domain
 # and the secrets stay out of the repository (D2-15, T-2-SECRET).
 #
-# THE IMAGE TAG DEFAULTS TO THE COMMIT COOLIFY DEPLOYED, AND THE OVERRIDE IS THE
-# ROLLBACK LEVER. `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}`: Coolify writes
-# SOURCE_COMMIT — the full 40-hex sha of the commit it is deploying — into the
-# .env it generates, and the CI job tags both images with `$GITHUB_SHA`, which is
-# THE SAME STRING. So the ordinary deploy needs no hand-typed tag at all, and the
-# tag it gets is still a sha and never a moving name (C-6, T-2-SC).
+# THE IMAGE TAG IS TYPED BY HAND, AND AN ATTEMPT TO DEFAULT IT COST A PRODUCTION
+# OUTAGE ON 2026-09-10. Written here as a measurement so that nobody — including
+# the person who tried it — spends the afternoon rediscovering it.
 #
-# Measured on the box's own Compose 5.1.4, all three branches:
+# The idea was `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}`. Coolify does inject
+# SOURCE_COMMIT (the full 40-hex sha of the commit being deployed), and the CI job
+# tags both images with `$GITHUB_SHA`, which is THE SAME STRING, so the ordinary
+# deploy would need no typing. Compose renders the three branches correctly; that
+# much was measured on the box's own Compose 5.1.4 and was never the problem.
 #
-#   SOURCE_COMMIT only          -> the sha Coolify deployed   (ordinary deploy)
-#   DG2_IMAGE_TAG set           -> the value typed in the panel (D2-24 rollback)
-#   DG2_IMAGE_TAG set but BLANK -> falls back to SOURCE_COMMIT
+# IT IS SELF-DEFEATING, AND THE LOOP CLOSES IN THIS VERY FILE. Read the paragraph
+# above: every `${VAR}` here becomes a field in the panel. So referencing
+# `${SOURCE_COMMIT}` MAKES COOLIFY CREATE AN EMPTY `SOURCE_COMMIT` VARIABLE — and
+# the deployment job injects the real commit only when the application has NO
+# variable by that name (read in the Coolify source, class ApplicationDeploymentJob).
+# The reference creates the row; the row suppresses the injection; the injection
+# was the whole point. Both services then resolved to `image: '...:'` and the
+# daemon answered `invalid reference format`, which names nothing.
 #
-# The third branch is why `:-` and not `:`-less interpolation: a blank panel row
-# is the state an operator most easily leaves behind, and under the plain form it
-# rendered `image: '...:'` — an invalid reference that fails the whole deploy.
-# With both unset it still fails loudly, which is the correct end of that road.
+# `:?` INSTEAD OF `:-`, AND THAT IS WHAT SURVIVED THE EPISODE. A blank panel row
+# is the state an operator most easily leaves behind, and under plain `${VAR}` it
+# produced that same nameless daemon error. The required form fails at
+# interpolation instead, saying which variable and what to put in it. Measured:
 #
-# D2-24 IS NOT WEAKENED BY THIS, IT IS MADE CHEAPER. Reverting is still "type the
-# previous sha into DG2_IMAGE_TAG and redeploy", and `pull_policy: missing` below
-# still makes that use no network. What changed is that going FORWARD stopped
-# requiring the same typing, so the lever exists for the emergency instead of
-# being pulled on every ordinary day.
+#   error while interpolating the image of a service:
+#     required variable DG2_IMAGE_TAG is missing a value: defina a tag no painel...
+#
+# D2-24 is unchanged: reverting is typing the previous sha here and redeploying,
+# and `pull_policy: missing` below still makes that use no network.
 #
 # TWO PERSISTENT VOLUMES, NOT ONE, AND THE SECOND ONE IS THE WHOLE REASON THIS
 # PARAGRAPH EXISTS (D2-33, 2026-09-10). One holds the database; the other holds
@@ -87,7 +93,7 @@ services:
   # The service that holds the hostname. It serves static files and forwards;
   # it opens no database and mounts no volume.
   web:
-    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}
+    image: ghcr.io/gustavoktausend/dg2-web:${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
     # The line that makes the rollback of D2-24 use no network: Docker only
     # fetches from the registry what is not already on disk. New tag, it pulls;
     # previous tag, no network at all — which is the scenario the rollback exists
@@ -108,7 +114,7 @@ services:
     cpus: 0.5
 
   api:
-    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}
+    image: ghcr.io/gustavoktausend/dg2-api:${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
     pull_policy: missing
     restart: unless-stopped
     # DM-13 and C-4. The Node process drains for up to SHUTDOWN_GRACE_MS and ONLY
@@ -144,7 +150,7 @@ services:
       # and the health route reports one release while the container runs another,
       # turning the deploy check into a check of nothing. A test compares the
       # three occurrences to each other rather than to a literal of its own.
-      - DG2_RELEASE=${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}
+      - DG2_RELEASE=${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}
       - DG2_ORIGIN=${DG2_ORIGIN}
       # Where Litestream writes the replica. Inside the second volume above, and
       # a test asserts that containment rather than trusting this line.

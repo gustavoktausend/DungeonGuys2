@@ -388,11 +388,19 @@ function composeVolumes(): string[] {
 /**
  * The tag expression both services carry, spelled once here because it appears
  * three times in the composition and every assertion about it has to mean the
- * same thing. `${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}`: the panel override that D2-24
- * pulls to revert, defaulting to the full commit sha Coolify writes for the
- * deploy in progress. Both halves are shas; neither is a movable name (C-6).
+ * same thing.
+ *
+ * The REQUIRED form, `:?`, and not a default. A default was tried on 2026-09-10
+ * and took production down: referencing `${SOURCE_COMMIT}` makes Coolify create an
+ * empty SOURCE_COMMIT panel variable, and Coolify injects the real commit only
+ * when no such variable exists — the reference suppressed the very injection it
+ * depended on. The composition header carries the full measurement. What `:?`
+ * buys is that a blank tag fails at interpolation, naming the variable, instead
+ * of reaching the daemon as `image: '...:'` and coming back `invalid reference
+ * format`, which names nothing.
  */
-const TAG_EXPR = '${DG2_IMAGE_TAG:-${SOURCE_COMMIT}}';
+const TAG_EXPR =
+  '${DG2_IMAGE_TAG:?defina a tag no painel: sha de commit de 40 hex, o mesmo que o job image publicou}';
 
 describe('ops/docker-compose.yml e as duas imagens', () => {
   it('não declara o par de relay, porque Compose não sabe dizer "ausente"', () => {
@@ -491,7 +499,9 @@ describe('ops/docker-compose.yml e as duas imagens', () => {
     // name a publisher can move, which is the whole content of C-6.
     const bad: string[] = [];
     for (const [name, body] of composeServices()) {
-      const m = /^\s*image:\s*(\S+)\s*$/m.exec(body);
+      // `.+?` and not `\S+`: the required-variable form carries a human error
+      // message, and a message worth reading has spaces in it.
+      const m = /^\s*image:\s*(.+?)\s*$/m.exec(body);
       expect(m, `o serviço ${name} não declara imagem`).not.toBeNull();
       if (!m![1]!.endsWith(`:${TAG_EXPR}`)) bad.push(`${name}: ${m![1]}`);
     }
@@ -510,9 +520,9 @@ describe('ops/docker-compose.yml e as duas imagens', () => {
     // Compared to EACH OTHER and not to a literal spelled in this test: a literal
     // here would be a third copy, and the third copy is the one nobody updates.
     const api = composeServices().get('api')!;
-    const release = /^\s*-\s*DG2_RELEASE=(\S+)\s*$/m.exec(api);
+    const release = /^\s*-\s*DG2_RELEASE=(.+?)\s*$/m.exec(api);
     expect(release, 'o serviço api não declara DG2_RELEASE').not.toBeNull();
-    const image = /^\s*image:\s*\S+?:(\$\{.+)$/m.exec(api);
+    const image = /^\s*image:\s*[^\s:]+:(\$\{.+?)\s*$/m.exec(api);
     expect(image, 'o serviço api não declara imagem com interpolação').not.toBeNull();
     expect(release![1], 'DG2_RELEASE divergiu da tag da imagem').toBe(image![1]);
   });

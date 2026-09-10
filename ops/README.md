@@ -123,7 +123,7 @@ entra neste repositório.
 
 | Variável | O que é |
 |---|---|
-| `DG2_IMAGE_TAG` | a tag das duas imagens: sha de commit, nunca uma tag móvel (C-6). **Pode ficar vazia ou nem existir**: a composição cai para `SOURCE_COMMIT`, o sha do commit que o Coolify está implantando. Preenchê-la é o gesto de reverter (§6) |
+| `DG2_IMAGE_TAG` | a tag das duas imagens: sha de commit, nunca uma tag móvel (C-6). **Obrigatória.** Vazia, a composição recusa interpolar e o deploy morre com uma mensagem que nomeia a variável — nunca com `invalid reference format`, que não nomeia nada |
 | `DG2_ORIGIN` | a origem que o servidor aceita no handshake de signaling |
 | `DG2_TURN_SECRET` | a metade Node do par de segredo do relay (fase 3) |
 | `DG2_TURN_REALM` | o realm do relay, que dobra como domínio anunciado (fase 3) |
@@ -174,11 +174,10 @@ O integrador já construiu e publicou as imagens; publicar é **promover** uma t
    produz um clone sem os arquivos que você acabou de escrever, e o sintoma é
    "nenhum serviço descoberto".
 2. Confirmar que o integrador publicou as duas imagens da tag desejada.
-3. **Para promover a ponta da `main`, não há passo 3**: com `DG2_IMAGE_TAG` vazia
-   ou ausente, a composição usa `SOURCE_COMMIT` — o sha que o próprio Coolify vai
-   implantar — e ele é a mesma string com que o job `image` tagueou as duas
-   imagens. Só abra o túnel e ajuste `DG2_IMAGE_TAG` quando quiser um sha que
-   **não** seja o que está sendo implantado, que é exatamente o caso de §6.
+3. Abrir o túnel e, no recurso do jogo, ajustar `DG2_IMAGE_TAG` para o sha
+   desejado. **Não há como omitir este passo**, e a tentativa de lhe dar um padrão
+   derrubou a produção em 2026-09-10 — o cabeçalho da composição carrega a medição
+   e o porquê. Uma tag vazia falha na interpolação, dizendo qual variável falta.
 4. Disparar o deploy. O log tem de dizer **`pull`** e não `build`: a composição
    não declara passo de build, e um build injetado pela plataforma seria
    construção numa caixa de 2 vCPU compartilhada com produção (C-7).
@@ -197,11 +196,7 @@ variáveis de tag) e a condição que a traria de volta.
 ## 6. Reverter
 
 **Reverter é apontar `DG2_IMAGE_TAG` para o sha anterior e redeployar.** O mesmo
-procedimento de §5, com a tag antiga — e é aqui, e só aqui, que essa variável
-precisa ser preenchida à mão. Promover usa o padrão; reverter usa a alavanca.
-Depois de voltar para a frente, **esvazie a variável** em vez de acertá-la no sha
-novo: uma tag fixa que ninguém lembra de mexer é uma composição que ignora
-silenciosamente os deploys seguintes.
+procedimento de §5, com a tag antiga.
 
 **E isso não usa rede**, que é o ponto inteiro: `pull_policy: missing` na
 composição faz o Docker buscar no registro **só o que não estiver em disco**, e a
