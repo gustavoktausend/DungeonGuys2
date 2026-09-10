@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 02-13 concluído — DG2_BIND com padrão em loopback (DM-9) e o Caddyfile de contêiner com trusted_proxies (DM-10), prova por remoção registrada
-last_updated: "2026-09-10T15:13:54.495Z"
+stopped_at: Completed 02-14-PLAN.md
+last_updated: "2026-09-10T15:56:07.877Z"
 last_activity: 2026-09-10
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 40
-  completed_plans: 36
+  completed_plans: 37
   percent: 11
 ---
 
@@ -27,17 +27,23 @@ mundo, com o jogo respondendo na hora para cada um.
 ## Current Position
 
 Phase: 02 (migra-o-para-a-vps) — EXECUTING
-Plan: 14 of 15
+Plan: 15 of 15
 Status: Ready to execute
 Last activity: 2026-09-10
 
 > **A fase 02 roda por WAVE, não por número de plano**, e o contador de plano do
 > GSD não sabe disso: `state advance-plan` incrementa de um em um. Concluídos:
-> 02-01 a 02-11 e **02-13** (wave 9). Faltam **02-14** (wave 10), **02-15**
+> 02-01 a 02-11, **02-13** (wave 9) e **02-14** (wave 10). Faltam **02-15**
 > (wave 11) e **02-12**, que é o de portão humano contra a caixa. O número acima
-> aponta o próximo a executar, corrigido à mão depois do 02-13.
+> aponta o próximo a executar, corrigido à mão depois do 02-14.
+>
+> **Um ponteiro quebrado, inerte e com dono:** o recurso do Coolify aponta para
+> `ops/probe/docker-compose.yml`, que o 02-14 apagou. Sob D2-32 nada dispara
+> deploy sozinho, então ele não quebra nada até alguém promover à mão — e o
+> `user_setup` do **02-12** já carrega a tarefa de repontá-lo para
+> `ops/docker-compose.yml`.
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -60,6 +66,7 @@ Progress: [█████████░] 90%
 |-------|---------|---------|----------|
 | 02-04 | ~120 min (com portão humano no meio) | 3 | 5 |
 | 02-13 | ~25 min | 2 (3 commits: RED/GREEN + Task 2) | 6 modificados, 1 criado |
+| 02-14 | ~29 min | 3 | 3 criados, 12 modificados, 10 apagados |
 
 **Recent Trend:**
 
@@ -107,6 +114,11 @@ Registro completo em PROJECT.md (Key Decisions). Decisões que moldam o trabalho
 - [2026-09-10] 02-13: o `ops/Caddyfile` não declara domínio e não termina TLS — a 443 é do Traefik do Coolify. Endereço do site `http://:8080`, upstream pelo nome de serviço `api` do compose, raiz do estático `/srv/www` **dentro da imagem** (o 02-14 copia o `dist/` para lá)
 - [2026-09-10] 02-13: `trusted_proxies static private_ranges` fecha a metade que faltava de DM-10 — provado por remoção: apagar a linha deixa **exatamente 1** teste vermelho e os outros 935 casos intactos
 - [2026-09-10] 02-13: `/etc/dg2/env` sobrevive em `apps/server/src/env.ts` (5×, incluindo as quatro mensagens de erro), `health.ts` e dois testes — **adiado por decisão** (DEF-02-01): a mensagem é contrato de `ops/README.md` §1, que o 02-14 reescreve, e corrigir metade recria a contradição que o 02-13 existe para remover
+- [2026-09-10] 02-14: D2-33 executada — `DG2_REPLICA_PATH` é **literal** em `ops/docker-compose.yml` e chega a `ops/litestream.yml` por `${...}`. Literal de propósito: a must-have de D2-33 é que a réplica viva em volume persistente, e um valor que só o painel conhece é um valor que nenhum teste pode comparar contra um ponto de montagem
+- [2026-09-10] 02-14: **dois** volumes persistentes com pontos de montagem distintos (`/var/lib/dg2` e `/var/lib/dg2-replica`), não um subdiretório do volume do banco — um subdiretório satisfaria "persistente" e faria o `restore` ler de dentro do que está restaurando
+- [2026-09-10] 02-14: **perda declarada de P-9** — o systemd chegava a `failed` e parava, o Docker tenta para sempre. Sem equivalente a `StartLimitBurst` no Compose, a corrente de alarme passa a ser o `healthcheck` da composição mais o monitor externo de D2-21, e o monitor deixou de ser conforto (T-2-LOOP, aceita)
+- [2026-09-10] 02-14: o piso anti-vacuidade de `ops/`+`tools/ops/` desceu de 13 para **9**, **igual** à contagem real e sem folga — de modo que apagar qualquer arquivo do subsistema fica vermelho pelo piso. **Provado por remoção** (9 casos vermelhos, com a mensagem do piso), restaurado de cópia fora da árvore e reconferido por `cmp` e grep
+- [2026-09-10] 02-14: **DEF-02-01 continua adiado, mas deixou de ser órfão** — dono nomeado (a primeira wave da fase 3 que tocar `apps/server/src/env.ts`) e texto substituto JÁ DECIDIDO em `deferred-items.md`, porque era o runbook que faltava. **DEF-02-02 fechado**: `git grep 'DG2_DOMAIN' -- ops/ apps/` não imprime nada
 
 ### Pending Todos
 
@@ -282,8 +294,8 @@ Inventário completo em `.vps-inventario.local` (fora do git, `*.local`). Acesso
 
 ## Session Continuity
 
-Last session: 2026-09-10T15:13:54.482Z
-Stopped at: 02-13 concluído — DG2_BIND com padrão em loopback (DM-9) e o Caddyfile de contêiner com trusted_proxies (DM-10), prova por remoção registrada
+Last session: 2026-09-10T15:56:07.865Z
+Stopped at: Completed 02-14-PLAN.md
 Resume file: None
 
 Next: **`/gsd-execute-phase 2`**, retomando na **wave 9 (`02-13`)**. O `02-04` está **concluído**
