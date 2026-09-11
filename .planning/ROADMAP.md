@@ -121,7 +121,7 @@ outro agente, em outro repositório, e é o item de maior lead time do marco.
   3. Uma requisição a `/api/` nunca é servida do cache, uma resposta não-`ok` nunca é gravada nele, e um deploy novo não deixa o cache velho para trás.
   4. O deploy é um comando e é reversível; o backup do banco foi **restaurado** num ambiente limpo e o resultado da restauração está anotado.
 
-**Plans**: 15 plans
+**Plans**: 18 plans (15 originais + 3 de fechamento de lacuna)
 
 Plans:
 **Wave 1**
@@ -175,6 +175,27 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 **Wave 12** *(blocked on Wave 11 completion)*
 
 - [x] 02-12-PLAN.md — A caixa de verdade: primeiro deploy das imagens, cabeçalhos e CSP no navegador, PWA contra o domínio real, reversão com o registro inalcançável, restauração verificada e o vigia externo
+
+**Wave 13** *(fechamento de lacuna — replanejado em 2026-09-11 a partir de `02-VERIFICATION.md`)*
+
+- [ ] 02-16-PLAN.md — A sessão de navegador contra o domínio real: CSP observado (a advertência sai do `ops/Caddyfile`), instalação limpa do PWA, offline, `/api/` fora do cache — e a segunda imagem publicada, com o build do cliente comprovadamente diferente
+
+**Wave 14** *(blocked on Wave 13 completion)*
+
+- [ ] 02-17-PLAN.md — A atualização do PWA a partir da instalação antiga, e a reversão com o registro **inalcançável**: a única alteração não-aditiva da fase, confirmada antes, removida depois e com a remoção verificada
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [ ] 02-18-PLAN.md — O vigia externo: keyword na rota de saúde, alerta de expiração de certificado com 30 dias (**prazo 2026-11-08**), e o alarme **provado** derrubando o servidor de propósito
+
+**Por que três planos e nessa ordem.** `02-VERIFICATION.md` fechou a fase com 6/10 must-haves e
+quatro lacunas, três delas impossíveis de automatizar deste repositório — precisam de um humano
+num navegador, no painel pelo túnel, ou assinando um serviço de terceiro. A ordem é por custo
+crescente e por dependência real: o 02-16 não toca a caixa e publica a segunda imagem que o 02-17
+consome; o 02-17 reusa essa imagem e o mesmo túnel; o 02-18 vem por último para que a queda
+deliberada do contêiner não se confunda com a janela de deploy do anterior. Os três escrevem em
+`docs/OPERACAO.md`, então não há paralelismo a ganhar — as ondas são sequenciais por propriedade
+do artefato, não por burocracia.
 
 **Sequência interna que não pode ser trocada**: `tests/pwa/fixtures/old-build/` é congelada no
 plano 02-05 — **depois** da mudança de `base` (02-02, para que o escopo do service worker
