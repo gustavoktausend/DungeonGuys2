@@ -516,6 +516,34 @@ O isolamento de `/api/` é a metade de `INFRA-03` que só o domínio real podia 
 local o servidor é outro processo na mesma máquina; aqui a resposta atravessou o Traefik e o Caddy
 antes de chegar ao service worker.
 
+### A segunda imagem, e por que a comparação de nomes de cache existe
+
+O plano 02-17 precisa observar, no navegador que já tem o PWA instalado, que o aviso de atualização
+aparece. Esse aviso nasce de `updatefound`, que nasce de `sw.js` mudar de bytes, que nasce do
+digest mudar, que nasce do `dist/` mudar. **Publicar uma imagem sem mudar o `dist/` seria queimar
+um deploy da caixa real para medir o nada** — e o resultado, um navegador que não avisa nada,
+seria indistinguível de um aviso quebrado.
+
+Por isso a comparação é feita **antes** de publicar, e num build local, onde ela custa segundos:
+
+```
+$ npm run build            # antes da correção
+sw precache: 13 arquivos, cache dg2-917996e0ac455823
+
+$ npm run build            # depois da correção
+sw precache: 13 arquivos, cache dg2-c49dfed53d8d49a8
+```
+
+O primeiro é o nome que o operador observou no navegador na sessão acima; o segundo é o que a
+segunda imagem vai servir. **São diferentes, então há atualização para o 02-17 observar.**
+
+A correção que produziu a diferença é verdadeira e não enchimento: `public/manifest.json` afirmava
+`6 classes` e `CLASS_KEYS` tem **sete** (`mage`, `archer`, `warrior`, `ninja`, `priestess`,
+`witch`, `coprobo`). O número aparece no prompt de instalação do PWA, então estava errado no lugar
+mais visível que existe. As `16 waves` da mesma frase foram conferidas e estão certas — os bosses
+de ato ficam nas waves 8 e 16. O `start_url` e o `scope` não foram tocados: `tests/build-base.test.ts`
+os assere, e por bom motivo.
+
 ### O que esta sessão NÃO prova
 
 Escrito porque a regra desta página manda, e porque um verificador que não achar estes limites vai

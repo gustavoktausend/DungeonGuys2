@@ -1,7 +1,7 @@
 {
   "name": "DungeonGuys — Pixel Shooter",
   "short_name": "DungeonGuys",
-  "description": "Top-down pixel roguelite: 6 classes, 16 waves, bosses, and an endless mode.",
+  "description": "Top-down pixel roguelite: 7 classes, 16 waves, bosses, and an endless mode.",
   "start_url": ".",
   "scope": ".",
   "display": "fullscreen",
