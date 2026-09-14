@@ -136,6 +136,33 @@ function code(name: string): string {
 }
 
 describe('ops/Caddyfile', () => {
+  it('o CSP é declarado OBSERVADO, e a observação tem endereço (plano 02-16)', () => {
+    // The warning this replaces had been in the file since plan 02-03: the
+    // directive list was derived from source and no browser had ever been asked
+    // whether it was right. Plan 02-16 asked one, against the production domain,
+    // with the console open through a real match.
+    //
+    // THE THREE CONDITIONS ARE ASSERTED TOGETHER ON PURPOSE. Dropping the warning
+    // alone would erase the gap instead of closing it — the file would read as
+    // verified while nothing had been verified, which is strictly worse than the
+    // honest warning it replaced. And an observation with no pointer is a claim
+    // with no address: the pasted output lives in docs/OPERACAO.md, and a reader
+    // who cannot find it cannot check it.
+    // `read()` AND NOT `code()`, and the difference is the whole case. `code()`
+    // strips comment lines so that absence assertions are not satisfied by the
+    // prose explaining the absence — correct for directives, fatal here. All
+    // three conditions below ARE prose, so against `code()` the presence checks
+    // could never pass and, worse, the absence check would pass VACUOUSLY: the
+    // warning could sit in the file untouched and this case would stay green.
+    const cfg = read('Caddyfile');
+    expect(cfg, 'a advertência de CSP não observado voltou ao arquivo')
+      .not.toContain('UNVERIFIED AGAINST A RUNNING BROWSER');
+    expect(cfg, 'o Caddyfile não declara o CSP como observado num navegador')
+      .toContain('OBSERVED IN A RUNNING BROWSER');
+    expect(cfg, 'a observação do CSP não aponta para onde a saída está colada')
+      .toContain('OPERACAO.md');
+  });
+
   it('roteia /api, /ws e o estático a partir da raiz dentro da imagem', () => {
     const cfg = code('Caddyfile');
     expect(cfg).toContain('handle /api/*');
@@ -1334,6 +1361,10 @@ const OPERACAO_SECOES = [
   'Firewall do coturn',
   // Plan 02-12, against the live box.
   'Primeira promoção real',
+  // Plan 02-16. Closes the criterion-2 half that only a browser against the real
+  // domain could close: the CSP stopped being derived-from-source and became
+  // observed, and the clean PWA install opened with the network physically off.
+  'CSP e PWA contra o domínio real',
   'Ensaio de restauração',
   'Monitor externo',
   // Renamed by plan 02-12. It used to be only about what the phase never meant
@@ -1373,6 +1404,22 @@ describe('docs/OPERACAO.md', () => {
     ];
     const faltando = exige.filter(([, re]) => !re.test(doc)).map(([q]) => q);
     expect(faltando, 'docs/OPERACAO.md não carrega').toEqual([]);
+  });
+
+  it('a sessão de navegador deixou o que só ela podia produzir (plano 02-16)', () => {
+    // Three facts no automated run can manufacture, and the section is worthless
+    // without them: the cache name the browser actually held, the CSP the browser
+    // actually received (pasted, so it can be diffed against ops/Caddyfile by
+    // eye), and the statement that no cache entry is an /api/ response.
+    //
+    // The last one is the half of INFRA-03 that only the real domain could show.
+    // Locally the server is another process on the same machine; here the
+    // response crossed Traefik and Caddy before reaching the service worker, and
+    // a caching bug anywhere in that chain would have put it in the cache.
+    const doc = readDoc();
+    expect(doc, 'nenhum nome de cache na forma dg2-<16 hex>').toMatch(/dg2-[0-9a-f]{16}/);
+    expect(doc, 'o CSP recebido não está colado').toContain("default-src 'self'");
+    expect(doc, 'não afirma que nenhuma entrada de cache é /api/').toMatch(/nenhuma.{0,40}\/api\//is);
   });
 
   it('o que ficou por fazer tem DONO, e não some por parecer feito', () => {

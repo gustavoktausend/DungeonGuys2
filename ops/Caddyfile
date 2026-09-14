@@ -199,10 +199,20 @@ http://:8080 {
         # Audio is synthesised through AudioContext (src/app/audio.ts), so there
         # is no media file to allow.
         #
-        # UNVERIFIED AGAINST A RUNNING BROWSER: this repository has no Caddy to
-        # parse the file and no deployment to serve it. The directive list is
-        # derived from source, not observed. Plan 02-12 loads the game with the
-        # console open and the report of that is what turns this into a fact.
+        # OBSERVED IN A RUNNING BROWSER on 2026-09-14, which is what the
+        # derivation above had been waiting for since plan 02-03. The session ran
+        # against the production domain, with the console open from before the
+        # first byte, through a real match to the end of the first wave: nothing
+        # was refused by policy, and the four resource families this directive
+        # list authorises all loaded — the two spritesheets under the asset root,
+        # the two .woff2 faces, and the call to /api/. Audio does not appear in
+        # that list because there is no media file to appear: it is synthesised
+        # through AudioContext, so the proof of it is hearing the sound.
+        #
+        # The derivation above STAYS, and the observation proves it rather than
+        # replacing it — a directive list nobody can explain is one nobody can
+        # safely change. Pasted output, plus what the session does NOT prove, is
+        # in docs/OPERACAO.md § "CSP e PWA contra o domínio real".
         Content-Security-Policy "default-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
 

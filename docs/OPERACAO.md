@@ -444,6 +444,95 @@ fixada no runbook há folga, e a limpeza automática do servidor não removeu na
 observado. A imagem anterior está em disco — o que ainda **não** foi provado é que ela sobe com o
 registro inalcançável (ver pendências).
 
+## CSP e PWA contra o domínio real
+
+**Sessão de 2026-09-14**, contra o domínio de produção, num perfil de navegador que nunca o havia
+visitado. Fecha as duas metades do critério 2 que não dependem de uma segunda imagem: o CSP deixa
+de ser derivado-da-fonte e passa a ser **observado**, e a instalação limpa do PWA deixa de ser uma
+suíte verde sobre `dist/` local e passa a ser um jogo que abre com a rede desligada, servido pela
+VPS através do Traefik.
+
+**Sha observado:** `9cba5c9b06e406c6ab04d5b46f290f0463d5b623` — o mesmo que o plano 02-12 promoveu.
+Ninguém promoveu nada no intervalo.
+
+### Esta seção distingue o que foi medido do que foi atestado, e a distinção é deliberada
+
+A regra do topo desta página é que só entra o que foi executado, com a saída colada. Um navegador
+não deixa saída colável do mesmo jeito que um `curl` deixa: o console, o painel de aplicação e o
+teste com o cabo desligado são vistos por uma pessoa. Registrar a palavra dela **como se fosse**
+saída de comando seria falsificar a forma da evidência, mesmo com o conteúdo certo. Então os dois
+blocos abaixo são rotulados.
+
+### Medido, com a saída colada
+
+O `Content-Security-Policy` que o domínio serve, e a diretiva que `ops/Caddyfile` escreve,
+comparados caractere a caractere:
+
+```
+$ curl -sS -D - -o /dev/null https://<DOMINIO>/ | grep -i '^content-security-policy'
+Content-Security-Policy: default-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+
+$ grep -n "Content-Security-Policy" ops/Caddyfile
+206:        Content-Security-Policy "default-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+```
+
+**Idênticos.** Nada entre o Caddy e o cliente reescreve a política — o mesmo resultado que os três
+`Cache-Control` deram para o cache, agora para a segurança. Se os dois textos tivessem diferido em
+um caractere, **isso** seria o achado, e a diferença estaria escrita aqui.
+
+O nome do cache que o build produz, reproduzido localmente a partir do commit que está servindo:
+
+```
+$ npm run build
+sw precache: 13 arquivos, cache dg2-917996e0ac455823
+```
+
+**E uma medição que vale mais do que parece:** entre o deploy e esta sessão houve **cinco commits**
+— `docs/OPERACAO.md`, `ops/README.md`, `tests/ops-config.test.ts`, os três planos de lacuna e os
+arquivos de rastreamento — e o nome do cache **não mudou**, porque nenhum deles chega ao `dist/`.
+O digest é `sha256` sobre caminho + bytes de cada arquivo do `dist/` menos o `sw.js`
+(`tools/sw/emit.mjs:142-156`). Consequência operacional, medida em vez de suposta: **um commit só
+de documento não produz atualização de PWA nenhuma.** Publicá-lo como "segunda imagem" faria o
+navegador não ver nada, e a conclusão errada — "o aviso de atualização está quebrado" — seria
+indistinguível da certa. É por isso que o plano 02-16 carrega uma correção de cliente de verdade.
+
+### Atestado pelo operador na sessão de navegador
+
+Estes são os fatos que só a pessoa no navegador podia ver. O operador aprovou a tarefa declarando
+todos os critérios satisfeitos.
+
+| Passo | Atestado |
+|---|---|
+| CSP durante uma partida | nenhum bloqueio no console, do primeiro byte ao fim da primeira wave |
+| O que carregou | os dois spritesheets, as duas fontes `.woff2`, a chamada a `/api/health`; o som tocou |
+| Quatro cabeçalhos | `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy` e `Strict-Transport-Security` chegaram ao navegador |
+| Instalação | o PWA instalou a partir do perfil limpo e abriu em janela própria |
+| Service worker | `activated and is running`, escopo `/` |
+| Cache Storage | **um** cache só, na forma `dg2-` + 16 hexadecimais |
+| Isolamento de `/api/` | **nenhuma** entrada do cache começa com `/api/`, nem `/api/health`, que a página havia acabado de pedir |
+| Offline | com a rede **fisicamente** desligada, a tela inicial renderizou e uma partida começou |
+
+O isolamento de `/api/` é a metade de `INFRA-03` que só o domínio real podia mostrar: no teste
+local o servidor é outro processo na mesma máquina; aqui a resposta atravessou o Traefik e o Caddy
+antes de chegar ao service worker.
+
+### O que esta sessão NÃO prova
+
+Escrito porque a regra desta página manda, e porque um verificador que não achar estes limites vai
+supor que eles foram cobertos.
+
+- **Não prova iOS nem Safari.** A caixa de PWA em aparelho físico continua **aberta** em
+  `docs/PARIDADE.md` por `D2-11`. Decisão registrada, não lacuna.
+- **Não prova Firefox nem WebKit.** O Playwright só suporta service worker em **Chromium**, então
+  a suíte automatizada também não os cobre. A sessão foi num navegador só.
+- **Não prova a atualização a partir de instalação antiga.** Essa é a outra metade do gap 1, e ela
+  precisa de uma segunda imagem de verdade — é o plano 02-17, e o perfil instalado nesta sessão é
+  a "instalação antiga" de que ele depende.
+- **Não prova o CSP para sempre.** Ele foi observado contra o `dist/` deste commit. Um recurso novo
+  de uma família que a diretiva não autoriza — um `<style>` em markup, um arquivo de mídia, uma
+  chamada a terceiro — passaria a ser bloqueado, e o teste que guarda isso é a derivação arquivo a
+  arquivo em `ops/Caddyfile`, não esta sessão.
+
 ## Ensaio de restauração (D2-03)
 
 **Executado em 2026-09-10.** Contêiner descartável da imagem em produção, os **dois** volumes
