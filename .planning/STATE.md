@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: context exhaustion at 84% (2026-09-10)
-last_updated: "2026-09-10T18:12:42.552Z"
-last_activity: 2026-09-10 -- Phase 02 execution started
+last_updated: "2026-09-14T16:55:15.197Z"
+last_activity: 2026-09-14 -- Phase 02 execution started
 progress:
   total_phases: 9
   completed_phases: 1
-  total_plans: 40
-  completed_plans: 38
+  total_plans: 43
+  completed_plans: 39
   percent: 11
 ---
 
@@ -26,10 +26,10 @@ mundo, com o jogo respondendo na hora para cada um.
 
 ## Current Position
 
-Phase: 02 (migra-o-para-a-vps) — **TODOS OS 15 PLANOS EXECUTADOS; A FASE NÃO FECHA**
-Plan: 15 of 15
-Status: **02-12 concluído como `partial` — o jogo está no ar, três critérios adiados com dono**
-Last activity: 2026-09-10 -- primeira promoção real contra a caixa
+Phase: 02 (migra-o-para-a-vps) — EXECUTING
+Plan: 1 of 18
+Status: Executing Phase 02
+Last activity: 2026-09-14 -- Phase 02 execution started
 
 > **O jogo está no ar no domínio próprio, sob HTTPS, servindo `9cba5c9`.** A política HTTP foi
 > medida contra o domínio real e chega intacta: os três `Cache-Control`, os quatro cabeçalhos de

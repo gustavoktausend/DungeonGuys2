@@ -178,7 +178,7 @@ planos desta fase pelo número, e renumerar quebraria três referências para ar
 
 **Wave 13** *(fechamento de lacuna — replanejado em 2026-09-11 a partir de `02-VERIFICATION.md`)*
 
-- [ ] 02-16-PLAN.md — A sessão de navegador contra o domínio real: CSP observado (a advertência sai do `ops/Caddyfile`), instalação limpa do PWA, offline, `/api/` fora do cache — e a segunda imagem publicada, com o build do cliente comprovadamente diferente
+- [x] 02-16-PLAN.md — A sessão de navegador contra o domínio real: CSP observado (a advertência sai do `ops/Caddyfile`), instalação limpa do PWA, offline, `/api/` fora do cache — e a segunda imagem publicada, com o build do cliente comprovadamente diferente
 
 **Wave 14** *(blocked on Wave 13 completion)*
 
@@ -549,7 +549,7 @@ fase incoerente. Preferi ficar um acima do guia a fundir riscos que não se pare
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Formato e costuras | 14/14 | Complete   | 2026-08-31 |
-| 2. Migração para a VPS | 15/15 | Complete   | 2026-09-10 |
+| 2. Migração para a VPS | 16/18 | In Progress|  |
 | 3. Sala, transporte e protocolo | 10/11 | In Progress|  |
 | 4. Partida sincronizada | 0/4 | Not started | - |
 | 5. Regras de co-op e resiliência | 0/4 | Not started | - |
