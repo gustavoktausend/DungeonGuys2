@@ -1013,6 +1013,27 @@ const ENV_KEYS = [
 ];
 
 describe('ops/README.md', () => {
+  it('§7 diz a retenção MEDIDA, e não o número herdado do script aposentado', () => {
+    // The runbook announced "5 images per service" — a number carried over from
+    // the prune script D2-30 retired, describing a machine this project does not
+    // have. MEASURED ON THE BOX 2026-09-14: the server runs force_docker_cleanup
+    // on `0 0 * * *`, a forced DAILY prune that waits for no disk threshold, and
+    // the previous release image had already vanished on its own between the 11th
+    // and the 14th.
+    //
+    // A retention number nobody enforces is worse than none: it is the sentence
+    // an operator reads at 3am to decide whether rolling back is still possible,
+    // and it would say yes when the answer is no. This case keeps the runbook
+    // naming the mechanism that actually removes images, so a future rewrite
+    // cannot quietly restore the comfortable fiction.
+    const readme = read('README.md');
+    expect(readme, '§7 voltou a prometer uma retenção de 5 imagens por serviço')
+      .not.toMatch(/Retenção:\s*5\s+imagens/i);
+    expect(readme, '§7 não nomeia a poda forçada que de fato remove as imagens')
+      .toContain('force_docker_cleanup');
+    expect(readme, '§7 não nomeia a frequência diária da poda').toContain('0 0 * * *');
+  });
+
   it('o comando do ensaio passa DG2_REPLICA_PATH, e com o valor da composição', () => {
     // MEASURED ON THE BOX, 2026-09-10: the documented command failed on its first
     // real run with `file replica path required`. ops/litestream.yml takes the
@@ -1079,16 +1100,20 @@ describe('ops/README.md', () => {
     expect(readme).toContain('grupo `docker`');
   });
 
-  it('o runbook fixa a retenção em 5 imagens e declara a degradação (D2-24/C-3)', () => {
-    // Replaces the case about installing the systemd units in order. The number is
-    // NOT NEW — it is the retention the retired pruning script had already decided,
-    // carried over, which is why it is continuity of operation rather than an
-    // invention. What is new, and is the part that had to be written down, is the
-    // honesty: the symlink was a STRUCTURAL guarantee and a local image is a
-    // PROBABILISTIC one, dependent on a cleanup routine this project does not
-    // control and which is SERVER configuration shared with the neighbour.
+  it('o runbook declara a degradação de estrutural para probabilística (D2-24/C-3)', () => {
+    // THIS CASE USED TO REQUIRE THE STRING "5 imagens por serviço", AND THAT
+    // REQUIREMENT WAS REMOVED ON 2026-09-14 BECAUSE IT WAS FALSE. The number was
+    // carried over from the pruning script D2-30 retired; the box does not behave
+    // that way. Measured: `force_docker_cleanup` on `0 0 * * *` is a forced daily
+    // prune that waits for no threshold, and the previous release image vanished
+    // on its own between the 11th and the 14th.
+    //
+    // The assertion was NOT simply deleted — the half that carried the meaning
+    // stayed, and the sibling case below now demands the measured mechanism by
+    // name. An assertion that pins a comfortable number is worse than no
+    // assertion: it defends the sentence an operator reads at 3am to decide
+    // whether rolling back is still possible.
     const readme = read('README.md');
-    expect(readme).toContain('5 imagens por serviço');
     expect(readme, 'o runbook não declara a degradação de estrutural para probabilística')
       .toMatch(/probabil/i);
     expect(readme).toContain('docs/OPERACAO.md');

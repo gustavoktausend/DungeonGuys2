@@ -213,11 +213,31 @@ painel dessincronizado, então reconcilie no painel depois.
 
 ## 7. Retenção de imagens, e a degradação honesta
 
-**Retenção: 5 imagens por serviço.** Não é número novo — é a retenção que o script
-de poda aposentado por D2-30 já havia decidido, transportada. Com o `npm ci`
-antes do `COPY` do bundle em `ops/Dockerfile.api`, a camada de `node_modules` é
-compartilhada entre builds e cada deploy custa alguns MB de camada nova, de modo
-que cinco imagens por serviço cabem folgadas.
+**Retenção real, medida na caixa em 2026-09-14: o que estiver EM USO por um
+contêiner rodando, mais o que tiver sido criado desde a última meia-noite.**
+
+O número que esta seção anunciava — cinco imagens por serviço, herdado do script
+de poda aposentado por D2-30 — **não descreve esta caixa**. O servidor roda
+`force_docker_cleanup` com frequência `0 0 * * *`: uma poda **forçada, diária**,
+que não espera o disco chegar a limiar nenhum. Uma imagem de release anterior é,
+por definição, não usada por nenhum contêiner, e desaparece na primeira passagem.
+Medido, não deduzido: entre 11 e 14 de setembro de 2026 a imagem anterior sumiu
+sozinha, e `docs/OPERACAO.md` § "Limpeza automática de imagens do servidor" tem as
+duas observações e a configuração lida.
+
+**As duas consequências que importam, e a segunda é uma regra de operação:**
+
+1. A janela de reversão sem rede é de **no máximo um dia**, e pode ser de minutos
+   se a promoção acontecer pouco antes da meia-noite. Depois disso, voltar exige
+   puxar a imagem do registro — ou seja, exige justamente a rede que §6 promete
+   não precisar.
+2. **Provar a reversão tem de acontecer na mesma sessão da promoção.** Adiar para
+   o dia seguinte destrói a precondição sem avisar.
+
+O espaço nunca foi o problema, e continua não sendo: com o `npm ci` antes do
+`COPY` do bundle em `ops/Dockerfile.api`, a camada de `node_modules` é
+compartilhada entre builds e cada deploy custa alguns MB de camada nova. O que
+remove as imagens é política, não disco.
 
 **A degradação, escrita aqui para não ser descoberta na noite em que importa.** O
 symlink de release que o desenho anterior previa era uma garantia **estrutural**:
@@ -228,9 +248,15 @@ vizinho, que se lê e não se mexe. Uma imagem de release anterior é, por
 definição, não usada por nenhum contêiner, que é exatamente o que uma limpeza de
 imagens não usadas remove (C-3).
 
-`docs/OPERACAO.md` registra que essa configuração **não foi lida**, com a data e
-o motivo. Enquanto não for, "a imagem anterior já está no disco" é suposição e
-não fato medido. Conferir é uma linha:
+Essa configuração **foi lida em 2026-09-14** e está registrada em
+`docs/OPERACAO.md`, com os valores e as duas observações que a forçaram. Ela não
+foi alterada, e não deve ser: desligar a poda resolveria o problema do jogo e
+transferiria ao vizinho o risco de disco cheio numa caixa que já hospeda produção
+alheia — `D-VPS-02` não dá a este projeto o direito de fazer essa troca sozinho.
+
+**"A imagem anterior já está no disco" deixou de ser suposição e virou fato
+medido — na direção ruim.** Antes de qualquer reversão, confira; é uma linha, e
+agora ela é obrigatória em vez de tranquilizadora:
 
 ```
 sudo docker images | grep dg2-

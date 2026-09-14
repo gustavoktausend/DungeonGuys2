@@ -187,20 +187,71 @@ exercita a reversão de verdade; é lá que isso aparece, se aparecer.
 
 ## Limpeza automática de imagens do servidor
 
-**DECLARADAMENTE VAZIA — não lida, por decisão, em 2026-09-10.**
+**LIDA EM 2026-09-14, e a resposta é o caso agressivo.** A seção esteve
+declaradamente vazia desde 2026-09-10, por decisão do operador, com a consequência escrita em voz
+alta: *"se o gatilho do Coolify for agressivo, pode simplesmente não haver imagem anterior no dia
+em que a reversão for necessária"*. A previsão se confirmou, e não por argumento — por duas
+observações separadas por três dias.
 
-O passo existia no plano 02-04 (ler, sem alterar, o gatilho e o agendamento da limpeza automática
-de imagens em `Servers → o servidor → Configuration → Advanced`, mais a ocupação do disco) e
-**não foi executado**: Gustavo decidiu não se preocupar com isso agora. A seção fica aqui vazia
-com o motivo e a data em vez de ser apagada, porque apagá-la transformaria uma lacuna conhecida
-numa lacuna invisível.
+### A medição que forçou a leitura
 
-**A consequência, sem inventar tarefa para ela:** `D2-24` afirma que reverter é apontar para a
-imagem anterior "que já está no disco". Com a configuração de limpeza não lida, isso está
-**não-verificado** — se o gatilho do Coolify for agressivo, pode simplesmente não haver imagem
-anterior no dia em que a reversão for necessária, que é o modo de falha que `C-3` descreve. O
-plano 02-12 exercita a reversão contra a caixa e é ele quem transforma isso em fato, em qualquer
-das duas direções.
+Em 2026-09-11 o plano 02-12 registrou **duas tags por serviço** em disco: a que estava servindo e
+a anterior, puxada à mão. Em 2026-09-14, antes de promover qualquer coisa:
+
+```
+$ sudo docker images | grep dg2-
+ghcr.io/gustavoktausend/dg2-api:9cba5c9…   532MB   3 days ago
+ghcr.io/gustavoktausend/dg2-web:9cba5c9…   89.1MB  3 days ago
+
+dg2-web: 1 tag   dg2-api: 1 tag
+```
+
+**A imagem anterior sumiu.** Nenhum contêiner a usava, que é exatamente o que uma limpeza de
+imagens não usadas remove (`C-3`).
+
+### A configuração, lida e não alterada
+
+```
+force_docker_cleanup      = true
+docker_cleanup_frequency  = 0 0 * * *     (todo dia à meia-noite)
+docker_cleanup_threshold  = 80            (irrelevante: a limpeza é forçada)
+delete_unused_volumes     = false
+delete_unused_networks    = false
+```
+
+`force_docker_cleanup` verdadeiro é a linha que decide tudo: a poda **não espera** o disco chegar
+a 80%. Ela roda todo dia, incondicionalmente.
+
+**As duas linhas de volume e rede em `false` são a notícia boa, e não são pequenas:** os dois
+volumes persistentes do jogo — o banco e a réplica do Litestream — não são tocados por essa
+rotina. Se `delete_unused_volumes` fosse verdadeiro, um volume momentaneamente sem contêiner
+durante um redeploy seria candidato, e o modo de falha seria o pior que existe: o backup e o banco
+sumindo juntos, em silêncio.
+
+### O que isso faz com D2-24, dito sem suavizar
+
+**A "retenção de 5 imagens por serviço" que `ops/README.md` §7 anunciava não existe.** A retenção
+real é:
+
+> o que estiver **em uso por um contêiner rodando**, mais o que tiver sido criado **desde a última
+> meia-noite**.
+
+Consequências operacionais, que valem mais que a correção do número:
+
+1. **A janela de reversão é de no máximo um dia**, e pode ser de minutos se a promoção acontecer
+   pouco antes da meia-noite. Reverter no dia seguinte a um deploy exige **rede** para puxar a
+   imagem de volta — e reverter com rede é exatamente o cenário que `D2-24` não cobre, porque a
+   rede é uma das coisas que podem estar quebradas.
+2. **Provar a reversão tem de acontecer na mesma sessão da promoção.** Adiar para amanhã destrói a
+   precondição.
+3. A degradação que `ops/README.md` §7 já descrevia como **probabilística** deixa de ser um risco
+   teórico e passa a ser o comportamento medido da caixa. O texto de lá foi corrigido para dizer o
+   número real em vez do número herdado do script aposentado por `D2-30`.
+
+**Nada foi alterado.** A configuração é do servidor, compartilhada com o vizinho, e `D-VPS-02`
+manda ler e não mexer. Mudar `force_docker_cleanup` para falso resolveria o problema do jogo e
+transferiria para o infraKring o risco de disco cheio numa caixa de 99 G que já hospeda produção
+alheia — não é troca que este projeto tem o direito de fazer sozinho.
 
 ## Primeiro certificado e prova de A1
 
